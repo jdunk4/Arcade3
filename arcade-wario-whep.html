@@ -250,8 +250,10 @@
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     function launchGame() {
       sessionId = Math.random().toString(36).slice(2);
-      var wsUrl = SNES_SERVER_WS.replace("wss://", "wss://").replace("ws://", "ws://")
-        + "/input"
+      // NOTE: Connect to ROOT path (/) not /input — Railway's proxy only
+      // upgrades WebSockets on the root path. We distinguish input vs MML
+      // doc connections using the ?session= query param server-side.
+      var wsUrl = SNES_SERVER_WS
         + "?rom="     + encodeURIComponent(ROM_FILE)
         + "&core="    + encodeURIComponent(ROM_CORE)
         + "&id="      + encodeURIComponent(ROM_ID)
