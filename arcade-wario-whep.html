@@ -62,7 +62,7 @@
   <!-- Info card -->
   <m-image
     id="info-card"
-    src="https://raw.githubusercontent.com/jdunk4/ARCADE1/main/INFOCARDs/info-card-j.png"
+    src="https://raw.githubusercontent.com/jdunk4/ARCADE3/main/INFOCARDs/info-card-wario.png"
     width="1.4" height="2.23"
     x="1.9" y="2.2" z="1.2" ry="-15"
     visible="false">
@@ -336,6 +336,24 @@
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // AUDIO UNLOCK
+    // Browsers block audio until a user gesture. The interact event
+    // IS a user gesture — we use it to unlock AudioContext so the
+    // <m-video> element can play audio when the WebRTC stream arrives.
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    function unlockAudio() {
+      try {
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if (AC) { var c = new AC(); c.resume(); }
+      } catch(e) {}
+      // Also try to play the video element directly to unblock audio
+      try {
+        var vid = root.querySelector("#screen-video");
+        if (vid && vid.play) vid.play().catch(function(){});
+      } catch(e) {}
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // BOOT
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     setTimeout(function() {
@@ -344,6 +362,7 @@
 
       var playBtn = root.querySelector("#play-btn");
       if (playBtn) playBtn.addEventListener("interact", function() {
+        unlockAudio();
         if (gameActive) closeGame(); else launchGame();
       });
 
