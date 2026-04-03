@@ -286,8 +286,8 @@
         elem.setAttribute("y", map.pressY);
         var k = gamepadToSNES[rawIndex];
         if (k) sendGameInput(k, "keyDown");
-        // First button press after game starts = real browser gesture → unlock audio
-        if (gameActive && audioEnabled && !audioInitialized) resumeAudio();
+        // Button press = potential user gesture — try to resume audio
+        resumeAudio();
       } else if (!pressed && buttonStates[di]) {
         buttonStates[di] = false;
         elem.setAttribute("color", defaultColors[di] || "#3a3a5c");
@@ -345,11 +345,7 @@
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     function launchGame() {
       sessionId = Math.random().toString(36).slice(2);
-      resetAudio();
-      audioEnabled = true;
-      // Note: initAudio() is NOT called here — new Audio() needs a real browser
-      // gesture (gamepad button press) to avoid Chrome's autoplay policy blocking it.
-      // resumeAudio() is called from setButtonPressed() on first gamepad input.
+      resetAudio(); audioEnabled = true; initAudio();
       // NOTE: Connect to ROOT path (/) not /input — Railway's proxy only
       // upgrades WebSockets on the root path. We distinguish input vs MML
       // doc connections using the ?session= query param server-side.
