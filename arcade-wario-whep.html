@@ -65,7 +65,7 @@
   <!-- Info card -->
   <m-image
     id="info-card"
-    src="https://raw.githubusercontent.com/jdunk4/ARCADE3/main/INFOCARDs/info-card-wario.png"
+    src="https://raw.githubusercontent.com/jdunk4/ARCADE1/main/INFOCARDs/info-card-j.png"
     width="1.4" height="2.23"
     x="1.9" y="2.2" z="1.2" ry="-15"
     visible="false">
@@ -160,21 +160,26 @@
       if (audioInitialized) return;
       audioInitialized = true;
       try {
-        if (!window.MediaSource) return;
+        if (!window.MediaSource) {
+          set("completion-label", "content", "Audio: no MediaSource");
+          return;
+        }
         audioEl = new Audio();
         audioEl.autoplay = true;
         mediaSource = new MediaSource();
         audioObjectURL = URL.createObjectURL(mediaSource);
         audioEl.src = audioObjectURL;
+        set("completion-label", "content", "Audio: init OK");
         mediaSource.addEventListener("sourceopen", function() {
           try {
             sourceBuffer = mediaSource.addSourceBuffer('audio/webm; codecs="opus"');
             sourceBuffer.mode = "sequence";
             sbReady = true;
+            set("completion-label", "content", "Audio: ready!");
             flushAudioQueue();
-          } catch(e) {}
+          } catch(e) { set("completion-label", "content", "SB err: " + e.message.slice(0,25)); }
         });
-      } catch(e) {}
+      } catch(e) { set("completion-label", "content", "Audio err: " + e.message.slice(0,25)); }
     }
 
     var MAX_AUDIO_QUEUE = 3;
@@ -202,17 +207,15 @@
     }
 
     function unlockAudio() {
-      try {
-        var AC = window.AudioContext || window.webkitAudioContext;
-        if (AC) { var c = new AC(); c.resume(); }
-      } catch(e) {}
       resumeAudio();
     }
 
     function resumeAudio() {
       if (!audioEnabled) return;
       if (!audioInitialized) initAudio();
-      if (audioEl && audioEl.paused) audioEl.play().catch(function() {});
+      if (audioEl && audioEl.paused) audioEl.play().catch(function(e) {
+        set("completion-label", "content", "Play err: " + e.message.slice(0,20));
+      });
     }
 
     function resetAudio() {
@@ -283,6 +286,8 @@
         elem.setAttribute("y", map.pressY);
         var k = gamepadToSNES[rawIndex];
         if (k) sendGameInput(k, "keyDown");
+        // First button press after game starts = real browser gesture → unlock audio
+        if (gameActive && audioEnabled && !audioInitialized) resumeAudio();
       } else if (!pressed && buttonStates[di]) {
         buttonStates[di] = false;
         elem.setAttribute("color", defaultColors[di] || "#3a3a5c");
@@ -342,7 +347,9 @@
       sessionId = Math.random().toString(36).slice(2);
       resetAudio();
       audioEnabled = true;
-      initAudio();
+      // Note: initAudio() is NOT called here — new Audio() needs a real browser
+      // gesture (gamepad button press) to avoid Chrome's autoplay policy blocking it.
+      // resumeAudio() is called from setButtonPressed() on first gamepad input.
       // NOTE: Connect to ROOT path (/) not /input — Railway's proxy only
       // upgrades WebSockets on the root path. We distinguish input vs MML
       // doc connections using the ?session= query param server-side.
