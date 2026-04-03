@@ -244,11 +244,20 @@ async function createSession(sessionId, ws, romFile, romCore, romId, wallet) {
       "--kiosk",                                    // no toolbar — full game canvas only
       `--window-size=${VIEWPORT_W},${VIEWPORT_H}`, // exact size
       "--window-position=0,0",                      // top-left of virtual display
+      "--disable-infobars",                         // remove "Chrome is being controlled" bar
+      "--use-fake-ui-for-media-stream",             // needed for audio capture
+      "--ignore-gpu-blacklist",
     ]
   });
 
   const page = await browser.newPage();
   await page.setViewport({ width: VIEWPORT_W, height: VIEWPORT_H });
+
+  // Fix SharedArrayBuffer + crossOriginIsolated (same as ARCADE2 — needed for EmulatorJS audio)
+  await page.evaluateOnNewDocument(() => {
+    Object.defineProperty(window, "crossOriginIsolated", { get: () => true });
+    if (typeof SharedArrayBuffer === "undefined") window.SharedArrayBuffer = ArrayBuffer;
+  });
 
   page.on("console", (msg) => {
     const t = msg.text();
@@ -370,12 +379,7 @@ async function createSession(sessionId, ws, romFile, romCore, romId, wallet) {
     "-ac",   String(AUDIO_CHANNELS),
     "-f",    "s16le",
     "pipe:1"
-  ], {
-    stdio: ["ignore", "pipe", "pipe"],
-    env: Object.assign({}, process.env, {
-      PULSE_SERVER: "unix:/var/run/pulse/native"
-    })
-  });
+  ], { stdio: ["ignore", "pipe", "pipe"] });
 
   let audioBuf = Buffer.alloc(0);
 
