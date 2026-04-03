@@ -295,21 +295,20 @@ async function createSession(sessionId, ws, romFile, romCore, romId, wallet) {
   } catch (e) { /* no play button */ }
   await page.mouse.click(VIEWPORT_W / 2, VIEWPORT_H / 2);
 
-  // ── 4. Build WebRTC peer connection with video + audio tracks ─────────────
+  // ── 4. Build WebRTC peer connection — VIDEO ONLY ──────────────────────────
+  // Audio is sent separately as Opus chunks over WebSocket (ARCADE2 pattern)
+  // because m-video's WebRTC audio requires Three.js AudioContext to be
+  // "running" before it unmutes — which is unreliable in MML's SES sandbox.
+  // ARCADE2's new Audio() + MediaSource approach works in any context.
   const pc = new RTCPeerConnection({
     iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
     bundlePolicy: "max-bundle",
   });
 
-  // Video: ffmpeg captures x11 display → raw YUV → wrtc RTCVideoSource
+  // Video only — no audio track in the WebRTC stream
   const videoSource = new RTCVideoSource();
   const videoTrack  = videoSource.createTrack();
   pc.addTrack(videoTrack);
-
-  // Audio: ffmpeg captures PulseAudio → PCM → wrtc RTCAudioSource
-  const audioSource = new RTCAudioSource();
-  const audioTrack  = audioSource.createTrack();
-  pc.addTrack(audioTrack);
 
   // ── 5. Start ffmpeg video capture ─────────────────────────────────────────
   //
@@ -361,43 +360,28 @@ async function createSession(sessionId, ws, romFile, romCore, romId, wallet) {
   ffmpegVideo.on("error",  (e) => console.error(`[ffmpeg-video:${sessionId}] ${e.message}`));
   ffmpegVideo.on("close",  (c) => console.log(`[ffmpeg-video:${sessionId}] exited ${c}`));
 
-  // ── 6. Start ffmpeg audio capture ─────────────────────────────────────────
-  //
-  // Captures PulseAudio virtual_speaker.monitor at 48kHz mono.
-  // In system mode (root), PulseAudio uses a different socket path.
-  // We pass PULSE_SERVER explicitly so ffmpeg finds it.
-
-  const AUDIO_SAMPLE_RATE   = 48000;
-  const AUDIO_CHANNELS      = 1;
-  const AUDIO_SAMPLES_FRAME = 480;
-  const AUDIO_FRAME_BYTES   = AUDIO_SAMPLES_FRAME * AUDIO_CHANNELS * 2;
+  // ── 6. Start ffmpeg audio — Opus over WebSocket (ARCADE2 proven pattern) ──
+  // Encodes PulseAudio to Opus in a WebM container and sends chunks over
+  // the input WebSocket. The cabinet uses new Audio() + MediaSource to play
+  // it — completely bypassing Three.js AudioContext restrictions.
 
   const ffmpegAudio = spawn("ffmpeg", [
-    "-f",    "pulse",
-    "-i",    "virtual_speaker.monitor",
-    "-ar",   String(AUDIO_SAMPLE_RATE),
-    "-ac",   String(AUDIO_CHANNELS),
-    "-f",    "s16le",
+    "-f",                  "pulse",
+    "-i",                  "virtual_speaker.monitor",
+    "-c:a",                "libopus",
+    "-b:a",                "64k",
+    "-vn",
+    "-f",                  "webm",
+    "-cluster_size_limit", "2M",
+    "-cluster_time_limit", "100",
     "pipe:1"
   ], { stdio: ["ignore", "pipe", "pipe"] });
 
-  let audioBuf = Buffer.alloc(0);
-
   ffmpegAudio.stdout.on("data", (chunk) => {
-    audioBuf = Buffer.concat([audioBuf, chunk]);
-    while (audioBuf.length >= AUDIO_FRAME_BYTES) {
-      const frame = audioBuf.slice(0, AUDIO_FRAME_BYTES);
-      audioBuf    = audioBuf.slice(AUDIO_FRAME_BYTES);
-      try {
-        audioSource.onData({
-          samples:    new Int16Array(frame.buffer, frame.byteOffset, AUDIO_SAMPLES_FRAME * AUDIO_CHANNELS),
-          sampleRate: AUDIO_SAMPLE_RATE,
-          bitsPerSample: 16,
-          channelCount:  AUDIO_CHANNELS,
-          numberOfFrames: AUDIO_SAMPLES_FRAME,
-        });
-      } catch (e) { /* not connected yet */ }
-    }
+    if (ws.readyState !== 1) return;
+    try {
+      ws.send(JSON.stringify({ type: "audio", data: chunk.toString("base64") }));
+    } catch (e) { /* ignore */ }
   });
 
   ffmpegAudio.stderr.on("data", (d) => {
