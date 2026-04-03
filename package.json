@@ -9,6 +9,7 @@
   "dependencies": {
     "@roamhq/wrtc": "^0.7.0",
     "express": "latest",
+    "patch-package": "latest",
     "puppeteer": "latest",
     "ws": "latest"
   },
