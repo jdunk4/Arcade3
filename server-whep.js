@@ -199,8 +199,12 @@ wss.on("connection", async (ws, req) => {
         const msg = JSON.parse(data);
         const key = KEY_MAP[msg.key];
         if (!key) return;
-        if (msg.type === "keyDown") await session.page.keyboard.down(key);
-        else if (msg.type === "keyUp") await session.page.keyboard.up(key);
+        if (msg.type === "keyDown") {
+          session.startAudio(); // start ffmpeg on first button press
+          await session.page.keyboard.down(key);
+        } else if (msg.type === "keyUp") {
+          await session.page.keyboard.up(key);
+        }
       } catch (e) { /* ignore */ }
     });
 
@@ -359,36 +363,40 @@ async function createSession(sessionId, ws, romFile, romCore, romId, wallet) {
   ffmpegVideo.on("error",  (e) => console.error(`[ffmpeg-video:${sessionId}] ${e.message}`));
   ffmpegVideo.on("close",  (c) => console.log(`[ffmpeg-video:${sessionId}] exited ${c}`));
 
-  // ── 6. Start ffmpeg audio — spawned AFTER game loads (ARCADE2 exact pattern) ──
-  // ffmpeg starts here, AFTER canvas found + Play clicked + game running.
-  // This means zero stale audio — whatever plays from this moment is live.
-  // Sending starts immediately with no gating flags needed.
-  console.log(`[session:${sessionId}] starting ffmpeg audio`);
-  const ffmpegAudio = spawn("ffmpeg", [
-    "-f",                  "pulse",
-    "-i",                  "virtual_speaker.monitor",
-    "-c:a",                "libopus",
-    "-b:a",                "64k",
-    "-vn",
-    "-f",                  "webm",
-    "-cluster_size_limit", "2M",
-    "-cluster_time_limit", "100",
-    "pipe:1"
-  ], { stdio: ["ignore", "pipe", "pipe"] });
+  // ── 6. ffmpeg audio — spawned on first keyDown (not before) ──────────────
+  // This guarantees zero audio delay: audio only exists from the moment
+  // the player first presses a button. No stale chunks possible.
+  let ffmpegAudio = null;
 
-  ffmpegAudio.stdout.on("data", (chunk) => {
-    if (ws.readyState !== 1) return;
-    try {
-      ws.send(JSON.stringify({ type: "audio", data: chunk.toString("base64") }));
-    } catch (e) {}
-  });
-  ffmpegAudio.stderr.on("data", (d) => {
-    const line = d.toString().trim();
-    if (line.includes("Stream") || line.includes("Error") || line.includes("error"))
-      console.log(`[ffmpeg-audio:${sessionId}] ${line.slice(0,120)}`);
-  });
-  ffmpegAudio.on("error",  (e) => console.warn(`[ffmpeg-audio:${sessionId}] ${e.message}`));
-  ffmpegAudio.on("close",  (c) => console.log(`[ffmpeg-audio:${sessionId}] exited ${c}`));
+  function startAudio() {
+    if (ffmpegAudio) return; // only start once
+    console.log(`[session:${sessionId}] starting audio on first keyDown`);
+    ffmpegAudio = spawn("ffmpeg", [
+      "-f",                  "pulse",
+      "-i",                  "virtual_speaker.monitor",
+      "-c:a",                "libopus",
+      "-b:a",                "64k",
+      "-vn",
+      "-f",                  "webm",
+      "-cluster_size_limit", "2M",
+      "-cluster_time_limit", "100",
+      "pipe:1"
+    ], { stdio: ["ignore", "pipe", "pipe"] });
+
+    ffmpegAudio.stdout.on("data", (chunk) => {
+      if (ws.readyState !== 1) return;
+      try {
+        ws.send(JSON.stringify({ type: "audio", data: chunk.toString("base64") }));
+      } catch (e) {}
+    });
+    ffmpegAudio.stderr.on("data", (d) => {
+      const line = d.toString().trim();
+      if (line.includes("Stream") || line.includes("Error") || line.includes("error"))
+        console.log(`[ffmpeg-audio:${sessionId}] ${line.slice(0,120)}`);
+    });
+    ffmpegAudio.on("error", (e) => console.warn(`[ffmpeg-audio:${sessionId}] ${e.message}`));
+    ffmpegAudio.on("close", (c) => console.log(`[ffmpeg-audio:${sessionId}] exited ${c}`));
+  }
 
   // ── 7. WHEP offer handler ─────────────────────────────────────────────────
   async function handleWhepOffer(sdpOffer) {
@@ -418,7 +426,7 @@ async function createSession(sessionId, ws, romFile, romCore, romId, wallet) {
   async function destroy() {
     console.log(`[session:${sessionId}] destroying`);
     try { ffmpegVideo.kill("SIGKILL"); } catch (e) {}
-    try { ffmpegAudio.kill("SIGKILL"); } catch (e) {}
+    try { if (ffmpegAudio) ffmpegAudio.kill("SIGKILL"); } catch (e) {}
     try { pc.close(); } catch (e) {}
     try { await browser.close(); } catch (e) {}
   }
@@ -426,7 +434,7 @@ async function createSession(sessionId, ws, romFile, romCore, romId, wallet) {
   ws.send(JSON.stringify({ type: "status", message: "" }));
   console.log(`[session:${sessionId}] live — waiting for WHEP offer`);
 
-  return { page, browser, handleWhepOffer, closePeerConnection, destroy };
+  return { page, browser, handleWhepOffer, closePeerConnection, startAudio, destroy };
 }
 
 // ─── START ────────────────────────────────────────────────────────────────────
