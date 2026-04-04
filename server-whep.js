@@ -54,7 +54,7 @@ const DISPLAY       = process.env.DISPLAY || ":99";
 const VIEWPORT_W    = 512;
 const VIEWPORT_H    = 448;
 const TARGET_FPS    = 30;
-const LOADING_SCREEN_MS = 18000;
+const LOADING_SCREEN_MS = 12000;
 const MML_DOC_FILE  = "arcade-wario-whep.html";
 
 // Key map: SNES button name → Puppeteer keyboard key (same as ARCADE2)
@@ -307,16 +307,28 @@ async function createSession(sessionId, ws, romFile, romCore, romId, wallet) {
     console.warn(`[session:${sessionId}] canvas timeout — proceeding anyway`);
   }
 
-  // Click Play button if present, then focus canvas
-  await new Promise(r => setTimeout(r, 8000));
-  try {
-    const els = await page.evaluate(() => {
-      return Array.from(document.querySelectorAll("button,[role='button'],span"))
-        .filter(el => (el.innerText||"").trim() === "Play")
-        .map(el => { const r = el.getBoundingClientRect(); return { x: r.left+r.width/2, y: r.top+r.height/2 }; });
-    });
-    if (els.length) await page.mouse.click(els[0].x, els[0].y);
-  } catch (e) { /* no play button */ }
+  // Smart wait: poll for Play button instead of fixed 8s delay
+  // EmulatorJS shows "Play" when it's ready — we detect it and click immediately
+  console.log(`[session:${sessionId}] waiting for Play button...`);
+  let playClicked = false;
+  for (let attempt = 0; attempt < 40; attempt++) {  // max 8s (40 × 200ms)
+    try {
+      const els = await page.evaluate(() => {
+        return Array.from(document.querySelectorAll("button,[role='button'],span,div"))
+          .filter(el => (el.innerText || "").trim() === "Play")
+          .map(el => { const r = el.getBoundingClientRect(); return { x: r.left + r.width/2, y: r.top + r.height/2, w: r.width }; })
+          .filter(el => el.w > 0);
+      });
+      if (els.length) {
+        await page.mouse.click(els[0].x, els[0].y);
+        console.log(`[session:${sessionId}] Play clicked after ${attempt * 200}ms`);
+        playClicked = true;
+        break;
+      }
+    } catch (e) {}
+    await new Promise(r => setTimeout(r, 200));
+  }
+  if (!playClicked) console.warn(`[session:${sessionId}] Play button not found — proceeding anyway`);
   await page.mouse.click(VIEWPORT_W / 2, VIEWPORT_H / 2);
 
   // ── 4. Build WebRTC peer connection — VIDEO ONLY ──────────────────────────
