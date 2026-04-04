@@ -177,6 +177,16 @@ wss.on("connection", async (ws, req) => {
     wsBySession.set(ws, sessionId);
     ws.send(JSON.stringify({ type: "status", message: "Launching..." }));
 
+    // ── Kill any existing sessions before starting a new one ─────────────────
+    // Prevents ghost sessions (old Puppeteer/ffmpeg) bleeding into new player
+    if (sessionsByKey.size > 0) {
+      console.log(`[ws/input] cleaning up ${sessionsByKey.size} existing session(s)`);
+      for (const [key, oldSession] of sessionsByKey) {
+        try { await oldSession.destroy(); } catch (e) {}
+      }
+      sessionsByKey.clear();
+    }
+
     try {
       const session = await createSession(sessionId, ws, romFile, romCore, romId, wallet);
       sessionsByKey.set(sessionId, session);
@@ -429,6 +439,10 @@ async function createSession(sessionId, ws, romFile, romCore, romId, wallet) {
     try { if (ffmpegAudio) ffmpegAudio.kill("SIGKILL"); } catch (e) {}
     try { pc.close(); } catch (e) {}
     try { await browser.close(); } catch (e) {}
+    // Safety net: kill any stray processes that might have survived
+    const { execSync } = require("child_process");
+    try { execSync("pkill -9 -f x11grab 2>/dev/null || true"); } catch (e) {}
+    try { execSync("pkill -9 -f 'chromium.*no-sandbox' 2>/dev/null || true"); } catch (e) {}
   }
 
   ws.send(JSON.stringify({ type: "status", message: "" }));
