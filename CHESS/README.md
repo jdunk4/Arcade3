@@ -49,18 +49,22 @@ We deliberately avoid: `m-attr-lerp`, `m-interaction`, `m-link`, `m-position-pro
 
 ---
 
-## Run on CodeSandbox
+## Deploying
 
-1. Upload this folder to a new Node sandbox, or import from GitHub.
-2. The sandbox will auto-run `npm start` because of `package.json`.
-3. The browser tab inside CodeSandbox will show the play UI. Copy the preview URL.
-4. Your MML WebSocket URL is that same host, with `wss://` and `/mml`. For example:
-   - Preview URL: `https://abc123-8080.csb.app/play`
-   - MML URL:     `wss://abc123-8080.csb.app/mml`
-5. Paste the MML URL into:
-   - **MML Editor** (mmleditor.com) — use "View URL"
-   - **MML Viewer** — `https://viewer.mml.io/?url=wss://abc123-8080.csb.app/mml`
-   - **Otherside Vibe Maker** — as the MML object source
+See [`DEPLOY.md`](./DEPLOY.md) for the full deployment guide. Short version:
+
+- **Render** (free tier works, spins down when idle) — recommended default
+- **Railway** (~$5/mo, always on, fastest setup)
+- **Local + ngrok** for dev only
+
+Once deployed, you'll have:
+- Browser UI: `https://<your-host>/play`
+- **MML URL for Otherside:** `wss://<your-host>/mml`
+
+Paste the `wss://` URL into:
+- **MML Editor** (mmleditor.com) — "View URL" field
+- **MML Viewer** — `https://viewer.mml.io/?url=wss://<your-host>/mml`
+- **Otherside Vibe Maker** — MML object source
 
 ## Run locally
 
@@ -114,7 +118,7 @@ Follow the interaction recipe from the Otherside docs you shared:
    - **Widget Transform:** above the board, facing the player
 4. Hook the `OnInteract` event to open the browser UI:
    - Drop an `ODK Web Browser → Open URL` node
-   - Set URL to your `/play` page (e.g. `https://abc123-8080.csb.app/play`)
+   - Set URL to your `/play` page (e.g. `https://chess-mml.onrender.com/play`)
 5. **Spawn the MML object in the world at the board location.** Use the blueprint pattern from [MSquared's MML docs](https://docs.msquared.io/creation/unreal-development/features-and-tutorials/mml) — the "blueprint that spawns an MML object" example. Point it at your `wss://…/mml` URL. Position the spawned MML right on top of your physical board so the pieces appear on the board surface.
 
 **Result:** A player approaches the board, sees the interact prompt, presses the key, and the play UI opens in their in-game browser. They can move pieces. Every player around the board — and anyone watching in the MML editor — sees the pieces slide in real time.
@@ -143,7 +147,8 @@ The reason we didn't do this in Phase 1 is that you asked for "watch it execute 
 ```
 chess-mml/
 ├── package.json               deps (chess.js, express, ws)
-├── sandbox.config.json        CodeSandbox port config
+├── README.md                  this file
+├── DEPLOY.md                  deployment guide (Render / Railway / ngrok)
 └── src/
     ├── server.js              HTTP + WS server, chess rules, broadcast
     ├── chess-document.js      MML document builder (the 3D scene)
@@ -164,5 +169,5 @@ Check that your GLB URLs are HTTPS and CORS-permissive. The default `public.mml.
 **I moved a piece in the browser but nothing happened in Otherside.**
 Confirm the MML URL in Otherside is `wss://` (not `ws://`) and the path is exactly `/mml`. The Otherside plugin requires secure WebSockets for remote origins.
 
-**CodeSandbox preview is HTTPS but WebSocket connects as WS.**
-Look at `play.html` — it auto-detects. If you embedded the board elsewhere, use `wss://` explicitly.
+**Host is HTTPS but WebSocket connects as WS.**
+Look at `play.html` — it auto-detects from `location.protocol`. If you embedded the board elsewhere, use `wss://` explicitly.
