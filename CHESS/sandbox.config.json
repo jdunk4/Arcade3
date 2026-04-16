@@ -1,0 +1,9 @@
+{
+  "infiniteLoopProtection": false,
+  "hardReloadOnChange": false,
+  "view": "browser",
+  "container": {
+    "port": 8080,
+    "node": "18"
+  }
+}

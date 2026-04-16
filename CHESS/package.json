@@ -1,0 +1,17 @@
+{
+  "name": "chess-mml-otherside",
+  "version": "0.1.0",
+  "description": "Real-time chess board rendered in MML (Otherside / Unreal / Web) synced to a browser chess UI via WebSocket.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "chess.js": "^1.0.0-beta.8",
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  }
+}

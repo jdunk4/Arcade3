@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chess · Otherside Session</title>
+
+  <!-- chessboard.js (drag-drop 2D board) + chess.js for local legality hints -->
+  <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" />
+
+  <style>
+    :root {
+      --bg:            #0a0d0a;
+      --panel:         #121611;
+      --ink:           #e8f5d8;
+      --muted:         #7d8f70;
+      --accent:        #39ff14;
+      --accent-dim:    #1e8e0c;
+      --line:          #1f2a1c;
+      --danger:        #ff3366;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+      min-height: 100vh;
+      /* subtle scanline texture */
+      background-image:
+        repeating-linear-gradient(0deg, rgba(57,255,20,0.02) 0 1px, transparent 1px 3px),
+        radial-gradient(1200px 600px at 50% -10%, rgba(57,255,20,0.08), transparent 60%);
+    }
+
+    .app {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 28px 20px 60px;
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 28px;
+    }
+    @media (max-width: 860px) {
+      .app { grid-template-columns: 1fr; }
+    }
+
+    header {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 8px;
+    }
+    h1 {
+      font-family: "Space Mono", "JetBrains Mono", monospace;
+      font-weight: 700;
+      font-size: 22px;
+      margin: 0;
+      letter-spacing: 0.02em;
+    }
+    h1 .accent {
+      color: var(--accent);
+      text-shadow: 0 0 12px rgba(57,255,20,0.45);
+    }
+    .conn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--danger);
+      box-shadow: 0 0 8px var(--danger);
+    }
+    .dot.live {
+      background: var(--accent);
+      box-shadow: 0 0 10px var(--accent);
+      animation: pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.45; }
+    }
+
+    .board-wrap {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 18px;
+      position: relative;
+    }
+    #board {
+      width: 100%;
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    /* Override chessboard.js square colors to match our neon/terminal vibe */
+    .white-1e1d7 { background: #e7ecdc !important; }
+    .black-3c85d { background: #384232 !important; }
+    .highlight-last {
+      box-shadow: inset 0 0 0 3px var(--accent) !important;
+    }
+
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: 18px 16px;
+      border-radius: 4px;
+    }
+    .card h2 {
+      margin: 0 0 12px 0;
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .status {
+      font-family: "Space Mono", monospace;
+      font-size: 18px;
+      color: var(--ink);
+    }
+    .status.check { color: var(--accent); text-shadow: 0 0 8px var(--accent-dim); }
+
+    .meta {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 6px 14px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .meta .v { color: var(--ink); word-break: break-all; }
+
+    button.reset {
+      width: 100%;
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--accent-dim);
+      padding: 12px;
+      font-family: inherit;
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    button.reset:hover {
+      background: var(--accent);
+      color: var(--bg);
+      box-shadow: 0 0 18px rgba(57,255,20,0.5);
+    }
+
+    .moves {
+      max-height: 220px;
+      overflow-y: auto;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--ink);
+      font-family: "Space Mono", monospace;
+    }
+    .moves .ply { color: var(--muted); margin-right: 6px; }
+
+    footer {
+      grid-column: 1 / -1;
+      text-align: center;
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 20px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+  </style>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>CHESS · <span class="accent">OTHERSIDE</span> LIVE SESSION</h1>
+      <span class="conn"><span id="conn-dot" class="dot"></span><span id="conn-text">connecting</span></span>
+    </header>
+
+    <div class="board-wrap">
+      <div id="board"></div>
+    </div>
+
+    <aside class="sidebar">
+      <div class="card">
+        <h2>Status</h2>
+        <div id="status" class="status">--</div>
+      </div>
+
+      <div class="card">
+        <h2>Move history</h2>
+        <div id="moves" class="moves">No moves yet.</div>
+      </div>
+
+      <div class="card">
+        <h2>Session</h2>
+        <div class="meta">
+          <span>FEN</span><span id="fen" class="v">--</span>
+          <span>MML</span><span id="mml-url" class="v">--</span>
+        </div>
+      </div>
+
+      <button class="reset" id="reset">Reset game</button>
+    </aside>
+
+    <footer>
+      Render in-world · MML WebSocket open · Moves replicate in real time
+    </footer>
+  </div>
+
+  <!-- jQuery is required by chessboard.js v1 -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+  <!-- chess.js for client-side legality hints (optional - server is source of truth) -->
+  <script src="https://unpkg.com/chess.js@0.10.3/chess.js"></script>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const fenEl = document.getElementById('fen');
+    const mmlUrlEl = document.getElementById('mml-url');
+    const movesEl = document.getElementById('moves');
+    const connDot = document.getElementById('conn-dot');
+    const connText = document.getElementById('conn-text');
+    const resetBtn = document.getElementById('reset');
+
+    // Show the MML WebSocket URL so the user can paste it into Otherside/MML editor.
+    const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const mmlWsUrl = `${wsProto}://${location.host}/mml`;
+    mmlUrlEl.textContent = mmlWsUrl;
+
+    // Client-side chess for legality hints only. Server has final say.
+    const localChess = new Chess();
+
+    let ws;
+    let lastMoveSquares = null;
+
+    function setConnected(live) {
+      connDot.classList.toggle('live', !!live);
+      connText.textContent = live ? 'live' : 'disconnected';
+    }
+
+    function onDragStart(source, piece) {
+      if (localChess.game_over()) return false;
+      // Only allow the side to move to drag.
+      if ((localChess.turn() === 'w' && piece.search(/^b/) !== -1) ||
+          (localChess.turn() === 'b' && piece.search(/^w/) !== -1)) {
+        return false;
+      }
+    }
+
+    function onDrop(source, target) {
+      // Try the move locally for instant feedback. Server will confirm/reject.
+      const move = localChess.move({ from: source, to: target, promotion: 'q' });
+      if (move === null) return 'snapback';
+      // Send to server.
+      ws.send(JSON.stringify({ type: 'move', from: source, to: target, promotion: 'q' }));
+    }
+
+    function onSnapEnd() {
+      board.position(localChess.fen());
+    }
+
+    const board = Chessboard('board', {
+      draggable: true,
+      position: 'start',
+      onDragStart,
+      onDrop,
+      onSnapEnd,
+      pieceTheme: 'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/website/img/chesspieces/wikipedia/{piece}.png',
+    });
+    window.addEventListener('resize', board.resize);
+
+    function renderMoves() {
+      const history = localChess.history();
+      if (history.length === 0) {
+        movesEl.textContent = 'No moves yet.';
+        return;
+      }
+      let html = '';
+      for (let i = 0; i < history.length; i += 2) {
+        const n = Math.floor(i / 2) + 1;
+        html += `<span class="ply">${n}.</span>${history[i]} ${history[i + 1] || ''} `;
+      }
+      movesEl.innerHTML = html;
+      movesEl.scrollTop = movesEl.scrollHeight;
+    }
+
+    function applyState(state) {
+      // Resync the local chess instance from the authoritative FEN.
+      localChess.load(state.fen);
+      board.position(state.fen, false);
+      fenEl.textContent = state.fen;
+      statusEl.textContent = state.status;
+      statusEl.classList.toggle('check', /check/i.test(state.status));
+      renderMoves();
+    }
+
+    function connect() {
+      ws = new WebSocket(`${wsProto}://${location.host}/play`);
+      ws.onopen = () => setConnected(true);
+      ws.onclose = () => { setConnected(false); setTimeout(connect, 1500); };
+      ws.onerror = () => setConnected(false);
+      ws.onmessage = (ev) => {
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch { return; }
+        if (msg.type === 'state') {
+          applyState(msg);
+        } else if (msg.type === 'moveRejected') {
+          // Server rejected our optimistic move - undo it locally.
+          localChess.undo();
+          board.position(localChess.fen());
+          flashStatus('Illegal move');
+        }
+      };
+    }
+
+    function flashStatus(txt) {
+      const original = statusEl.textContent;
+      statusEl.textContent = txt;
+      statusEl.style.color = 'var(--danger)';
+      setTimeout(() => {
+        statusEl.textContent = original;
+        statusEl.style.color = '';
+      }, 1200);
+    }
+
+    resetBtn.addEventListener('click', () => {
+      if (confirm('Reset the game? This will clear the board for everyone watching in Otherside.')) {
+        ws.send(JSON.stringify({ type: 'reset' }));
+      }
+    });
+
+    connect();
+  </script>
+</body>
+</html>
