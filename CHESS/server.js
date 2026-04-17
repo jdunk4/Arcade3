@@ -1,5 +1,8 @@
 /**
- * server.js
+ * server.js (FLAT LAYOUT VERSION)
+ *
+ * Use this version when your files all sit at the same level on GitHub
+ * (server.js, chess-document.js, play.html, package.json all in CHESS/).
  *
  * Runs the chess session.
  *
@@ -9,23 +12,6 @@
  *                                 / MML editor / MML Viewer)
  *   - Exposes wss://host/play -> the browser UI <-> server channel for moves
  *   - Serves http://host/play -> the 2D chessboard web page
- *
- * Move flow:
- *   1. Browser user drags a piece -> sends { type: "move", from, to }
- *   2. Server validates with chess.js
- *   3. On success, server updates its internal piece list and the MML DOM.
- *      All connected MML clients (Otherside + MML editor preview) see the
- *      attribute changes applied to the <m-group> for that piece, and the
- *      new <m-attr-anim> child animates it sliding across the board.
- *   4. Server broadcasts the new FEN to all browser clients so they re-render.
- *
- * Author-note: We don't use @mml-io/networked-dom-server directly because we
- * want tight control over the DOM diff (for Unreal compatibility we rebuild
- * the scene from a template each move). Instead we implement a minimal
- * MML WebSocket protocol by hand:
- *   - On client connect: send the full document as a "snapshot" message.
- *   - On each move: send a fresh "snapshot" message with the updated DOM.
- * This is simple and works with the Unreal plugin's MML loader.
  */
 
 const http = require('http');
@@ -47,16 +33,8 @@ const {
 // m-cube) and need no external files. They render correctly in Otherside today
 // with zero dependencies.
 //
-// To swap in real 3D chess pieces: drop GLB files into the `assets/` folder
-// (at the project root) and flip USE_GLB_PIECES to true. The filenames below
-// are what this project expects — see assets/README.md for download links.
-//
-// The MML plugin in Unreal needs ABSOLUTE URLs for <m-model src>, so we build
-// them at runtime from PUBLIC_HOST. On Render, that's your-service.onrender.com.
-//
-// Set this via environment variable before the server starts, e.g.
-//   PUBLIC_HOST=chess-mml.onrender.com npm start
-// Or set it in the Render dashboard under Environment Variables.
+// To swap in real 3D chess pieces: drop GLB files next to this server.js file
+// (since everything is flat) and flip USE_GLB_PIECES to true.
 // -----------------------------------------------------------------------------
 const USE_GLB_PIECES = process.env.USE_GLB_PIECES === 'true';
 const PUBLIC_HOST = process.env.PUBLIC_HOST || `localhost:${process.env.PORT || 8080}`;
@@ -64,15 +42,12 @@ const ASSET_PROTO = process.env.PUBLIC_HOST ? 'https' : 'http';
 const ASSET_BASE = `${ASSET_PROTO}://${PUBLIC_HOST}/assets`;
 
 const PIECE_MODELS = USE_GLB_PIECES ? {
-  // White pieces (same GLB, colored/tinted via Unreal materials if needed)
   wK: `${ASSET_BASE}/king.glb`,
   wQ: `${ASSET_BASE}/queen.glb`,
   wR: `${ASSET_BASE}/rook.glb`,
   wB: `${ASSET_BASE}/bishop.glb`,
   wN: `${ASSET_BASE}/knight.glb`,
   wP: `${ASSET_BASE}/pawn.glb`,
-  // Black pieces - same models. If you want distinct black GLBs, rename the
-  // files below to king-black.glb etc. and place them in assets/.
   bK: `${ASSET_BASE}/king.glb`,
   bQ: `${ASSET_BASE}/queen.glb`,
   bR: `${ASSET_BASE}/rook.glb`,
@@ -81,8 +56,6 @@ const PIECE_MODELS = USE_GLB_PIECES ? {
   bP: `${ASSET_BASE}/pawn.glb`,
 } : {
   ...DEFAULT_PIECE_MODELS,
-  // Leave empty or add per-piece GLB URLs here to override individual pieces
-  // while keeping primitives for the rest.
 };
 
 // -----------------------------------------------------------------------------
@@ -90,30 +63,22 @@ const PIECE_MODELS = USE_GLB_PIECES ? {
 // -----------------------------------------------------------------------------
 const chess = new Chess();
 let pieces = buildInitialPieces(chess);
-let lastMove = null; // { fromSquare, toSquare, pieceId }
+let lastMove = null;
 let statusText = 'White to move';
 const docStartMs = Date.now();
 
-// Find the piece that currently occupies `square` (if any).
 function pieceAt(square) {
   return pieces.find((p) => !p.captured && p.square === square);
 }
 
-// Apply a chess.js move result to our piece list, preserving ids so that
-// the MML m-group for a given piece keeps its identity and animates smoothly.
 function applyMoveToPieces(move) {
-  // move: { from, to, piece, color, captured, promotion, flags, san }
   const mover = pieceAt(move.from);
   if (!mover) {
     console.warn('No piece found at', move.from, '- state desync?');
     return null;
   }
 
-  // Handle capture (including en passant).
   if (move.captured) {
-    // Normal capture: victim is on move.to.
-    // En passant: victim is on the same file as move.to but one rank back
-    //             from the mover's POV.
     let victimSquare = move.to;
     if (move.flags.includes('e')) {
       const epRank = move.color === 'w'
@@ -125,17 +90,13 @@ function applyMoveToPieces(move) {
     if (victim) victim.captured = true;
   }
 
-  // Move the mover.
   mover.square = move.to;
 
-  // Handle promotion: change the piece key so next render uses the new model.
   if (move.promotion) {
-    mover.type = move.promotion; // chess.js gives "q" "r" "b" "n"
+    mover.type = move.promotion;
     mover.key = mover.color + move.promotion.toUpperCase();
   }
 
-  // Handle castling: also move the rook.
-  // move.flags contains "k" (kingside) or "q" (queenside) on castles.
   if (move.flags.includes('k') || move.flags.includes('q')) {
     const rank = move.color === 'w' ? '1' : '8';
     const rookFromFile = move.flags.includes('k') ? 'h' : 'a';
@@ -171,7 +132,6 @@ function resetGame() {
 }
 
 function tryMove({ from, to, promotion }) {
-  // chess.js accepts promotion as optional
   const move = chess.move({ from, to, promotion: promotion || 'q' });
   if (!move) return { ok: false, error: 'illegal move' };
   const lm = applyMoveToPieces(move);
@@ -182,11 +142,6 @@ function tryMove({ from, to, promotion }) {
 
 // -----------------------------------------------------------------------------
 // MML WEBSOCKET CHANNEL (at wss://host/mml)
-// -----------------------------------------------------------------------------
-// Speaks the "networked-dom" protocol at its simplest: we send the full
-// document snapshot on connect and on every change. This works with every
-// MML client (web viewer, MML editor, Unreal plugin) because they all accept
-// a "snapshot" message type.
 // -----------------------------------------------------------------------------
 const mmlClients = new Set();
 
@@ -234,25 +189,25 @@ function broadcastPlayState() {
 }
 
 // -----------------------------------------------------------------------------
-// HTTP + WS SETUP
+// HTTP + WS SETUP  (FLAT LAYOUT: everything at __dirname)
 // -----------------------------------------------------------------------------
 const app = express();
-app.use(express.static(path.join(__dirname, 'public')));
 
-// Serve chess-piece GLB files (and any other assets you drop here) at /assets/*.
-// The folder lives at the project root so it's easy to find and commit to git.
-app.use('/assets', express.static(path.join(__dirname, '..', 'assets')));
+// Serve everything sitting next to server.js (play.html, assets, etc.) as static files.
+app.use(express.static(__dirname));
+
+// Also expose /assets explicitly for GLB files when added.
+app.use('/assets', express.static(__dirname));
 
 app.get('/', (req, res) => {
   res.redirect('/play');
 });
 
 app.get('/play', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'play.html'));
+  res.sendFile(path.join(__dirname, 'play.html'));
 });
 
 app.get('/mml.html', (req, res) => {
-  // Convenience: serve the current MML as plain HTML so you can eyeball it.
   res.type('text/html').send(currentMMLString());
 });
 
@@ -269,7 +224,6 @@ mmlWss.on('connection', (ws) => {
 const playWss = new WebSocketServer({ noServer: true });
 playWss.on('connection', (ws) => {
   playClients.add(ws);
-  // Immediately sync state.
   ws.send(JSON.stringify({
     type: 'state',
     fen: chess.fen(),
@@ -289,7 +243,6 @@ playWss.on('connection', (ws) => {
         broadcastPlayState();
       } else {
         ws.send(JSON.stringify({ type: 'moveRejected', from: msg.from, to: msg.to, reason: result.error }));
-        // Send the current state so the browser snaps the piece back.
         ws.send(JSON.stringify({
           type: 'state',
           fen: chess.fen(),
@@ -322,14 +275,9 @@ const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
   updateStatusText();
   console.log('');
-  console.log('  Chess-MML server running');
-  console.log('  ------------------------');
+  console.log('  Chess-MML server running (flat layout)');
+  console.log('  --------------------------------------');
   console.log(`  Browser (play UI):   http://localhost:${PORT}/play`);
   console.log(`  MML WebSocket:       ws://localhost:${PORT}/mml`);
-  console.log('');
-  console.log('  Paste the MML URL into:');
-  console.log('    - mmleditor.com  (View URL field)');
-  console.log('    - viewer.mml.io/?url=<MML URL>');
-  console.log('    - Otherside Vibe Maker MML Object');
   console.log('');
 });
