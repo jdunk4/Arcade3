@@ -1,0 +1,1380 @@
+<!-- MML CHESS v8 - paste into mmleditor.com
+     Features:
+       - 6 high-contrast themes: Classic, Inferno, Hazard, Toxic, Arctic, Neon
+         Theme switches and reset are mounted on the BACK of the chess clock
+         as a control panel. Each switch is colored to match its theme's accent.
+         The active switch is brighter and raised slightly; inactive switches
+         sit flush and are dimmed. Click any switch to jump directly to that
+         theme (no more cycling).
+       - 10-minute chess clock per side, starts on first move.
+         Clock wood colors cycle with the theme.
+       - Reset button (red, back of the clock, right side) returns the board
+         to starting position.
+     Interact:
+       Click a piece (or its square) to select. Highlighted tiles are legal moves.
+-->
+
+<m-group id="chess-scene" y="0.8">
+
+  <!-- Board frame -->
+  <m-cube id="board-frame" x="0" y="-0.2" z="0" sx="9" sy="0.2" sz="9" color="#0a0a0a"></m-cube>
+
+  <!-- Squares -->
+  <m-cube id="sq-a1" class="sq-dark" x="-3.5" y="-0.05" z="-3.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-b1" class="sq-light" x="-2.5" y="-0.05" z="-3.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-c1" class="sq-dark" x="-1.5" y="-0.05" z="-3.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-d1" class="sq-light" x="-0.5" y="-0.05" z="-3.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-e1" class="sq-dark" x="0.5" y="-0.05" z="-3.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-f1" class="sq-light" x="1.5" y="-0.05" z="-3.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-g1" class="sq-dark" x="2.5" y="-0.05" z="-3.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-h1" class="sq-light" x="3.5" y="-0.05" z="-3.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-a2" class="sq-light" x="-3.5" y="-0.05" z="-2.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-b2" class="sq-dark" x="-2.5" y="-0.05" z="-2.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-c2" class="sq-light" x="-1.5" y="-0.05" z="-2.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-d2" class="sq-dark" x="-0.5" y="-0.05" z="-2.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-e2" class="sq-light" x="0.5" y="-0.05" z="-2.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-f2" class="sq-dark" x="1.5" y="-0.05" z="-2.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-g2" class="sq-light" x="2.5" y="-0.05" z="-2.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-h2" class="sq-dark" x="3.5" y="-0.05" z="-2.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-a3" class="sq-dark" x="-3.5" y="-0.05" z="-1.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-b3" class="sq-light" x="-2.5" y="-0.05" z="-1.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-c3" class="sq-dark" x="-1.5" y="-0.05" z="-1.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-d3" class="sq-light" x="-0.5" y="-0.05" z="-1.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-e3" class="sq-dark" x="0.5" y="-0.05" z="-1.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-f3" class="sq-light" x="1.5" y="-0.05" z="-1.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-g3" class="sq-dark" x="2.5" y="-0.05" z="-1.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-h3" class="sq-light" x="3.5" y="-0.05" z="-1.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-a4" class="sq-light" x="-3.5" y="-0.05" z="-0.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-b4" class="sq-dark" x="-2.5" y="-0.05" z="-0.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-c4" class="sq-light" x="-1.5" y="-0.05" z="-0.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-d4" class="sq-dark" x="-0.5" y="-0.05" z="-0.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-e4" class="sq-light" x="0.5" y="-0.05" z="-0.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-f4" class="sq-dark" x="1.5" y="-0.05" z="-0.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-g4" class="sq-light" x="2.5" y="-0.05" z="-0.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-h4" class="sq-dark" x="3.5" y="-0.05" z="-0.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-a5" class="sq-dark" x="-3.5" y="-0.05" z="0.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-b5" class="sq-light" x="-2.5" y="-0.05" z="0.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-c5" class="sq-dark" x="-1.5" y="-0.05" z="0.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-d5" class="sq-light" x="-0.5" y="-0.05" z="0.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-e5" class="sq-dark" x="0.5" y="-0.05" z="0.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-f5" class="sq-light" x="1.5" y="-0.05" z="0.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-g5" class="sq-dark" x="2.5" y="-0.05" z="0.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-h5" class="sq-light" x="3.5" y="-0.05" z="0.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-a6" class="sq-light" x="-3.5" y="-0.05" z="1.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-b6" class="sq-dark" x="-2.5" y="-0.05" z="1.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-c6" class="sq-light" x="-1.5" y="-0.05" z="1.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-d6" class="sq-dark" x="-0.5" y="-0.05" z="1.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-e6" class="sq-light" x="0.5" y="-0.05" z="1.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-f6" class="sq-dark" x="1.5" y="-0.05" z="1.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-g6" class="sq-light" x="2.5" y="-0.05" z="1.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-h6" class="sq-dark" x="3.5" y="-0.05" z="1.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-a7" class="sq-dark" x="-3.5" y="-0.05" z="2.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-b7" class="sq-light" x="-2.5" y="-0.05" z="2.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-c7" class="sq-dark" x="-1.5" y="-0.05" z="2.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-d7" class="sq-light" x="-0.5" y="-0.05" z="2.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-e7" class="sq-dark" x="0.5" y="-0.05" z="2.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-f7" class="sq-light" x="1.5" y="-0.05" z="2.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-g7" class="sq-dark" x="2.5" y="-0.05" z="2.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-h7" class="sq-light" x="3.5" y="-0.05" z="2.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-a8" class="sq-light" x="-3.5" y="-0.05" z="3.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-b8" class="sq-dark" x="-2.5" y="-0.05" z="3.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-c8" class="sq-light" x="-1.5" y="-0.05" z="3.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-d8" class="sq-dark" x="-0.5" y="-0.05" z="3.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-e8" class="sq-light" x="0.5" y="-0.05" z="3.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-f8" class="sq-dark" x="1.5" y="-0.05" z="3.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+  <m-cube id="sq-g8" class="sq-light" x="2.5" y="-0.05" z="3.5" sx="1" sy="0.1" sz="1" color="#f5f5f5"></m-cube>
+  <m-cube id="sq-h8" class="sq-dark" x="3.5" y="-0.05" z="3.5" sx="1" sy="0.1" sz="1" color="#1a1a1a"></m-cube>
+
+  <!-- File / rank labels -->
+
+
+  <!-- Pieces (starting position) -->
+  <m-group id="bR-a8" class="pc pc-b" x="-3.5" y="0" z="3.5" ry="180">
+    <m-cylinder class="pp" y="0.05" radius="0.25" height="0.10" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.14" radius="0.22" height="0.08" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.35" radius="0.17" height="0.34" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.57" radius="0.22" height="0.06" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.63" radius="0.22" height="0.10" color="#050510"></m-cylinder>
+    <m-cube class="pp" y="0.70" x="0.170" z="0.000" sx="0.09" sy="0.12" sz="0.09" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.70" x="0.120" z="0.120" sx="0.09" sy="0.12" sz="0.09" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.70" x="0.000" z="0.170" sx="0.09" sy="0.12" sz="0.09" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.70" x="-0.120" z="0.120" sx="0.09" sy="0.12" sz="0.09" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.70" x="-0.170" z="0.000" sx="0.09" sy="0.12" sz="0.09" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.70" x="-0.120" z="-0.120" sx="0.09" sy="0.12" sz="0.09" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.70" x="-0.000" z="-0.170" sx="0.09" sy="0.12" sz="0.09" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.70" x="0.120" z="-0.120" sx="0.09" sy="0.12" sz="0.09" color="#050510"></m-cube>
+  </m-group>
+  <m-group id="bN-b8" class="pc pc-b" x="-2.5" y="0" z="3.5" ry="180">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.19" height="0.08" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.28" radius="0.17" height="0.18" color="#050510"></m-cylinder>
+    <m-cube class="pp" y="0.52" z="0.03" rx="15" sx="0.22" sy="0.30" sz="0.28" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.70" z="0.17" rx="35" sx="0.18" sy="0.14" sz="0.25" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.78" z="0.06" rx="10" sx="0.14" sy="0.18" sz="0.10" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.88" z="0.00" sx="0.06" sy="0.10" sz="0.06" color="#050510"></m-cube>
+    <m-sphere class="pp" y="0.68" z="0.22" sx="0.05" sy="0.05" sz="0.05" color="#050510"></m-sphere>
+  </m-group>
+  <m-group id="bB-c8" class="pc pc-b" x="-1.5" y="0" z="3.5" ry="180">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.14" radius="0.19" height="0.08" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.35" radius="0.14" height="0.32" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.54" radius="0.16" height="0.05" color="#050510"></m-cylinder>
+    <m-sphere class="pp" y="0.72" sx="0.20" sy="0.28" sz="0.20" color="#050510"></m-sphere>
+    <m-cube class="pp" y="0.78" sx="0.30" sy="0.02" sz="0.05" color="#050510"></m-cube>
+    <m-sphere class="pp" y="0.94" sx="0.07" sy="0.08" sz="0.07" color="#050510"></m-sphere>
+  </m-group>
+  <m-group id="bQ-d8" class="pc pc-b" x="-0.5" y="0" z="3.5" ry="180">
+    <m-cylinder class="pp" y="0.05" radius="0.24" height="0.10" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.21" height="0.08" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.38" radius="0.15" height="0.36" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.59" radius="0.17" height="0.05" color="#050510"></m-cylinder>
+    <m-sphere class="pp" y="0.78" sx="0.26" sy="0.30" sz="0.26" color="#050510"></m-sphere>
+    <m-cylinder class="pp" y="0.96" radius="0.16" height="0.06" color="#050510"></m-cylinder>
+    <m-sphere class="pp" y="1.02" x="0.170" z="0.000" sx="0.08" sy="0.10" sz="0.08" color="#050510"></m-sphere>
+    <m-sphere class="pp" y="1.02" x="0.130" z="0.109" sx="0.08" sy="0.10" sz="0.08" color="#050510"></m-sphere>
+    <m-sphere class="pp" y="1.02" x="0.030" z="0.167" sx="0.08" sy="0.10" sz="0.08" color="#050510"></m-sphere>
+    <m-sphere class="pp" y="1.02" x="-0.085" z="0.147" sx="0.08" sy="0.10" sz="0.08" color="#050510"></m-sphere>
+    <m-sphere class="pp" y="1.02" x="-0.160" z="0.058" sx="0.08" sy="0.10" sz="0.08" color="#050510"></m-sphere>
+    <m-sphere class="pp" y="1.02" x="-0.160" z="-0.058" sx="0.08" sy="0.10" sz="0.08" color="#050510"></m-sphere>
+    <m-sphere class="pp" y="1.02" x="-0.085" z="-0.147" sx="0.08" sy="0.10" sz="0.08" color="#050510"></m-sphere>
+    <m-sphere class="pp" y="1.02" x="0.030" z="-0.167" sx="0.08" sy="0.10" sz="0.08" color="#050510"></m-sphere>
+    <m-sphere class="pp" y="1.02" x="0.130" z="-0.109" sx="0.08" sy="0.10" sz="0.08" color="#050510"></m-sphere>
+    <m-sphere class="pp" y="1.14" sx="0.09" sy="0.09" sz="0.09" color="#050510"></m-sphere>
+  </m-group>
+  <m-group id="bK-e8" class="pc pc-b" x="0.5" y="0" z="3.5" ry="180">
+    <m-cylinder class="pp" y="0.05" radius="0.24" height="0.10" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.21" height="0.08" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.39" radius="0.15" height="0.38" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.61" radius="0.17" height="0.05" color="#050510"></m-cylinder>
+    <m-sphere class="pp" y="0.80" sx="0.26" sy="0.30" sz="0.26" color="#050510"></m-sphere>
+    <m-cylinder class="pp" y="0.98" radius="0.16" height="0.06" color="#050510"></m-cylinder>
+    <m-cube class="pp" y="1.06" x="0.13" sx="0.06" sy="0.08" sz="0.06" color="#050510"></m-cube>
+    <m-cube class="pp" y="1.06" x="-0.13" sx="0.06" sy="0.08" sz="0.06" color="#050510"></m-cube>
+    <m-cube class="pp" y="1.06" z="0.13" sx="0.06" sy="0.08" sz="0.06" color="#050510"></m-cube>
+    <m-cube class="pp" y="1.06" z="-0.13" sx="0.06" sy="0.08" sz="0.06" color="#050510"></m-cube>
+    <m-cube class="pp" y="1.18" sx="0.06" sy="0.24" sz="0.06" color="#050510"></m-cube>
+    <m-cube class="pp" y="1.22" sx="0.16" sy="0.06" sz="0.06" color="#050510"></m-cube>
+  </m-group>
+  <m-group id="bB-f8" class="pc pc-b" x="1.5" y="0" z="3.5" ry="180">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.14" radius="0.19" height="0.08" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.35" radius="0.14" height="0.32" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.54" radius="0.16" height="0.05" color="#050510"></m-cylinder>
+    <m-sphere class="pp" y="0.72" sx="0.20" sy="0.28" sz="0.20" color="#050510"></m-sphere>
+    <m-cube class="pp" y="0.78" sx="0.30" sy="0.02" sz="0.05" color="#050510"></m-cube>
+    <m-sphere class="pp" y="0.94" sx="0.07" sy="0.08" sz="0.07" color="#050510"></m-sphere>
+  </m-group>
+  <m-group id="bN-g8" class="pc pc-b" x="2.5" y="0" z="3.5" ry="180">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.19" height="0.08" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.28" radius="0.17" height="0.18" color="#050510"></m-cylinder>
+    <m-cube class="pp" y="0.52" z="0.03" rx="15" sx="0.22" sy="0.30" sz="0.28" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.70" z="0.17" rx="35" sx="0.18" sy="0.14" sz="0.25" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.78" z="0.06" rx="10" sx="0.14" sy="0.18" sz="0.10" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.88" z="0.00" sx="0.06" sy="0.10" sz="0.06" color="#050510"></m-cube>
+    <m-sphere class="pp" y="0.68" z="0.22" sx="0.05" sy="0.05" sz="0.05" color="#050510"></m-sphere>
+  </m-group>
+  <m-group id="bR-h8" class="pc pc-b" x="3.5" y="0" z="3.5" ry="180">
+    <m-cylinder class="pp" y="0.05" radius="0.25" height="0.10" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.14" radius="0.22" height="0.08" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.35" radius="0.17" height="0.34" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.57" radius="0.22" height="0.06" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.63" radius="0.22" height="0.10" color="#050510"></m-cylinder>
+    <m-cube class="pp" y="0.70" x="0.170" z="0.000" sx="0.09" sy="0.12" sz="0.09" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.70" x="0.120" z="0.120" sx="0.09" sy="0.12" sz="0.09" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.70" x="0.000" z="0.170" sx="0.09" sy="0.12" sz="0.09" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.70" x="-0.120" z="0.120" sx="0.09" sy="0.12" sz="0.09" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.70" x="-0.170" z="0.000" sx="0.09" sy="0.12" sz="0.09" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.70" x="-0.120" z="-0.120" sx="0.09" sy="0.12" sz="0.09" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.70" x="-0.000" z="-0.170" sx="0.09" sy="0.12" sz="0.09" color="#050510"></m-cube>
+    <m-cube class="pp" y="0.70" x="0.120" z="-0.120" sx="0.09" sy="0.12" sz="0.09" color="#050510"></m-cube>
+  </m-group>
+  <m-group id="bP-a7" class="pc pc-b" x="-3.5" y="0" z="2.5" ry="180">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.18" height="0.08" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.30" radius="0.13" height="0.18" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.42" radius="0.16" height="0.05" color="#050510"></m-cylinder>
+    <m-sphere class="pp" y="0.53" sx="0.18" sy="0.18" sz="0.18" color="#050510"></m-sphere>
+  </m-group>
+  <m-group id="bP-b7" class="pc pc-b" x="-2.5" y="0" z="2.5" ry="180">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.18" height="0.08" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.30" radius="0.13" height="0.18" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.42" radius="0.16" height="0.05" color="#050510"></m-cylinder>
+    <m-sphere class="pp" y="0.53" sx="0.18" sy="0.18" sz="0.18" color="#050510"></m-sphere>
+  </m-group>
+  <m-group id="bP-c7" class="pc pc-b" x="-1.5" y="0" z="2.5" ry="180">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.18" height="0.08" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.30" radius="0.13" height="0.18" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.42" radius="0.16" height="0.05" color="#050510"></m-cylinder>
+    <m-sphere class="pp" y="0.53" sx="0.18" sy="0.18" sz="0.18" color="#050510"></m-sphere>
+  </m-group>
+  <m-group id="bP-d7" class="pc pc-b" x="-0.5" y="0" z="2.5" ry="180">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.18" height="0.08" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.30" radius="0.13" height="0.18" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.42" radius="0.16" height="0.05" color="#050510"></m-cylinder>
+    <m-sphere class="pp" y="0.53" sx="0.18" sy="0.18" sz="0.18" color="#050510"></m-sphere>
+  </m-group>
+  <m-group id="bP-e7" class="pc pc-b" x="0.5" y="0" z="2.5" ry="180">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.18" height="0.08" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.30" radius="0.13" height="0.18" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.42" radius="0.16" height="0.05" color="#050510"></m-cylinder>
+    <m-sphere class="pp" y="0.53" sx="0.18" sy="0.18" sz="0.18" color="#050510"></m-sphere>
+  </m-group>
+  <m-group id="bP-f7" class="pc pc-b" x="1.5" y="0" z="2.5" ry="180">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.18" height="0.08" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.30" radius="0.13" height="0.18" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.42" radius="0.16" height="0.05" color="#050510"></m-cylinder>
+    <m-sphere class="pp" y="0.53" sx="0.18" sy="0.18" sz="0.18" color="#050510"></m-sphere>
+  </m-group>
+  <m-group id="bP-g7" class="pc pc-b" x="2.5" y="0" z="2.5" ry="180">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.18" height="0.08" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.30" radius="0.13" height="0.18" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.42" radius="0.16" height="0.05" color="#050510"></m-cylinder>
+    <m-sphere class="pp" y="0.53" sx="0.18" sy="0.18" sz="0.18" color="#050510"></m-sphere>
+  </m-group>
+  <m-group id="bP-h7" class="pc pc-b" x="3.5" y="0" z="2.5" ry="180">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.18" height="0.08" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.30" radius="0.13" height="0.18" color="#050510"></m-cylinder>
+    <m-cylinder class="pp" y="0.42" radius="0.16" height="0.05" color="#050510"></m-cylinder>
+    <m-sphere class="pp" y="0.53" sx="0.18" sy="0.18" sz="0.18" color="#050510"></m-sphere>
+  </m-group>
+  <m-group id="wP-a2" class="pc pc-w" x="-3.5" y="0" z="-2.5" ry="0">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.18" height="0.08" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.30" radius="0.13" height="0.18" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.42" radius="0.16" height="0.05" color="#f5e8c8"></m-cylinder>
+    <m-sphere class="pp" y="0.53" sx="0.18" sy="0.18" sz="0.18" color="#f5e8c8"></m-sphere>
+  </m-group>
+  <m-group id="wP-b2" class="pc pc-w" x="-2.5" y="0" z="-2.5" ry="0">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.18" height="0.08" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.30" radius="0.13" height="0.18" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.42" radius="0.16" height="0.05" color="#f5e8c8"></m-cylinder>
+    <m-sphere class="pp" y="0.53" sx="0.18" sy="0.18" sz="0.18" color="#f5e8c8"></m-sphere>
+  </m-group>
+  <m-group id="wP-c2" class="pc pc-w" x="-1.5" y="0" z="-2.5" ry="0">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.18" height="0.08" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.30" radius="0.13" height="0.18" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.42" radius="0.16" height="0.05" color="#f5e8c8"></m-cylinder>
+    <m-sphere class="pp" y="0.53" sx="0.18" sy="0.18" sz="0.18" color="#f5e8c8"></m-sphere>
+  </m-group>
+  <m-group id="wP-d2" class="pc pc-w" x="-0.5" y="0" z="-2.5" ry="0">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.18" height="0.08" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.30" radius="0.13" height="0.18" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.42" radius="0.16" height="0.05" color="#f5e8c8"></m-cylinder>
+    <m-sphere class="pp" y="0.53" sx="0.18" sy="0.18" sz="0.18" color="#f5e8c8"></m-sphere>
+  </m-group>
+  <m-group id="wP-e2" class="pc pc-w" x="0.5" y="0" z="-2.5" ry="0">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.18" height="0.08" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.30" radius="0.13" height="0.18" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.42" radius="0.16" height="0.05" color="#f5e8c8"></m-cylinder>
+    <m-sphere class="pp" y="0.53" sx="0.18" sy="0.18" sz="0.18" color="#f5e8c8"></m-sphere>
+  </m-group>
+  <m-group id="wP-f2" class="pc pc-w" x="1.5" y="0" z="-2.5" ry="0">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.18" height="0.08" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.30" radius="0.13" height="0.18" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.42" radius="0.16" height="0.05" color="#f5e8c8"></m-cylinder>
+    <m-sphere class="pp" y="0.53" sx="0.18" sy="0.18" sz="0.18" color="#f5e8c8"></m-sphere>
+  </m-group>
+  <m-group id="wP-g2" class="pc pc-w" x="2.5" y="0" z="-2.5" ry="0">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.18" height="0.08" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.30" radius="0.13" height="0.18" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.42" radius="0.16" height="0.05" color="#f5e8c8"></m-cylinder>
+    <m-sphere class="pp" y="0.53" sx="0.18" sy="0.18" sz="0.18" color="#f5e8c8"></m-sphere>
+  </m-group>
+  <m-group id="wP-h2" class="pc pc-w" x="3.5" y="0" z="-2.5" ry="0">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.18" height="0.08" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.30" radius="0.13" height="0.18" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.42" radius="0.16" height="0.05" color="#f5e8c8"></m-cylinder>
+    <m-sphere class="pp" y="0.53" sx="0.18" sy="0.18" sz="0.18" color="#f5e8c8"></m-sphere>
+  </m-group>
+  <m-group id="wR-a1" class="pc pc-w" x="-3.5" y="0" z="-3.5" ry="0">
+    <m-cylinder class="pp" y="0.05" radius="0.25" height="0.10" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.14" radius="0.22" height="0.08" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.35" radius="0.17" height="0.34" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.57" radius="0.22" height="0.06" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.63" radius="0.22" height="0.10" color="#f5e8c8"></m-cylinder>
+    <m-cube class="pp" y="0.70" x="0.170" z="0.000" sx="0.09" sy="0.12" sz="0.09" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.70" x="0.120" z="0.120" sx="0.09" sy="0.12" sz="0.09" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.70" x="0.000" z="0.170" sx="0.09" sy="0.12" sz="0.09" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.70" x="-0.120" z="0.120" sx="0.09" sy="0.12" sz="0.09" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.70" x="-0.170" z="0.000" sx="0.09" sy="0.12" sz="0.09" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.70" x="-0.120" z="-0.120" sx="0.09" sy="0.12" sz="0.09" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.70" x="-0.000" z="-0.170" sx="0.09" sy="0.12" sz="0.09" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.70" x="0.120" z="-0.120" sx="0.09" sy="0.12" sz="0.09" color="#f5e8c8"></m-cube>
+  </m-group>
+  <m-group id="wN-b1" class="pc pc-w" x="-2.5" y="0" z="-3.5" ry="0">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.19" height="0.08" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.28" radius="0.17" height="0.18" color="#f5e8c8"></m-cylinder>
+    <m-cube class="pp" y="0.52" z="0.03" rx="15" sx="0.22" sy="0.30" sz="0.28" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.70" z="0.17" rx="35" sx="0.18" sy="0.14" sz="0.25" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.78" z="0.06" rx="10" sx="0.14" sy="0.18" sz="0.10" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.88" z="0.00" sx="0.06" sy="0.10" sz="0.06" color="#f5e8c8"></m-cube>
+    <m-sphere class="pp" y="0.68" z="0.22" sx="0.05" sy="0.05" sz="0.05" color="#f5e8c8"></m-sphere>
+  </m-group>
+  <m-group id="wB-c1" class="pc pc-w" x="-1.5" y="0" z="-3.5" ry="0">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.14" radius="0.19" height="0.08" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.35" radius="0.14" height="0.32" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.54" radius="0.16" height="0.05" color="#f5e8c8"></m-cylinder>
+    <m-sphere class="pp" y="0.72" sx="0.20" sy="0.28" sz="0.20" color="#f5e8c8"></m-sphere>
+    <m-cube class="pp" y="0.78" sx="0.30" sy="0.02" sz="0.05" color="#f5e8c8"></m-cube>
+    <m-sphere class="pp" y="0.94" sx="0.07" sy="0.08" sz="0.07" color="#f5e8c8"></m-sphere>
+  </m-group>
+  <m-group id="wQ-d1" class="pc pc-w" x="-0.5" y="0" z="-3.5" ry="0">
+    <m-cylinder class="pp" y="0.05" radius="0.24" height="0.10" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.21" height="0.08" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.38" radius="0.15" height="0.36" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.59" radius="0.17" height="0.05" color="#f5e8c8"></m-cylinder>
+    <m-sphere class="pp" y="0.78" sx="0.26" sy="0.30" sz="0.26" color="#f5e8c8"></m-sphere>
+    <m-cylinder class="pp" y="0.96" radius="0.16" height="0.06" color="#f5e8c8"></m-cylinder>
+    <m-sphere class="pp" y="1.02" x="0.170" z="0.000" sx="0.08" sy="0.10" sz="0.08" color="#f5e8c8"></m-sphere>
+    <m-sphere class="pp" y="1.02" x="0.130" z="0.109" sx="0.08" sy="0.10" sz="0.08" color="#f5e8c8"></m-sphere>
+    <m-sphere class="pp" y="1.02" x="0.030" z="0.167" sx="0.08" sy="0.10" sz="0.08" color="#f5e8c8"></m-sphere>
+    <m-sphere class="pp" y="1.02" x="-0.085" z="0.147" sx="0.08" sy="0.10" sz="0.08" color="#f5e8c8"></m-sphere>
+    <m-sphere class="pp" y="1.02" x="-0.160" z="0.058" sx="0.08" sy="0.10" sz="0.08" color="#f5e8c8"></m-sphere>
+    <m-sphere class="pp" y="1.02" x="-0.160" z="-0.058" sx="0.08" sy="0.10" sz="0.08" color="#f5e8c8"></m-sphere>
+    <m-sphere class="pp" y="1.02" x="-0.085" z="-0.147" sx="0.08" sy="0.10" sz="0.08" color="#f5e8c8"></m-sphere>
+    <m-sphere class="pp" y="1.02" x="0.030" z="-0.167" sx="0.08" sy="0.10" sz="0.08" color="#f5e8c8"></m-sphere>
+    <m-sphere class="pp" y="1.02" x="0.130" z="-0.109" sx="0.08" sy="0.10" sz="0.08" color="#f5e8c8"></m-sphere>
+    <m-sphere class="pp" y="1.14" sx="0.09" sy="0.09" sz="0.09" color="#f5e8c8"></m-sphere>
+  </m-group>
+  <m-group id="wK-e1" class="pc pc-w" x="0.5" y="0" z="-3.5" ry="0">
+    <m-cylinder class="pp" y="0.05" radius="0.24" height="0.10" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.21" height="0.08" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.39" radius="0.15" height="0.38" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.61" radius="0.17" height="0.05" color="#f5e8c8"></m-cylinder>
+    <m-sphere class="pp" y="0.80" sx="0.26" sy="0.30" sz="0.26" color="#f5e8c8"></m-sphere>
+    <m-cylinder class="pp" y="0.98" radius="0.16" height="0.06" color="#f5e8c8"></m-cylinder>
+    <m-cube class="pp" y="1.06" x="0.13" sx="0.06" sy="0.08" sz="0.06" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="1.06" x="-0.13" sx="0.06" sy="0.08" sz="0.06" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="1.06" z="0.13" sx="0.06" sy="0.08" sz="0.06" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="1.06" z="-0.13" sx="0.06" sy="0.08" sz="0.06" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="1.18" sx="0.06" sy="0.24" sz="0.06" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="1.22" sx="0.16" sy="0.06" sz="0.06" color="#f5e8c8"></m-cube>
+  </m-group>
+  <m-group id="wB-f1" class="pc pc-w" x="1.5" y="0" z="-3.5" ry="0">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.14" radius="0.19" height="0.08" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.35" radius="0.14" height="0.32" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.54" radius="0.16" height="0.05" color="#f5e8c8"></m-cylinder>
+    <m-sphere class="pp" y="0.72" sx="0.20" sy="0.28" sz="0.20" color="#f5e8c8"></m-sphere>
+    <m-cube class="pp" y="0.78" sx="0.30" sy="0.02" sz="0.05" color="#f5e8c8"></m-cube>
+    <m-sphere class="pp" y="0.94" sx="0.07" sy="0.08" sz="0.07" color="#f5e8c8"></m-sphere>
+  </m-group>
+  <m-group id="wN-g1" class="pc pc-w" x="2.5" y="0" z="-3.5" ry="0">
+    <m-cylinder class="pp" y="0.05" radius="0.22" height="0.10" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.15" radius="0.19" height="0.08" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.28" radius="0.17" height="0.18" color="#f5e8c8"></m-cylinder>
+    <m-cube class="pp" y="0.52" z="0.03" rx="15" sx="0.22" sy="0.30" sz="0.28" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.70" z="0.17" rx="35" sx="0.18" sy="0.14" sz="0.25" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.78" z="0.06" rx="10" sx="0.14" sy="0.18" sz="0.10" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.88" z="0.00" sx="0.06" sy="0.10" sz="0.06" color="#f5e8c8"></m-cube>
+    <m-sphere class="pp" y="0.68" z="0.22" sx="0.05" sy="0.05" sz="0.05" color="#f5e8c8"></m-sphere>
+  </m-group>
+  <m-group id="wR-h1" class="pc pc-w" x="3.5" y="0" z="-3.5" ry="0">
+    <m-cylinder class="pp" y="0.05" radius="0.25" height="0.10" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.14" radius="0.22" height="0.08" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.35" radius="0.17" height="0.34" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.57" radius="0.22" height="0.06" color="#f5e8c8"></m-cylinder>
+    <m-cylinder class="pp" y="0.63" radius="0.22" height="0.10" color="#f5e8c8"></m-cylinder>
+    <m-cube class="pp" y="0.70" x="0.170" z="0.000" sx="0.09" sy="0.12" sz="0.09" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.70" x="0.120" z="0.120" sx="0.09" sy="0.12" sz="0.09" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.70" x="0.000" z="0.170" sx="0.09" sy="0.12" sz="0.09" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.70" x="-0.120" z="0.120" sx="0.09" sy="0.12" sz="0.09" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.70" x="-0.170" z="0.000" sx="0.09" sy="0.12" sz="0.09" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.70" x="-0.120" z="-0.120" sx="0.09" sy="0.12" sz="0.09" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.70" x="-0.000" z="-0.170" sx="0.09" sy="0.12" sz="0.09" color="#f5e8c8"></m-cube>
+    <m-cube class="pp" y="0.70" x="0.120" z="-0.120" sx="0.09" sy="0.12" sz="0.09" color="#f5e8c8"></m-cube>
+  </m-group>
+
+  <!-- Status label REMOVED (labels don't render in Otherside) -->
+
+  <!-- Theme switcher + reset moved to the back face of the clock (see clock-housing group) -->
+
+  <!-- 3D chess clock (right of board) -->
+
+  <m-group id="clock-housing" x="5.5" y="0" z="0">
+
+    <!-- Main wooden body. Given IDs so themes can recolor the wood. -->
+    <m-cube id="clock-body" x="0" y="0.275" z="0" sx="0.9" sy="0.55" sz="2.2" color="#3d2817"></m-cube>
+
+    <!-- Top face plate (lighter wood accent) -->
+    <m-cube id="clock-top-accent" x="0.1" y="0.56" z="0" sx="0.5" sy="0.03" sz="2.05" color="#6b4a2b"></m-cube>
+
+    <!-- FRONT FACE (board-facing side, -X direction) -->
+    <!-- Wood plate: full width. LCD panel: extended wider so digits always sit
+       on top of the black background texture regardless of clock camera angle. -->
+    <m-cube id="clock-front-plate" x="-0.45" y="0.4" z="0" sx="0.02" sy="0.45" sz="2.05" color="#6b4a2b"></m-cube>
+    <m-cube x="-0.47" y="0.4" z="0" sx="0.02" sy="0.38" sz="2.00" color="#0a0a0a"></m-cube>
+
+    <!-- Front: 7-segment digits for white readout (left) -->
+    <m-cube id="seg-fw-0-a" x="-0.500" y="0.540" z="-0.870" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-0-b" x="-0.500" y="0.480" z="-0.810" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-0-c" x="-0.500" y="0.360" z="-0.810" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-0-d" x="-0.500" y="0.300" z="-0.870" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-0-e" x="-0.500" y="0.360" z="-0.930" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-0-f" x="-0.500" y="0.480" z="-0.930" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-0-g" x="-0.500" y="0.420" z="-0.870" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-1-a" x="-0.500" y="0.540" z="-0.710" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-1-b" x="-0.500" y="0.480" z="-0.650" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-1-c" x="-0.500" y="0.360" z="-0.650" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-1-d" x="-0.500" y="0.300" z="-0.710" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-1-e" x="-0.500" y="0.360" z="-0.770" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-1-f" x="-0.500" y="0.480" z="-0.770" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-1-g" x="-0.500" y="0.420" z="-0.710" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="col-f-w-top" x="-0.500" y="0.470" z="-0.550" sx="0.018" sy="0.022" sz="0.022" color="#39ff14"></m-cube>
+    <m-cube id="col-f-w-bot" x="-0.500" y="0.370" z="-0.550" sx="0.018" sy="0.022" sz="0.022" color="#39ff14"></m-cube>
+    <m-cube id="seg-fw-2-a" x="-0.500" y="0.540" z="-0.390" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-2-b" x="-0.500" y="0.480" z="-0.330" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-2-c" x="-0.500" y="0.360" z="-0.330" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-2-d" x="-0.500" y="0.300" z="-0.390" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-2-e" x="-0.500" y="0.360" z="-0.450" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-2-f" x="-0.500" y="0.480" z="-0.450" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-2-g" x="-0.500" y="0.420" z="-0.390" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-3-a" x="-0.500" y="0.540" z="-0.230" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-3-b" x="-0.500" y="0.480" z="-0.170" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-3-c" x="-0.500" y="0.360" z="-0.170" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-3-d" x="-0.500" y="0.300" z="-0.230" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-3-e" x="-0.500" y="0.360" z="-0.290" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-3-f" x="-0.500" y="0.480" z="-0.290" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fw-3-g" x="-0.500" y="0.420" z="-0.230" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+
+    <!-- Front: 7-segment digits for black readout (right) -->
+    <m-cube id="seg-fb-0-a" x="-0.500" y="0.540" z="0.230" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-0-b" x="-0.500" y="0.480" z="0.290" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-0-c" x="-0.500" y="0.360" z="0.290" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-0-d" x="-0.500" y="0.300" z="0.230" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-0-e" x="-0.500" y="0.360" z="0.170" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-0-f" x="-0.500" y="0.480" z="0.170" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-0-g" x="-0.500" y="0.420" z="0.230" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-1-a" x="-0.500" y="0.540" z="0.390" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-1-b" x="-0.500" y="0.480" z="0.450" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-1-c" x="-0.500" y="0.360" z="0.450" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-1-d" x="-0.500" y="0.300" z="0.390" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-1-e" x="-0.500" y="0.360" z="0.330" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-1-f" x="-0.500" y="0.480" z="0.330" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-1-g" x="-0.500" y="0.420" z="0.390" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="col-f-b-top" x="-0.500" y="0.470" z="0.550" sx="0.018" sy="0.022" sz="0.022" color="#39ff14"></m-cube>
+    <m-cube id="col-f-b-bot" x="-0.500" y="0.370" z="0.550" sx="0.018" sy="0.022" sz="0.022" color="#39ff14"></m-cube>
+    <m-cube id="seg-fb-2-a" x="-0.500" y="0.540" z="0.710" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-2-b" x="-0.500" y="0.480" z="0.770" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-2-c" x="-0.500" y="0.360" z="0.770" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-2-d" x="-0.500" y="0.300" z="0.710" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-2-e" x="-0.500" y="0.360" z="0.650" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-2-f" x="-0.500" y="0.480" z="0.650" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-2-g" x="-0.500" y="0.420" z="0.710" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-3-a" x="-0.500" y="0.540" z="0.870" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-3-b" x="-0.500" y="0.480" z="0.930" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-3-c" x="-0.500" y="0.360" z="0.930" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-3-d" x="-0.500" y="0.300" z="0.870" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-3-e" x="-0.500" y="0.360" z="0.810" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-3-f" x="-0.500" y="0.480" z="0.810" sx="0.018" sy="0.102" sz="0.018" color="#1a2410"></m-cube>
+    <m-cube id="seg-fb-3-g" x="-0.500" y="0.420" z="0.870" sx="0.018" sy="0.018" sz="0.08399999999999999" color="#1a2410"></m-cube>
+
+    <!-- Indicator dots (front face, larger for readability) -->
+    <m-sphere id="clock-ind-w" x="-0.510" y="0.65" z="-0.550" sx="0.14" sy="0.14" sz="0.14" color="#401010"></m-sphere>
+    <m-sphere id="clock-ind-b" x="-0.510" y="0.65" z="0.550" sx="0.14" sy="0.14" sz="0.14" color="#401010"></m-sphere>
+
+    <!-- Vertical divider on front -->
+    <m-cube id="clock-divider" x="-0.48" y="0.4" z="0" sx="0.01" sy="0.3" sz="0.015" color="#6b4a2b"></m-cube>
+
+    <!-- BACK FACE: simple wood plate (no digits - players on the back side
+       don't need the readout; the front IS the clock) -->
+    <m-cube id="clock-back-plate" x="0.45" y="0.4" z="0" sx="0.02" sy="0.45" sz="2.05" color="#6b4a2b"></m-cube>
+
+    <!-- THEME SWITCH PANEL on the back face
+         Six small cubes in a horizontal row, each colored with its theme's
+         unique signature color (the one that most instantly identifies the
+         theme - usually the hero piece color, since accent colors collide
+         across themes). The currently-active switch is raised slightly on +X
+         and shows its full signature color; inactive switches sit flush and
+         are rendered dimmer via JS.
+         Signature colors (left to right):
+           Classic=walnut, Inferno=orange, Hazard=yellow,
+           Toxic=lime, Arctic=blue, Neon=magenta. -->
+    <m-cube id="theme-sw-classic" x="0.48" y="0.45" z="-0.75" sx="0.04" sy="0.14" sz="0.14" color="#8b6f47"></m-cube>
+    <m-cube id="theme-sw-inferno" x="0.48" y="0.45" z="-0.50" sx="0.04" sy="0.14" sz="0.14" color="#ff6600"></m-cube>
+    <m-cube id="theme-sw-hazard"  x="0.48" y="0.45" z="-0.25" sx="0.04" sy="0.14" sz="0.14" color="#ffdd00"></m-cube>
+    <m-cube id="theme-sw-toxic"   x="0.48" y="0.45" z="0.00"  sx="0.04" sy="0.14" sz="0.14" color="#39ff14"></m-cube>
+    <m-cube id="theme-sw-arctic"  x="0.48" y="0.45" z="0.25"  sx="0.04" sy="0.14" sz="0.14" color="#1e3ecc"></m-cube>
+    <m-cube id="theme-sw-neon"    x="0.48" y="0.45" z="0.50"  sx="0.04" sy="0.14" sz="0.14" color="#ff00aa"></m-cube>
+
+    <!-- Tiny accent stripe underneath the switch row for visual grouping -->
+    <m-cube x="0.47" y="0.32" z="-0.125" sx="0.01" sy="0.01" sz="1.35" color="#2a1a0e"></m-cube>
+
+    <!-- RESET button on the back face, offset from the switch row on the right end.
+         Red cube, distinct from the switches so it can't be mistaken for a theme. -->
+    <m-cube id="reset-btn" x="0.48" y="0.45" z="0.85" sx="0.06" sy="0.22" sz="0.22" color="#c8262c"></m-cube>
+    <!-- Small "bezel" ring around the reset button (darker wood frame) for emphasis -->
+    <m-cube x="0.465" y="0.45" z="0.85" sx="0.005" sy="0.28" sz="0.28" color="#1a0f08"></m-cube>
+
+    <!-- Three decorative buttons on top surface -->
+    <m-cylinder id="clock-btn-1" x="-0.2" y="0.59" z="-0.55" radius="0.05" height="0.04" color="#2a2018"></m-cylinder>
+    <m-cylinder id="clock-btn-2" x="-0.2" y="0.59" z="0" radius="0.05" height="0.04" color="#2a2018"></m-cylinder>
+    <m-cylinder id="clock-btn-3" x="-0.2" y="0.59" z="0.55" radius="0.05" height="0.04" color="#2a2018"></m-cylinder>
+
+  </m-group>
+
+  <!-- Reset moved to the back face of the clock (see clock-housing group) -->
+
+</m-group>
+
+<script>
+  (function() {
+    /**
+     * chess-engine.js — self-contained chess rules, ~200 lines.
+     */
+
+    function ChessEngine() {
+      this.reset();
+    }
+
+    ChessEngine.prototype.reset = function() {
+      this.b = Array(8).fill(null).map(() => Array(8).fill(null));
+      const back = ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'];
+      for (let f = 0; f < 8; f++) {
+        this.b[0][f] = { t: back[f], c: 'w' };
+        this.b[1][f] = { t: 'p', c: 'w' };
+        this.b[6][f] = { t: 'p', c: 'b' };
+        this.b[7][f] = { t: back[f], c: 'b' };
+      }
+      this.t = 'w';
+      this.cr = { wK: true, wQ: true, bK: true, bQ: true };
+      this.ep = null;
+      this.halfmove = 0;
+      this.fullmove = 1;
+      this.history = [];
+    };
+
+    ChessEngine.prototype.turn = function() { return this.t; };
+
+    function sqToRF(sq) {
+      return { f: sq.charCodeAt(0) - 97, r: parseInt(sq[1], 10) - 1 };
+    }
+    function rfToSq(r, f) {
+      return String.fromCharCode(97 + f) + (r + 1);
+    }
+
+    ChessEngine.prototype.at = function(sq) {
+      const { f, r } = sqToRF(sq);
+      if (r < 0 || r > 7 || f < 0 || f > 7) return null;
+      return this.b[r][f];
+    };
+
+    ChessEngine.prototype.board = function() {
+      const out = [];
+      for (let r = 7; r >= 0; r--) {
+        const row = [];
+        for (let f = 0; f < 8; f++) {
+          const c = this.b[r][f];
+          row.push(c ? { type: c.t, color: c.c, square: rfToSq(r, f) } : null);
+        }
+        out.push(row);
+      }
+      return out;
+    };
+
+    ChessEngine.prototype._pseudoMoves = function(color) {
+      const moves = [];
+      for (let r = 0; r < 8; r++) {
+        for (let f = 0; f < 8; f++) {
+          const p = this.b[r][f];
+          if (!p || p.c !== color) continue;
+          const from = rfToSq(r, f);
+          this._pieceMoves(r, f, p, (tr, tf, flags) => {
+            moves.push({ from, to: rfToSq(tr, tf), piece: p, flags: flags || '' });
+          });
+        }
+      }
+      return moves;
+    };
+
+    ChessEngine.prototype._pieceMoves = function(r, f, p, emit) {
+      const me = p.c, them = p.c === 'w' ? 'b' : 'w';
+      const inb = (rr, ff) => rr >= 0 && rr <= 7 && ff >= 0 && ff <= 7;
+
+      if (p.t === 'p') {
+        const dir = me === 'w' ? 1 : -1;
+        const startRank = me === 'w' ? 1 : 6;
+        if (inb(r + dir, f) && !this.b[r + dir][f]) emit(r + dir, f, 'n');
+        if (r === startRank && !this.b[r + dir][f] && !this.b[r + 2 * dir][f]) emit(r + 2 * dir, f, 'b');
+        for (const df of [-1, 1]) {
+          const tr = r + dir, tf = f + df;
+          if (!inb(tr, tf)) continue;
+          const target = this.b[tr][tf];
+          if (target && target.c === them) emit(tr, tf, 'c');
+          if (!target && this.ep && rfToSq(tr, tf) === this.ep) emit(tr, tf, 'e');
+        }
+        return;
+      }
+
+      if (p.t === 'n') {
+        const deltas = [[1, 2], [2, 1], [-1, 2], [-2, 1], [1, -2], [2, -1], [-1, -2], [-2, -1]];
+        for (const [dr, df] of deltas) {
+          const tr = r + dr, tf = f + df;
+          if (!inb(tr, tf)) continue;
+          const target = this.b[tr][tf];
+          if (!target || target.c !== me) emit(tr, tf, target ? 'c' : 'n');
+        }
+        return;
+      }
+
+      const slide = (dr, df) => {
+        let tr = r + dr, tf = f + df;
+        while (inb(tr, tf)) {
+          const target = this.b[tr][tf];
+          if (!target) emit(tr, tf, 'n');
+          else {
+            if (target.c !== me) emit(tr, tf, 'c');
+            break;
+          }
+          tr += dr; tf += df;
+        }
+      };
+
+      if (p.t === 'b' || p.t === 'q') {
+        slide(1, 1); slide(-1, 1); slide(1, -1); slide(-1, -1);
+      }
+      if (p.t === 'r' || p.t === 'q') {
+        slide(1, 0); slide(-1, 0); slide(0, 1); slide(0, -1);
+      }
+
+      if (p.t === 'k') {
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let df = -1; df <= 1; df++) {
+            if (dr === 0 && df === 0) continue;
+            const tr = r + dr, tf = f + df;
+            if (!inb(tr, tf)) continue;
+            const target = this.b[tr][tf];
+            if (!target || target.c !== me) emit(tr, tf, target ? 'c' : 'n');
+          }
+        }
+        const backRank = me === 'w' ? 0 : 7;
+        if (r === backRank && f === 4) {
+          const kside = me === 'w' ? this.cr.wK : this.cr.bK;
+          const qside = me === 'w' ? this.cr.wQ : this.cr.bQ;
+          if (kside && !this.b[backRank][5] && !this.b[backRank][6] && this.b[backRank][7] && this.b[backRank][7].t === 'r') {
+            emit(backRank, 6, 'k');
+          }
+          if (qside && !this.b[backRank][3] && !this.b[backRank][2] && !this.b[backRank][1] && this.b[backRank][0] && this.b[backRank][0].t === 'r') {
+            emit(backRank, 2, 'q');
+          }
+        }
+      }
+    };
+
+    ChessEngine.prototype._isAttacked = function(sq, attacker) {
+      const moves = this._pseudoMoves(attacker);
+      for (const m of moves) if (m.to === sq) return true;
+      return false;
+    };
+
+    ChessEngine.prototype._kingSquare = function(color) {
+      for (let r = 0; r < 8; r++)
+        for (let f = 0; f < 8; f++) {
+          const p = this.b[r][f];
+          if (p && p.t === 'k' && p.c === color) return rfToSq(r, f);
+        }
+      return null;
+    };
+
+    ChessEngine.prototype.isCheck = function() {
+      const ks = this._kingSquare(this.t);
+      if (!ks) return false;
+      return this._isAttacked(ks, this.t === 'w' ? 'b' : 'w');
+    };
+
+    ChessEngine.prototype.legalMoves = function(fromSq) {
+      const all = this._pseudoMoves(this.t);
+      const result = [];
+      const me = this.t;
+      for (const m of all) {
+        if (fromSq && m.from !== fromSq) continue;
+        if (m.flags === 'k' || m.flags === 'q') {
+          if (this.isCheck()) continue;
+          const kSq = this._kingSquare(me);
+          const { f: kf, r: kr } = sqToRF(kSq);
+          const throughF = m.flags === 'k' ? 5 : 3;
+          const saved = this.b[kr][throughF];
+          this.b[kr][throughF] = { t: 'k', c: me };
+          this.b[kr][kf] = null;
+          const throughAttacked = this._isAttacked(rfToSq(kr, throughF), me === 'w' ? 'b' : 'w');
+          this.b[kr][kf] = { t: 'k', c: me };
+          this.b[kr][throughF] = saved;
+          if (throughAttacked) continue;
+        }
+        const snap = this._snapshot();
+        this._applyRaw(m);
+        const opp = me === 'w' ? 'b' : 'w';
+        const kSq = this._kingSquare(me);
+        const inCheck = kSq ? this._isAttacked(kSq, opp) : false;
+        this._restore(snap);
+        if (!inCheck) result.push(m.to);
+      }
+      return Array.from(new Set(result));
+    };
+
+    ChessEngine.prototype._snapshot = function() {
+      return {
+        b: this.b.map(row => row.map(c => c ? { t: c.t, c: c.c } : null)),
+        t: this.t,
+        cr: { ...this.cr },
+        ep: this.ep,
+        halfmove: this.halfmove,
+        fullmove: this.fullmove,
+      };
+    };
+    ChessEngine.prototype._restore = function(s) {
+      this.b = s.b; this.t = s.t; this.cr = s.cr;
+      this.ep = s.ep; this.halfmove = s.halfmove; this.fullmove = s.fullmove;
+    };
+
+    ChessEngine.prototype._applyRaw = function(m) {
+      const { f: ff, r: fr } = sqToRF(m.from);
+      const { f: tf, r: tr } = sqToRF(m.to);
+      const piece = this.b[fr][ff];
+      this.b[tr][tf] = piece;
+      this.b[fr][ff] = null;
+      if (m.flags === 'e') {
+        const victimR = piece.c === 'w' ? tr - 1 : tr + 1;
+        this.b[victimR][tf] = null;
+      }
+      if (m.flags === 'k' || m.flags === 'q') {
+        const rookFrom = m.flags === 'k' ? 7 : 0;
+        const rookTo = m.flags === 'k' ? 5 : 3;
+        this.b[tr][rookTo] = this.b[tr][rookFrom];
+        this.b[tr][rookFrom] = null;
+      }
+    };
+
+    ChessEngine.prototype.move = function(fromSq, toSq, promotion) {
+      const legal = this.legalMoves(fromSq);
+      if (legal.indexOf(toSq) === -1) return null;
+      const all = this._pseudoMoves(this.t);
+      const match = all.find(m => m.from === fromSq && m.to === toSq);
+      if (!match) return null;
+
+      const { r: tr } = sqToRF(toSq);
+      if (match.piece.t === 'p' && (tr === 0 || tr === 7)) {
+        match.promotion = promotion || 'q';
+      }
+
+      this._applyRaw(match);
+
+      if (match.piece.t === 'k') {
+        if (match.piece.c === 'w') { this.cr.wK = false; this.cr.wQ = false; }
+        else { this.cr.bK = false; this.cr.bQ = false; }
+      }
+      if (match.piece.t === 'r') {
+        if (fromSq === 'a1') this.cr.wQ = false;
+        if (fromSq === 'h1') this.cr.wK = false;
+        if (fromSq === 'a8') this.cr.bQ = false;
+        if (fromSq === 'h8') this.cr.bK = false;
+      }
+      if (toSq === 'a1') this.cr.wQ = false;
+      if (toSq === 'h1') this.cr.wK = false;
+      if (toSq === 'a8') this.cr.bQ = false;
+      if (toSq === 'h8') this.cr.bK = false;
+
+      if (match.promotion) {
+        const { r: pr, f: pf } = sqToRF(toSq);
+        this.b[pr][pf] = { t: match.promotion, c: match.piece.c };
+      }
+
+      if (match.flags === 'b') {
+        const { r: tr2, f: tf2 } = sqToRF(toSq);
+        const behind = match.piece.c === 'w' ? tr2 - 1 : tr2 + 1;
+        this.ep = rfToSq(behind, tf2);
+      } else {
+        this.ep = null;
+      }
+
+      if (match.piece.t === 'p' || match.flags === 'c' || match.flags === 'e') this.halfmove = 0;
+      else this.halfmove++;
+      if (this.t === 'b') this.fullmove++;
+      this.t = this.t === 'w' ? 'b' : 'w';
+
+      this.history.push({ ...match, toSq });
+      return match;
+    };
+
+    ChessEngine.prototype.isCheckmate = function() {
+      if (!this.isCheck()) return false;
+      return this._noLegalMoves();
+    };
+    ChessEngine.prototype.isStalemate = function() {
+      if (this.isCheck()) return false;
+      return this._noLegalMoves();
+    };
+    ChessEngine.prototype._noLegalMoves = function() {
+      for (let r = 0; r < 8; r++)
+        for (let f = 0; f < 8; f++) {
+          const p = this.b[r][f];
+          if (!p || p.c !== this.t) continue;
+          if (this.legalMoves(rfToSq(r, f)).length > 0) return false;
+        }
+      return true;
+    };
+
+    ChessEngine.prototype.fen = function() {
+      let rows = [];
+      for (let r = 7; r >= 0; r--) {
+        let row = '';
+        let empty = 0;
+        for (let f = 0; f < 8; f++) {
+          const p = this.b[r][f];
+          if (!p) { empty++; continue; }
+          if (empty > 0) { row += empty; empty = 0; }
+          row += p.c === 'w' ? p.t.toUpperCase() : p.t;
+        }
+        if (empty > 0) row += empty;
+        rows.push(row);
+      }
+      const cast = (this.cr.wK ? 'K' : '') + (this.cr.wQ ? 'Q' : '') + (this.cr.bK ? 'k' : '') + (this.cr.bQ ? 'q' : '') || '-';
+      return `${rows.join('/')} ${this.t} ${cast} ${this.ep || '-'} ${this.halfmove} ${this.fullmove}`;
+    };
+
+    const SQUARE_SIZE = 1.0;
+    const BOARD_ORIGIN_X = -3.5;
+    const BOARD_ORIGIN_Z = -3.5;
+
+    // ============================================================
+    // THEME PALETTE — 6 high-contrast themes.
+    // Each theme also themes the clock wood: woodDark (body/plates),
+    // woodLight (top accent & divider), woodBtn (buttons on top).
+    // 'sig' is the signature color used on the theme's back-of-clock switch
+    // (distinct per theme so users can identify them at a glance - different
+    // from 'accent' which collides across themes).
+    // ============================================================
+    const THEMES = {
+      "classic": {
+        "label": "Classic",
+        "light": "#8b6f47",   // deep walnut light squares (was buttery maple)
+        "dark": "#3d2817",    // espresso/dark-chocolate dark squares (was mid walnut)
+        "frame": "#1a0f08",   // near-black ebony frame (was mahogany)
+        "white": "#e8d5a8",   // slightly warmer cream pieces (reads against darker board)
+        "black": "#0d0804",   // near-black pieces with warm tint
+        "accent": "#ffd633",  // gold selection
+        "hint": "#33ff66",    // green legal-moves
+        "sig": "#8b6f47",     // switch signature: walnut (the iconic board wood)
+        "woodDark": "#2a1a0e", "woodLight": "#5a3a20", "woodBtn": "#180f08"  // clock matches: darker espresso wood
+      },
+      "inferno": {
+        "label": "Inferno",
+        "light": "#3d2020", "dark": "#1a0808", "frame": "#0a0000",
+        "white": "#ff6600",   // sunrise orange — stronger red-shift, more saturated
+        "black": "#dc143c",   // crimson red
+        "accent": "#ffee00", "hint": "#00e5ff",
+        "sig": "#ff6600",     // switch signature: sunrise orange (the hero piece color)
+        "woodDark": "#2a0806", "woodLight": "#5a1208", "woodBtn": "#1a0404"  // charred ember wood
+      },
+      "hazard": {
+        "label": "Hazard",
+        "light": "#3a3a3a", "dark": "#161616", "frame": "#000000",
+        "white": "#ffdd00",   // canary yellow (white side)
+        "black": "#ffffff",   // pure white (black side, was jet black)
+        "accent": "#ff3030", "hint": "#00ff88",
+        "sig": "#ffdd00",     // switch signature: canary yellow (construction warning)
+        "woodDark": "#1f1f1f", "woodLight": "#ffdd00", "woodBtn": "#0a0a0a"  // industrial black + yellow-stripe
+      },
+      "arctic": {
+        "label": "Arctic",
+        "light": "#1e4a5c", "dark": "#0a1f2a", "frame": "#04101a",
+        "white": "#ffffff", "black": "#1e3ecc",
+        "accent": "#ff9500", "hint": "#a0f0ff",
+        "sig": "#1e3ecc",     // switch signature: cobalt blue (the cold/ice identity)
+        "woodDark": "#2a4a5a", "woodLight": "#8eb8c8", "woodBtn": "#1a2f3a"  // frost-blue wood
+      },
+      "neon": {
+        "label": "Neon",
+        "light": "#2a0040", "dark": "#0f0020", "frame": "#ff00ff",
+        "white": "#00ffff", "black": "#ff00aa",
+        "accent": "#ffee00", "hint": "#00ff88",
+        "sig": "#ff00aa",     // switch signature: magenta (the iconic Neon piece color)
+        "woodDark": "#2a0640", "woodLight": "#ff00ff", "woodBtn": "#12001e"  // cyberpunk purple + magenta trim
+      },
+      "toxic": {
+        "label": "Toxic",
+        "light": "#4a4a4a",   // dark gray light squares (was harsh white, matches other themes' mood)
+        "dark": "#1a1a1a",    // black dark squares
+        "frame": "#000000",
+        "white": "#39ff14",   // lime green pieces
+        "black": "#f0e6c8",   // warm cream pieces (was pure white, feels more like a chess set)
+        "accent": "#ff1493",  // hot pink selection (pops on both board colors AND both piece colors)
+        "hint": "#ffee00",    // yellow legal-moves (now a free third color since yellow isn't used for pieces)
+        "sig": "#39ff14",     // switch signature: lime green (toxic glow)
+        "woodDark": "#0c1f0c", "woodLight": "#39ff14", "woodBtn": "#050f05"  // toxic-drum green-on-black
+      }
+    };
+    const THEME_KEYS = ["classic", "inferno", "hazard", "toxic", "arctic", "neon"];
+    let currentTheme = 'classic';
+
+    function sqToXZ(sq) {
+      const f = sq.charCodeAt(0) - 97;
+      const r = parseInt(sq[1], 10) - 1;
+      return {
+        x: BOARD_ORIGIN_X + f * SQUARE_SIZE,
+        z: BOARD_ORIGIN_Z + r * SQUARE_SIZE
+      };
+    }
+
+    function pieceIdFor(type, color, startSquare) {
+      return color + type.toUpperCase() + '-' + startSquare;
+    }
+
+    // Apply the theme to every relevant element in the scene.
+    function applyTheme(key) {
+      const t = THEMES[key];
+      if (!t) return;
+      currentTheme = key;
+
+      // Squares
+      for (let r = 0; r < 8; r++)
+        for (let f = 0; f < 8; f++) {
+          const sq = String.fromCharCode(97 + f) + (r + 1);
+          const el = document.getElementById('sq-' + sq);
+          if (!el) continue;
+          const isDark = (f + r) % 2 === 0;
+          el.setAttribute('color', isDark ? t.dark : t.light);
+        }
+
+      // Pieces
+      const whiteGroups = document.getElementsByClassName('pc-w');
+      for (let i = 0; i < whiteGroups.length; i++) {
+        const parts = whiteGroups[i].getElementsByClassName('pp');
+        for (let j = 0; j < parts.length; j++) parts[j].setAttribute('color', t.white);
+      }
+      const blackGroups = document.getElementsByClassName('pc-b');
+      for (let i = 0; i < blackGroups.length; i++) {
+        const parts = blackGroups[i].getElementsByClassName('pp');
+        for (let j = 0; j < parts.length; j++) parts[j].setAttribute('color', t.black);
+      }
+
+      // Board frame
+      const frame = document.getElementById('board-frame');
+      if (frame) frame.setAttribute('color', t.frame);
+
+      // Clock wood — recolor body, plates, accent trim, and buttons
+      const woodDarkParts = ['clock-body', 'clock-front-plate', 'clock-back-plate'];
+      woodDarkParts.forEach(function(id) {
+        const el = document.getElementById(id);
+        if (el) el.setAttribute('color', t.woodDark);
+      });
+      const woodLightParts = ['clock-top-accent', 'clock-divider'];
+      woodLightParts.forEach(function(id) {
+        const el = document.getElementById(id);
+        if (el) el.setAttribute('color', t.woodLight);
+      });
+      const woodBtnParts = ['clock-btn-1', 'clock-btn-2', 'clock-btn-3'];
+      woodBtnParts.forEach(function(id) {
+        const el = document.getElementById(id);
+        if (el) el.setAttribute('color', t.woodBtn);
+      });
+
+      // Theme switch panel — mark the active switch with its full signature
+      // color and a slight "raised" offset on +X; dim inactive switches.
+      // Each switch's color = that theme's 'sig' field (unique per theme).
+      // Inactive switches are mixed ~55% toward the theme's clock wood color
+      // so the row reads as muted-but-visible paint stripes until one lights up.
+      THEME_KEYS.forEach(function(themeKey) {
+        const sw = document.getElementById('theme-sw-' + themeKey);
+        if (!sw) return;
+        const swTheme = THEMES[themeKey];
+        if (themeKey === key) {
+          // Active: full bright signature color, raised slightly (x=0.50)
+          sw.setAttribute('color', swTheme.sig);
+          sw.setAttribute('x', 0.50);
+        } else {
+          // Inactive: dimmed color (mix sig toward woodDark), flush (x=0.48)
+          sw.setAttribute('color', dimColor(swTheme.sig, t.woodDark, 0.55));
+          sw.setAttribute('x', 0.48);
+        }
+      });
+
+      // Clear any active selection highlight so it re-applies with new theme
+      clearHighlights();
+    }
+
+    // Blend two hex colors. `amount` = how much of colorB to mix in (0..1).
+    // Used to dim inactive theme switches toward the wood color.
+    function dimColor(colorA, colorB, amount) {
+      const pa = parseHex(colorA);
+      const pb = parseHex(colorB);
+      const r = Math.round(pa.r * (1 - amount) + pb.r * amount);
+      const g = Math.round(pa.g * (1 - amount) + pb.g * amount);
+      const b = Math.round(pa.b * (1 - amount) + pb.b * amount);
+      return '#' + [r, g, b].map(function(v) {
+        return v.toString(16).padStart(2, '0');
+      }).join('');
+    }
+    function parseHex(hex) {
+      const h = hex.replace('#', '');
+      return {
+        r: parseInt(h.substr(0, 2), 16),
+        g: parseInt(h.substr(2, 2), 16),
+        b: parseInt(h.substr(4, 2), 16),
+      };
+    }
+
+    function defaultSquareColor(sq) {
+      const f = sq.charCodeAt(0) - 97;
+      const r = parseInt(sq[1], 10) - 1;
+      const t = THEMES[currentTheme];
+      return (f + r) % 2 === 0 ? t.dark : t.light;
+    }
+
+    const game = new ChessEngine();
+    let selected = null;
+    let legalDests = [];
+    const pieceAtSq = {};
+    const allPieces = [];
+
+    (function initPieces() {
+      const b = game.board();
+      for (let r = 0; r < 8; r++)
+        for (let f = 0; f < 8; f++) {
+          const cell = b[r][f];
+          if (!cell) continue;
+          const rec = {
+            id: pieceIdFor(cell.type, cell.color, cell.square),
+            type: cell.type, color: cell.color,
+            captured: false, sq: cell.square,
+          };
+          pieceAtSq[cell.square] = rec;
+          allPieces.push(rec);
+        }
+    })();
+
+    const statusLabel = document.getElementById('status-label');
+
+    // Clock state
+    const CLOCK_START_SEC = 600;
+    let whiteSec = CLOCK_START_SEC;
+    let blackSec = CLOCK_START_SEC;
+    let clockRunning = false;
+    let lastTickMs = 0;
+    let gameOver = false;
+
+    const CLOCK_LCD_OFF = '#1a2410';
+    const CLOCK_COLORS = {
+      green: '#39ff14', orange: '#ff9500',
+      yellow: '#ffff00', red: '#ff1744',
+    };
+    const IND_ACTIVE = '#ff3030';
+    const IND_IDLE = '#401010';
+
+    function colorForTime(sec) {
+      if (sec > 480) return CLOCK_COLORS.green;
+      if (sec > 300) return CLOCK_COLORS.orange;
+      if (sec > 120) return CLOCK_COLORS.yellow;
+      return CLOCK_COLORS.red;
+    }
+
+    const DIGIT_SEGMENTS = {
+      0: 1 | 2 | 4 | 8 | 16 | 32, 1: 2 | 4,
+      2: 1 | 2 | 8 | 16 | 64, 3: 1 | 2 | 4 | 8 | 64,
+      4: 2 | 4 | 32 | 64, 5: 1 | 4 | 8 | 32 | 64,
+      6: 1 | 4 | 8 | 16 | 32 | 64, 7: 1 | 2 | 4,
+      8: 1 | 2 | 4 | 8 | 16 | 32 | 64, 9: 1 | 2 | 4 | 8 | 32 | 64,
+    };
+    const SEG_LETTERS = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+
+    function setDigit(faceSideKey, slot, digit, onColor) {
+      const bits = DIGIT_SEGMENTS[digit] || 0;
+      for (let i = 0; i < 7; i++) {
+        const seg = document.getElementById('seg-' + faceSideKey + '-' + slot + '-' + SEG_LETTERS[i]);
+        if (!seg) continue;
+        const mask = 1 << i;
+        seg.setAttribute('color', (bits & mask) ? onColor : CLOCK_LCD_OFF);
+      }
+    }
+
+    function setColon(faceKey, sideKey, color) {
+      const top = document.getElementById('col-' + faceKey + '-' + sideKey + '-top');
+      const bot = document.getElementById('col-' + faceKey + '-' + sideKey + '-bot');
+      if (top) top.setAttribute('color', color);
+      if (bot) bot.setAttribute('color', color);
+    }
+
+    function renderSide(sideKey, sec) {
+      const onColor = colorForTime(sec);
+      const m = Math.floor(sec / 60);
+      const s = Math.max(0, Math.floor(sec % 60));
+      setDigit('f' + sideKey, 0, Math.floor(m / 10), onColor);
+      setDigit('f' + sideKey, 1, m % 10, onColor);
+      setDigit('f' + sideKey, 2, Math.floor(s / 10), onColor);
+      setDigit('f' + sideKey, 3, s % 10, onColor);
+      setColon('f', sideKey, onColor);
+    }
+
+    function renderClock() {
+      renderSide('w', whiteSec);
+      renderSide('b', blackSec);
+      const activeIsW = (game.turn() === 'w');
+      const indW = document.getElementById('clock-ind-w');
+      const indB = document.getElementById('clock-ind-b');
+      if (indW) indW.setAttribute('color', (clockRunning && activeIsW) ? IND_ACTIVE : IND_IDLE);
+      if (indB) indB.setAttribute('color', (clockRunning && !activeIsW) ? IND_ACTIVE : IND_IDLE);
+    }
+
+    function tickClock() {
+      if (!clockRunning || gameOver) return;
+      const now = Date.now();
+      if (lastTickMs === 0) { lastTickMs = now; return; }
+      const deltaSec = (now - lastTickMs) / 1000;
+      lastTickMs = now;
+      if (game.turn() === 'w') {
+        whiteSec = Math.max(0, whiteSec - deltaSec);
+        if (whiteSec === 0) { endOnTime('w'); return; }
+      } else {
+        blackSec = Math.max(0, blackSec - deltaSec);
+        if (blackSec === 0) { endOnTime('b'); return; }
+      }
+      renderClock();
+    }
+
+    function endOnTime(loser) {
+      gameOver = true;
+      clockRunning = false;
+      const winner = loser === 'w' ? 'Black' : 'White';
+      if (statusLabel) statusLabel.setAttribute('content', winner + ' wins on time');
+      renderClock();
+    }
+    setInterval(tickClock, 250);
+
+    function updateStatus() {
+      if (gameOver) return;
+      let text;
+      if (game.isCheckmate()) {
+        text = (game.turn() === 'w' ? 'Black' : 'White') + ' wins by checkmate';
+        gameOver = true; clockRunning = false;
+      } else if (game.isStalemate()) {
+        text = 'Stalemate - draw';
+        gameOver = true; clockRunning = false;
+      } else if (game.isCheck()) {
+        text = (game.turn() === 'w' ? 'White' : 'Black') + ' to move (check)';
+      } else {
+        text = (game.turn() === 'w' ? 'White' : 'Black') + ' to move';
+      }
+      if (statusLabel) statusLabel.setAttribute('content', text);
+      renderClock();
+    }
+
+    function clearHighlights() {
+      if (selected) {
+        const el = document.getElementById('sq-' + selected);
+        if (el) el.setAttribute('color', defaultSquareColor(selected));
+      }
+      legalDests.forEach(function(d) {
+        const el = document.getElementById('sq-' + d);
+        if (el) el.setAttribute('color', defaultSquareColor(d));
+      });
+      selected = null;
+      legalDests = [];
+    }
+
+    function highlightSelection(fromSq, dests) {
+      const t = THEMES[currentTheme];
+      const selEl = document.getElementById('sq-' + fromSq);
+      if (selEl) selEl.setAttribute('color', t.accent);
+      dests.forEach(function(d) {
+        const el = document.getElementById('sq-' + d);
+        if (el) el.setAttribute('color', t.hint);
+      });
+    }
+
+    function movePieceDOM(fromSq, toSq) {
+      const rec = pieceAtSq[fromSq];
+      if (!rec) return;
+      const el = document.getElementById(rec.id);
+      if (!el) return;
+      const { x, z } = sqToXZ(toSq);
+      el.setAttribute('x', x);
+      el.setAttribute('z', z);
+      delete pieceAtSq[fromSq];
+      rec.sq = toSq;
+      pieceAtSq[toSq] = rec;
+    }
+
+    function capturePieceDOM(sq) {
+      const rec = pieceAtSq[sq];
+      if (!rec) return;
+      const el = document.getElementById(rec.id);
+      if (el) {
+        const offX = rec.color === 'w' ? -7 : 7;
+        const offZ = (rec.sq.charCodeAt(0) - 97) * 0.5 - 2;
+        el.setAttribute('x', offX);
+        el.setAttribute('z', offZ);
+      }
+      delete pieceAtSq[sq];
+      rec.captured = true;
+    }
+
+    function promotePieceDOM(sq, newType) {
+      const rec = pieceAtSq[sq];
+      if (rec) rec.type = newType;
+    }
+
+    function tryMoveFromSelected(toSq) {
+      if (gameOver) return false;
+      const fromSq = selected;
+      const movingRec = pieceAtSq[fromSq];
+      const moveResult = game.move(fromSq, toSq);
+      if (!moveResult) return false;
+
+      if (!clockRunning) {
+        clockRunning = true;
+        lastTickMs = Date.now();
+      } else {
+        const now = Date.now();
+        if (lastTickMs > 0) {
+          const deltaSec = (now - lastTickMs) / 1000;
+          if (movingRec.color === 'w') whiteSec = Math.max(0, whiteSec - deltaSec);
+          else blackSec = Math.max(0, blackSec - deltaSec);
+        }
+        lastTickMs = now;
+      }
+
+      if (moveResult.flags === 'k' || moveResult.flags === 'q') {
+        const rank = movingRec.color === 'w' ? '1' : '8';
+        const rookFromSq = (moveResult.flags === 'k' ? 'h' : 'a') + rank;
+        const rookToSq = (moveResult.flags === 'k' ? 'f' : 'd') + rank;
+        movePieceDOM(rookFromSq, rookToSq);
+      }
+      if (moveResult.flags === 'e') {
+        const dir = movingRec.color === 'w' ? -1 : 1;
+        const victimSq = toSq[0] + (parseInt(toSq[1], 10) + dir);
+        capturePieceDOM(victimSq);
+      }
+      if (moveResult.flags === 'c' && pieceAtSq[toSq]) {
+        capturePieceDOM(toSq);
+      }
+      movePieceDOM(fromSq, toSq);
+      if (moveResult.promotion) promotePieceDOM(toSq, moveResult.promotion);
+
+      clearHighlights();
+      updateStatus();
+      renderClock();
+      return true;
+    }
+
+    function resetGame() {
+      game.reset();
+      gameOver = false;
+      clockRunning = false;
+      lastTickMs = 0;
+      whiteSec = CLOCK_START_SEC;
+      blackSec = CLOCK_START_SEC;
+      clearHighlights();
+
+      for (const rec of allPieces) {
+        const startSq = rec.id.split('-')[1];
+        const el = document.getElementById(rec.id);
+        if (el) {
+          const { x, z } = sqToXZ(startSq);
+          el.setAttribute('x', x);
+          el.setAttribute('z', z);
+        }
+        rec.sq = startSq;
+        rec.captured = false;
+        rec.type = rec.id[1].toLowerCase();
+        pieceAtSq[startSq] = rec;
+      }
+      Object.keys(pieceAtSq).forEach(function(sq) {
+        const rec = pieceAtSq[sq];
+        const startSq = rec.id.split('-')[1];
+        if (startSq !== sq) delete pieceAtSq[sq];
+      });
+
+      updateStatus();
+      renderClock();
+    }
+
+    // ---- WIRE UP INTERACTION ----
+
+    for (let r = 0; r < 8; r++)
+      for (let f = 0; f < 8; f++) {
+        const sq = String.fromCharCode(97 + f) + (r + 1);
+        const el = document.getElementById('sq-' + sq);
+        if (!el) continue;
+        el.addEventListener('click', (function(mySq) {
+          return function() {
+            if (gameOver) return;
+            if (selected && legalDests.indexOf(mySq) !== -1) {
+              tryMoveFromSelected(mySq);
+              return;
+            }
+            clearHighlights();
+            const rec = pieceAtSq[mySq];
+            if (rec && rec.color === game.turn() && !rec.captured) {
+              const dests = game.legalMoves(mySq);
+              if (dests.length > 0) {
+                selected = mySq;
+                legalDests = dests;
+                highlightSelection(mySq, dests);
+              }
+            }
+          };
+        })(sq));
+      }
+
+    allPieces.forEach(function(rec) {
+      const el = document.getElementById(rec.id);
+      if (!el) return;
+      el.addEventListener('click', function() {
+        if (gameOver) return;
+        const mySq = rec.sq;
+        if (selected && legalDests.indexOf(mySq) !== -1) {
+          tryMoveFromSelected(mySq);
+          return;
+        }
+        clearHighlights();
+        if (rec.color === game.turn() && !rec.captured) {
+          const dests = game.legalMoves(mySq);
+          if (dests.length > 0) {
+            selected = mySq;
+            legalDests = dests;
+            highlightSelection(mySq, dests);
+          }
+        }
+      });
+    });
+
+    // Wire up each theme switch: clicking jumps directly to that theme
+    // (instead of the old cycle behavior). This lets players pick any theme
+    // in one click rather than pressing through the rotation.
+    THEME_KEYS.forEach(function(themeKey) {
+      const sw = document.getElementById('theme-sw-' + themeKey);
+      if (!sw) return;
+      sw.addEventListener('click', function() {
+        applyTheme(themeKey);
+      });
+    });
+
+    const resetEl = document.getElementById('reset-btn');
+    if (resetEl) {
+      resetEl.addEventListener('click', function() {
+        resetGame();
+      });
+    }
+
+    applyTheme('classic');
+    updateStatus();
+    renderClock();
+  })();
+</script>
