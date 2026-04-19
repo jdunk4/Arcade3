@@ -384,6 +384,18 @@ canvas { display: block; }
 }
 @keyframes rain { to { top: 120%; } }
 
+/* Persistent matrix rain overlay visible during gameplay too (subtle) */
+#matrix-rain-persistent {
+  position: fixed; inset: 0;
+  pointer-events: none; z-index: 4;
+  opacity: 0.08;
+  overflow: hidden;
+}
+#matrix-rain-persistent .matrix-col {
+  color: var(--matrix-green);
+  text-shadow: 0 0 6px var(--matrix-green);
+}
+
 /* ====== MISC ====== */
 #damage-flash {
   position: fixed; inset: 0; pointer-events: none; z-index: 5;
