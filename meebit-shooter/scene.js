@@ -25,7 +25,7 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// ---- LIGHTS (kept minimal to avoid stalls) ----
+// ---- LIGHTS ----
 const ambient = new THREE.AmbientLight(0x3a2850, 0.55);
 scene.add(ambient);
 
@@ -35,7 +35,7 @@ scene.add(hemi);
 const moon = new THREE.DirectionalLight(0xb4a8ff, 1.0);
 moon.position.set(-18, 30, 18);
 moon.castShadow = true;
-moon.shadow.mapSize.width = 1024; // reduced for perf
+moon.shadow.mapSize.width = 1024;
 moon.shadow.mapSize.height = 1024;
 moon.shadow.camera.near = 1;
 moon.shadow.camera.far = 90;
@@ -49,61 +49,62 @@ scene.add(moon);
 const rimLight = new THREE.PointLight(THEMES[0].lamp, 1.6, 20, 1.5);
 scene.add(rimLight);
 
-// ---- GROUND ----
+// ---- CHECKERED FLOOR ----
+// Create a large checker texture applied to the whole arena floor.
+function makeCheckerTexture() {
+  const size = 512;
+  const c = document.createElement('canvas');
+  c.width = size; c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#1a0c2e';
+  ctx.fillRect(0, 0, size, size);
+  const step = size / 8;
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 8; x++) {
+      if ((x + y) % 2 === 0) {
+        ctx.fillStyle = '#2a1848';
+        ctx.fillRect(x * step, y * step, step, step);
+      }
+    }
+  }
+  // thin neon grid lines between squares
+  ctx.strokeStyle = 'rgba(255,60,172,0.35)';
+  ctx.lineWidth = 2;
+  for (let i = 0; i <= 8; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * step, 0); ctx.lineTo(i * step, size); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, i * step); ctx.lineTo(size, i * step); ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(10, 10); // 10x10 tiling across whole arena
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+const floorTex = makeCheckerTexture();
 const groundMat = new THREE.MeshStandardMaterial({
-  color: THEMES[0].ground, roughness: 0.85, metalness: 0.05
+  map: floorTex,
+  color: 0xffffff,
+  roughness: 0.85,
+  metalness: 0.05
 });
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(ARENA * 2, ARENA * 2, 1, 1), groundMat);
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
 
-// ---- CHECKERED PATTERN UNDER PLAYER ----
-// Uses a canvas texture for the checker. Moves with player to create a "spotlight" effect.
-function makeCheckerTexture() {
-  const size = 256;
-  const c = document.createElement('canvas');
-  c.width = size; c.height = size;
-  const ctx = c.getContext('2d');
-  const step = size / 8;
-  for (let y = 0; y < 8; y++) {
-    for (let x = 0; x < 8; x++) {
-      ctx.fillStyle = (x + y) % 2 === 0 ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.12)';
-      ctx.fillRect(x * step, y * step, step, step);
-    }
-  }
-  // subtle border glow
-  ctx.strokeStyle = 'rgba(255,255,255,0.8)';
-  ctx.lineWidth = 4;
-  ctx.strokeRect(0, 0, size, size);
-  const tex = new THREE.CanvasTexture(c);
-  tex.magFilter = THREE.NearestFilter;
-  tex.minFilter = THREE.LinearFilter;
-  return tex;
-}
-
-const checkerTex = makeCheckerTexture();
-const checkerMat = new THREE.MeshBasicMaterial({
-  map: checkerTex,
-  transparent: true,
-  opacity: 0.35,
-  depthWrite: false,
-  blending: THREE.AdditiveBlending,
-});
-export const playerSpot = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), checkerMat);
-playerSpot.rotation.x = -Math.PI / 2;
-playerSpot.position.y = 0.02;
-scene.add(playerSpot);
-
-// ---- GRID ----
+// ---- GRID OVERLAY (on top of checker, subtle) ----
 let gridHelper = new THREE.GridHelper(ARENA * 2, 40, THEMES[0].grid1, THEMES[0].grid2);
-gridHelper.material.opacity = 0.4;
+gridHelper.material.opacity = 0.15;
 gridHelper.material.transparent = true;
 gridHelper.position.y = 0.015;
 scene.add(gridHelper);
 
-// ---- BORDER PILLARS (instanced for perf!) ----
-// Instead of hundreds of individual meshes, one InstancedMesh with shared geometry/material.
+// ---- BORDER PILLARS (instanced) ----
 const pillarPositions = [];
 for (let i = -ARENA; i <= ARENA; i += 4) {
   pillarPositions.push([i, -ARENA], [i, ARENA], [-ARENA, i], [ARENA, i]);
@@ -124,7 +125,6 @@ pillarMesh.receiveShadow = true;
 }
 scene.add(pillarMesh);
 
-// Caps (smaller instanced) — these tint with theme
 const capGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
 const capMat = new THREE.MeshStandardMaterial({ color: THEMES[0].lamp, emissive: THEMES[0].lamp, emissiveIntensity: 1.8 });
 const capMesh = new THREE.InstancedMesh(capGeo, capMat, pillarPositions.length);
@@ -164,14 +164,13 @@ tombMesh.receiveShadow = true;
 }
 scene.add(tombMesh);
 
-// ---- LAMPS (limited count with point lights) ----
+// ---- LAMPS ----
 const lampBulbs = [];
 const lampPointLights = [];
 {
   const poleGeo = new THREE.BoxGeometry(0.2, 3, 0.2);
   const poleMat = new THREE.MeshStandardMaterial({ color: 0x2a1040, roughness: 0.7 });
   const bulbGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-  // Only 6 lamps (was 10 + random pillar lights before) — keeps point light count low
   for (let i = 0; i < 6; i++) {
     const x = (Math.random() - 0.5) * ARENA * 1.4;
     const z = (Math.random() - 0.5) * ARENA * 1.4;
@@ -194,7 +193,7 @@ const lampPointLights = [];
 
 export const Scene = {
   scene, camera, renderer, rimLight, ground, groundMat, gridHelper,
-  capMesh, capMat, lampBulbs, lampPointLights, hemi, playerSpot,
+  capMesh, capMat, lampBulbs, lampPointLights, hemi, floorTex,
 };
 
 // ---- THEME APPLICATION ----
@@ -202,11 +201,10 @@ export function applyTheme(idx) {
   const t = THEMES[idx % THEMES.length];
   scene.background.set(t.sky);
   scene.fog.color.set(t.fog);
-  groundMat.color.set(t.ground);
-  // Rebuild grid (colors are baked at construction)
+  // rebuild grid
   scene.remove(gridHelper);
   gridHelper = new THREE.GridHelper(ARENA * 2, 40, t.grid1, t.grid2);
-  gridHelper.material.opacity = 0.4;
+  gridHelper.material.opacity = 0.15;
   gridHelper.material.transparent = true;
   gridHelper.position.y = 0.015;
   scene.add(gridHelper);
@@ -216,6 +214,8 @@ export function applyTheme(idx) {
   rimLight.color.set(t.lamp);
   capMat.color.set(t.lamp);
   capMat.emissive.set(t.lamp);
+  // tint the floor slightly
+  groundMat.color.set(new THREE.Color(0xffffff).lerp(new THREE.Color(t.lamp), 0.08));
   for (const bulb of lampBulbs) {
     bulb.material.color.set(t.lamp);
     bulb.material.emissive.set(t.lamp);
