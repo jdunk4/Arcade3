@@ -33,6 +33,7 @@ function buildMatrixBG(el) {
 }
 buildMatrixBG(document.getElementById('matrix-bg-load'));
 buildMatrixBG(document.getElementById('matrix-bg-title'));
+buildMatrixBG(document.getElementById('matrix-rain-persistent'));
 
 // ---- LOAD MEEBIT ----
 const loadBar = document.getElementById('loadbar');
@@ -62,49 +63,70 @@ loadPlayer(
 );
 
 // ---- INCOMING CALL FLOW ----
+// Browser autoplay policy: <audio> with sound requires a user gesture first.
+// So we show a "tap/click to begin" overlay first, then after they interact,
+// we show the call screen WITH the ring playing.
+
 function showIncomingCall() {
   const overlay = document.getElementById('incoming-call');
-  overlay.classList.remove('hidden');
+  const ring = document.getElementById('phone-ring');
+  ring.volume = 0.6;
   S.phase = 'call';
 
-  // Start phone ring
-  const ring = document.getElementById('phone-ring');
-  ring.volume = 0.5;
-  const playPromise = ring.play();
-  if (playPromise !== undefined) {
-    playPromise.catch(() => {
-      // autoplay blocked; user will click a button which will play then
-    });
-  }
+  // Show a "click to receive call" gate first if we don't yet have audio permission
+  const gate = document.createElement('div');
+  gate.id = 'audio-gate';
+  gate.style.cssText = `
+    position: fixed; inset: 0; background: linear-gradient(180deg,#000,#0a0612);
+    z-index: 150; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    cursor: pointer; font-family: 'Courier New', monospace; color: #00ff66;
+    text-align: center; padding: 40px;
+  `;
+  gate.innerHTML = `
+    <div class="matrix-bg" id="matrix-bg-gate" style="position:absolute; inset:0; opacity:0.2; overflow:hidden;"></div>
+    <div style="font-family: 'Impact', monospace; font-size: 64px; letter-spacing: 8px; color: #00ff66; text-shadow: 0 0 20px #00ff66; margin-bottom: 20px;">MEEBIT</div>
+    <div style="font-size: 14px; letter-spacing: 3px; opacity: 0.8; margin-bottom: 40px;">SURVIVAL PROTOCOL</div>
+    <div style="font-size: 18px; letter-spacing: 4px; color: #fff; animation: gate-blink 1.2s infinite;">[ CLICK TO RECEIVE TRANSMISSION ]</div>
+    <style>@keyframes gate-blink {0%,100%{opacity:0.5}50%{opacity:1}}</style>
+  `;
+  document.body.appendChild(gate);
+  buildMatrixBG(document.getElementById('matrix-bg-gate'));
 
-  // Call timer
-  let seconds = 0;
-  const timerEl = document.getElementById('call-timer');
-  const timerInt = setInterval(() => {
-    seconds++;
-    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-    const s = (seconds % 60).toString().padStart(2, '0');
-    timerEl.textContent = `${m}:${s}`;
-  }, 1000);
+  gate.addEventListener('click', () => {
+    gate.remove();
+    overlay.classList.remove('hidden');
+    // NOW start phone ring — after user gesture
+    ring.play().catch(err => console.warn('Ring play failed:', err));
 
-  const end = () => {
-    clearInterval(timerInt);
-    ring.pause();
-    ring.currentTime = 0;
-    overlay.classList.add('hidden');
-  };
+    // Call timer
+    let seconds = 0;
+    const timerEl = document.getElementById('call-timer');
+    const timerInt = setInterval(() => {
+      seconds++;
+      const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+      const s = (seconds % 60).toString().padStart(2, '0');
+      timerEl.textContent = `${m}:${s}`;
+    }, 1000);
 
-  document.getElementById('call-accept').onclick = () => {
-    end();
-    document.getElementById('title').classList.remove('hidden');
-    S.phase = 'title';
-  };
-  document.getElementById('call-decline').onclick = () => {
-    end();
-    document.getElementById('title').classList.remove('hidden');
-    S.phase = 'title';
-    UI.toast('Can\'t ignore the Source forever...', '#ff3cac', 2500);
-  };
+    const end = () => {
+      clearInterval(timerInt);
+      ring.pause();
+      ring.currentTime = 0;
+      overlay.classList.add('hidden');
+    };
+
+    document.getElementById('call-accept').onclick = () => {
+      end();
+      document.getElementById('title').classList.remove('hidden');
+      S.phase = 'title';
+    };
+    document.getElementById('call-decline').onclick = () => {
+      end();
+      document.getElementById('title').classList.remove('hidden');
+      S.phase = 'title';
+      UI.toast("Can't ignore the Source forever...", '#ff3cac', 2500);
+    };
+  }, { once: true });
 }
 
 // ---- INPUT ----
@@ -316,11 +338,6 @@ function updatePlayer(dt) {
   player.pos.x = Math.max(-ARENA + 1.5, Math.min(ARENA - 1.5, player.pos.x));
   player.pos.z = Math.max(-ARENA + 1.5, Math.min(ARENA - 1.5, player.pos.z));
   player.obj.position.copy(player.pos);
-
-  // checkered spot under player follows, rotates slowly
-  Scene.playerSpot.position.x = player.pos.x;
-  Scene.playerSpot.position.z = player.pos.z;
-  Scene.playerSpot.rotation.z = S.timeElapsed * 0.3;
 
   // Aim
   let targetX = mouse.worldX, targetZ = mouse.worldZ;
