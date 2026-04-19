@@ -8,7 +8,6 @@ import { makePickup, makeCaptureZone, removeCaptureZone, hitBurst } from './effe
 import { applyTheme } from './scene.js';
 import { player } from './player.js';
 
-// Internal wave controller state
 let waveDef = null;
 let spawnCooldown = 0;
 let intermissionActive = false;
@@ -25,22 +24,19 @@ export function startWave(waveNum) {
   spawnCooldown = 0;
   intermissionActive = false;
 
-  // Cycle theme every wave (not every level — more dramatic)
   applyTheme(waveNum - 1);
-  const themeName = THEMES[(waveNum - 1) % THEMES.length].name;
 
   if (waveDef.type === 'boss') {
     spawnBoss();
-    UI.showBossBar(waveDef.bossType.replace('_', ' '));
-    UI.toast(waveDef.bossType.replace('_', ' ') + ' APPROACHES', '#ff2e4d', 2000);
+    UI.showBossBar(waveDef.bossType.replace(/_/g, ' '));
+    UI.toast(waveDef.bossType.replace(/_/g, ' ') + ' APPROACHES', '#ff2e4d', 2000);
   } else if (waveDef.type === 'capture') {
-    // spawn capture zone at random position
     const angle = Math.random() * Math.PI * 2;
-    const dist = 20;
+    const dist = 18;
     S.objectiveZone = makeCaptureZone(Math.cos(angle) * dist, Math.sin(angle) * dist);
     S.captureProgress = 0;
     S.captureTarget = waveDef.captureTime;
-    UI.showObjective('CAPTURE THE DROP', 'Hold zone for ' + waveDef.captureTime + 's — ' + WEAPONS[waveDef.reward].name);
+    UI.showObjective('RUN TO THE GOLDEN ZONE', 'Hold for ' + waveDef.captureTime + 's to earn the ' + WEAPONS[waveDef.reward].name);
   }
 
   UI.showWaveStart(waveNum);
@@ -52,13 +48,11 @@ export function updateWaves(dt) {
   if (!S.waveActive || !waveDef) return;
 
   spawnCooldown -= dt;
-
-  // Count current non-boss enemies
   const liveNonBosses = enemies.filter(e => !e.isBoss).length;
 
-  // Spawn logic
-  if (waveDef.type !== 'boss' || (waveDef.type === 'boss' && liveNonBosses < 8)) {
-    const maxOnScreen = waveDef.type === 'boss' ? 10 : 50 + S.wave * 2;
+  // Spawn
+  if (waveDef.type !== 'boss' || liveNonBosses < 8) {
+    const maxOnScreen = waveDef.type === 'boss' ? 10 : 40 + S.wave * 2;
     if (spawnCooldown <= 0 && liveNonBosses < maxOnScreen) {
       spawnCooldown = Math.max(0.15, 0.9 / waveDef.spawnRate);
       const count = Math.min(3, 1 + Math.floor(S.wave / 3));
@@ -68,25 +62,34 @@ export function updateWaves(dt) {
 
   // Capture progress
   if (waveDef.type === 'capture' && S.objectiveZone) {
-    const dx = player.pos.x - S.objectiveZone.pos.x;
-    const dz = player.pos.z - S.objectiveZone.pos.z;
-    const inside = (dx * dx + dz * dz) < 9; // 3 unit radius
+    // Animate the zone to be VERY obvious
+    const zone = S.objectiveZone;
+    zone.ring.rotation.z += dt * 2;
+    zone.beam.scale.x = zone.beam.scale.z = 1 + Math.sin(S.timeElapsed * 4) * 0.3;
+    zone.beam.material.opacity = 0.4 + Math.sin(S.timeElapsed * 5) * 0.2;
+
+    const dx = player.pos.x - zone.pos.x;
+    const dz = player.pos.z - zone.pos.z;
+    const distSq = dx * dx + dz * dz;
+    const inside = distSq < 9; // 3 unit radius
+
     if (inside) {
       S.captureProgress += dt;
-      S.objectiveZone.inner.material.opacity = 0.15 + 0.25 * (S.captureProgress / S.captureTarget);
-      UI.showObjective('CAPTURING... ' + (S.captureTarget - S.captureProgress).toFixed(1) + 's',
-                       'Stay in the zone!');
+      zone.inner.material.opacity = 0.15 + 0.35 * (S.captureProgress / S.captureTarget);
+      const remaining = Math.max(0, S.captureTarget - S.captureProgress);
+      UI.showObjective('CAPTURING... ' + remaining.toFixed(1) + 's', 'Stay in the zone!');
       if (S.captureProgress >= S.captureTarget) {
         grantWeapon(waveDef.reward);
         endWave();
       }
     } else {
       S.captureProgress = Math.max(0, S.captureProgress - dt * 0.5);
-      UI.showObjective('CAPTURE THE DROP', 'Hold zone for ' + waveDef.captureTime + 's — ' + WEAPONS[waveDef.reward].name);
+      const dist = Math.sqrt(distSq);
+      UI.showObjective('RUN TO GOLDEN ZONE', '→ ' + Math.round(dist) + 'm away · EARN ' + WEAPONS[waveDef.reward].name);
     }
   }
 
-  // Auto-clear check for combat waves
+  // Combat wave kill target check
   if (waveDef.type === 'combat' && S.waveKillsProgress >= S.waveKillTarget) {
     endWave();
   }
@@ -120,11 +123,14 @@ function grantWeapon(weaponId) {
   S.ownedWeapons.add(weaponId);
   S.currentWeapon = weaponId;
   UI.updateWeaponSlots();
-  UI.toast('+' + WEAPONS[weaponId].name + ' UNLOCKED', '#ffd93d', 2000);
+  UI.toast('+' + WEAPONS[weaponId].name + ' UNLOCKED! Press ' + weaponSlotKey(weaponId) + ' to equip', '#ffd93d', 3000);
   Audio.weaponGet();
 }
 
-// Called from bullets/enemies when a kill happens — checks if wave should end
+function weaponSlotKey(weaponId) {
+  return { pistol: 1, shotgun: 2, smg: 3, sniper: 4 }[weaponId];
+}
+
 export function onEnemyKilled(enemy) {
   if (enemy.isBoss) {
     UI.hideBossBar();
@@ -137,7 +143,6 @@ export function onEnemyKilled(enemy) {
 }
 
 function grantBossReward() {
-  // Boss drops a weapon you don't own yet, or big score bonus
   const all = ['shotgun', 'smg', 'sniper'];
   const missing = all.filter(w => !S.ownedWeapons.has(w));
   if (missing.length > 0) {
@@ -153,7 +158,6 @@ function endWave() {
   intermissionActive = true;
   S.waveActive = false;
 
-  // NUKE! Clear all remaining enemies with a big explosion
   triggerNuke();
 
   if (S.objectiveZone) {
@@ -162,7 +166,6 @@ function endWave() {
     UI.hideObjective();
   }
 
-  // 3-2-1 countdown then start next wave
   let count = 3;
   UI.showWaveBanner(count);
   const tick = () => {
@@ -180,17 +183,12 @@ function endWave() {
 }
 
 function triggerNuke() {
-  // Big explosion effect + kill all remaining enemies with score credit
   shake(0.8, 0.8);
   Audio.bigBoom();
-
-  // Multiple concentric bursts
   const origin = new THREE.Vector3(player.pos.x, 1, player.pos.z);
   hitBurst(origin, 0xffffff, 30);
   setTimeout(() => hitBurst(origin, 0xffd93d, 30), 80);
   setTimeout(() => hitBurst(origin, 0xff3cac, 30), 160);
-
-  // Kill all non-boss enemies, grant score + xp
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     if (e.isBoss) continue;
