@@ -6,17 +6,22 @@ import { scene } from './scene.js';
 export const player = {
   obj: null,
   skinnedMeshes: [],
-  bones: {},             // name -> THREE.Bone
-  restPose: {},          // name -> { rx, ry, rz, px, py, pz }
+  bones: {},              // name -> THREE.Bone
+  restQuat: {},           // name -> THREE.Quaternion (rest pose quaternion)
+  restPos: {},            // name -> THREE.Vector3 (rest pose position)
   pos: new THREE.Vector3(0, 0, 0),
   vel: new THREE.Vector3(),
   facing: 0,
   walkPhase: 0,
   gun: null,
-  gunMat: null,          // so we can recolor per weapon
+  gunMat: null,
   muzzle: null,
   ready: false,
 };
+
+// Reusable quaternions to avoid GC
+const _qDelta = new THREE.Quaternion();
+const _euler = new THREE.Euler();
 
 export function loadPlayer(onProgress, onReady, onError) {
   const loader = new GLTFLoader();
@@ -25,7 +30,6 @@ export function loadPlayer(onProgress, onReady, onError) {
       const meebit = gltf.scene;
       meebit.scale.setScalar(PLAYER.scale);
 
-      // Find skinned meshes & grab skeleton
       let skeleton = null;
       meebit.traverse((o) => {
         if (o.isMesh) {
@@ -39,29 +43,29 @@ export function loadPlayer(onProgress, onReady, onError) {
         if (o.isSkinnedMesh) {
           player.skinnedMeshes.push(o);
           if (!skeleton) skeleton = o.skeleton;
-          // CRITICAL: ensure skeleton updates each frame
           o.frustumCulled = false;
         }
       });
 
-      if (!skeleton) {
-        console.warn('[meebit] NO SKELETON FOUND — model will not animate');
-      } else {
-        // Map bones by name and snapshot rest pose
+      if (skeleton) {
+        // Store REST POSE as quaternions (axis-agnostic)
         for (const bone of skeleton.bones) {
           player.bones[bone.name] = bone;
-          player.restPose[bone.name] = {
-            rx: bone.rotation.x, ry: bone.rotation.y, rz: bone.rotation.z,
-            px: bone.position.x, py: bone.position.y, pz: bone.position.z,
-          };
+          player.restQuat[bone.name] = bone.quaternion.clone();
+          player.restPos[bone.name] = bone.position.clone();
+          bone.matrixAutoUpdate = true;
         }
-        console.log(`[meebit] skeleton ready — ${skeleton.bones.length} bones, ${Object.keys(player.bones).length} named`);
+        console.log(`[meebit] skeleton ready — ${skeleton.bones.length} bones`);
+        const keys = ['thigh_l','thigh_r','calf_l','calf_r','upperarm_l','upperarm_r','spine_03','head','pelvis'];
+        console.log(`[meebit] key bones found:`, keys.filter(n => player.bones[n]).join(', '));
+      } else {
+        console.warn('[meebit] NO SKELETON — model will not animate');
       }
 
       player.obj = meebit;
       scene.add(meebit);
 
-      // Gun — attached to right hand bone if possible
+      // Gun
       const gunGeo = new THREE.BoxGeometry(0.1, 0.1, 0.4);
       const gunMat = new THREE.MeshStandardMaterial({
         color: 0x111111, emissive: 0x4ff7ff, emissiveIntensity: 0.6
@@ -91,74 +95,65 @@ export function loadPlayer(onProgress, onReady, onError) {
   );
 }
 
-// Helper: set a bone's rotation as rest + delta
-function setBone(name, dx, dy, dz) {
+/**
+ * Rotate a bone by (dx, dy, dz) Euler radians RELATIVE TO ITS REST POSE.
+ * Uses quaternion multiplication so axis ordering doesn't matter.
+ */
+function rotateBone(name, dx, dy, dz) {
   const b = player.bones[name];
   if (!b) return;
-  const r = player.restPose[name];
-  b.rotation.x = r.rx + dx;
-  b.rotation.y = r.ry + dy;
-  b.rotation.z = r.rz + dz;
+  const rest = player.restQuat[name];
+  _euler.set(dx, dy, dz, 'XYZ');
+  _qDelta.setFromEuler(_euler);
+  // b.quaternion = restQuat * delta  (delta applied in local space)
+  b.quaternion.copy(rest).multiply(_qDelta);
 }
 
-/**
- * Called every frame to drive the procedural animation.
- * @param {number} dt delta time
- * @param {boolean} moving whether player is moving
- * @param {number} timeElapsed total game time
- */
+function offsetBone(name, dx, dy, dz) {
+  const b = player.bones[name];
+  if (!b) return;
+  const rest = player.restPos[name];
+  b.position.set(rest.x + dx, rest.y + dy, rest.z + dz);
+}
+
 export function animatePlayer(dt, moving, timeElapsed) {
   if (!player.ready) return;
 
-  // Advance walk phase
   player.walkPhase += dt * (moving ? 10 : 3);
   const target = moving ? 1 : 0;
-
   const swing = Math.sin(player.walkPhase);
-  const legSwing = swing * target * 1.0;
+
+  const legSwing = swing * target * 1.1;
   const armSwing = swing * target * 0.5;
 
-  // LEGS: thighs swing fwd/back, calves bend
-  setBone('thigh_l', legSwing, 0, 0);
-  setBone('thigh_r', -legSwing, 0, 0);
-  // Calves bend on the trailing leg
-  setBone('calf_l', Math.max(0, -legSwing) * 1.0, 0, 0);
-  setBone('calf_r', Math.max(0, legSwing) * 1.0, 0, 0);
+  // LEGS
+  rotateBone('thigh_l', legSwing, 0, 0);
+  rotateBone('thigh_r', -legSwing, 0, 0);
+  rotateBone('calf_l', Math.max(0, -legSwing) * 1.1, 0, 0);
+  rotateBone('calf_r', Math.max(0, legSwing) * 1.1, 0, 0);
+  rotateBone('foot_l', legSwing * 0.3, 0, 0);
+  rotateBone('foot_r', -legSwing * 0.3, 0, 0);
 
-  // FEET keep flat-ish
-  setBone('foot_l', legSwing * 0.3, 0, 0);
-  setBone('foot_r', -legSwing * 0.3, 0, 0);
+  // LEFT ARM — counter-swing
+  rotateBone('upperarm_l', -armSwing, 0, 0);
+  rotateBone('lowerarm_l', Math.abs(armSwing) * 0.8, 0, 0);
 
-  // LEFT ARM: natural counter-swing
-  setBone('upperarm_l', -armSwing, 0, 0.12);
-  setBone('lowerarm_l', Math.abs(armSwing) * 0.6, 0, 0);
+  // RIGHT ARM — shooting stance
+  rotateBone('upperarm_r', -1.35, 0, 0);
+  rotateBone('lowerarm_r', 0.15, 0, 0);
 
-  // RIGHT ARM: raised shooting stance (always)
-  // These are deltas from rest pose. UE rig has arms down at rest, so we raise significantly.
-  setBone('upperarm_r', -1.3, 0, -0.15);
-  setBone('lowerarm_r', 0.1, -0.3, 0);
-  setBone('hand_r', 0, 0, 0);
+  // SPINE + HEAD idle
+  rotateBone('spine_03', 0, 0, Math.sin(timeElapsed * 2) * 0.04);
+  rotateBone('spine_01', 0, Math.sin(player.walkPhase) * target * 0.08, 0);
+  rotateBone('head', 0, Math.sin(timeElapsed * 1.2) * 0.08, 0);
+  rotateBone('neck_01', 0, 0, Math.sin(timeElapsed * 0.9) * 0.02);
 
-  // SPINE + HEAD: subtle idle sway
-  const t = timeElapsed;
-  setBone('spine_03', 0, 0, Math.sin(t * 2) * 0.03);
-  setBone('spine_02', 0, 0, Math.sin(t * 2 + 0.3) * 0.02);
-  setBone('spine_01', 0, Math.sin(player.walkPhase) * target * 0.08, 0);
-  setBone('head', 0, Math.sin(t * 1.2) * 0.08, 0);
-  setBone('neck_01', 0, 0, Math.sin(t * 0.9) * 0.02);
+  // PELVIS bob
+  const bob = target * Math.abs(Math.sin(player.walkPhase * 2)) * 0.05;
+  offsetBone('pelvis', 0, -bob, 0);
+  rotateBone('pelvis', 0, 0, Math.sin(player.walkPhase) * target * 0.05);
 
-  // PELVIS: small vertical bob
-  const pelvis = player.bones['pelvis'];
-  if (pelvis) {
-    const rest = player.restPose['pelvis'];
-    const bob = target * Math.abs(Math.sin(player.walkPhase * 2)) * 0.05;
-    pelvis.position.set(rest.px, rest.py - bob, rest.pz);
-    // pelvis tilt on footstep
-    pelvis.rotation.z = player.restPose['pelvis'].rz + Math.sin(player.walkPhase) * target * 0.04;
-  }
-
-  // Force skeleton to recompute. Three.js normally does this automatically
-  // during rendering, but being explicit here guarantees the bones take.
+  // Force skeleton recompute
   for (const skin of player.skinnedMeshes) {
     skin.skeleton.update();
   }
