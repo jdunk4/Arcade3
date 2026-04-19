@@ -139,35 +139,67 @@ export function clearPickups() {
   pickups.length = 0;
 }
 
-// ---- CAPTURE ZONE ----
+// ---- CAPTURE ZONE — BIG AND IMPOSSIBLE TO MISS ----
 export function makeCaptureZone(x, z) {
   const group = new THREE.Group();
+
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(2.5, 3.0, 32),
-    new THREE.MeshBasicMaterial({ color: 0xffd93d, side: THREE.DoubleSide, transparent: true, opacity: 0.8 })
+    new THREE.RingGeometry(3.0, 3.6, 48),
+    new THREE.MeshBasicMaterial({ color: 0xffd93d, side: THREE.DoubleSide, transparent: true, opacity: 1.0 })
   );
   ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.03;
+  ring.position.y = 0.04;
   group.add(ring);
+
   const inner = new THREE.Mesh(
-    new THREE.CircleGeometry(2.8, 32),
-    new THREE.MeshBasicMaterial({ color: 0xffd93d, transparent: true, opacity: 0.15 })
+    new THREE.CircleGeometry(3.4, 48),
+    new THREE.MeshBasicMaterial({ color: 0xffd93d, transparent: true, opacity: 0.2 })
   );
   inner.rotation.x = -Math.PI / 2;
-  inner.position.y = 0.025;
+  inner.position.y = 0.03;
   group.add(inner);
+
   const beam = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.3, 0.3, 8, 8, 1, true),
-    new THREE.MeshBasicMaterial({ color: 0xffd93d, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
+    new THREE.CylinderGeometry(1.2, 1.8, 30, 12, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0xffd93d,
+      transparent: true,
+      opacity: 0.35,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
   );
-  beam.position.y = 4;
+  beam.position.y = 15;
   group.add(beam);
-  const light = new THREE.PointLight(0xffd93d, 2.5, 10, 1.5);
-  light.position.y = 1;
+
+  const beamCore = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.4, 0.8, 30, 8, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+    })
+  );
+  beamCore.position.y = 15;
+  group.add(beamCore);
+
+  const light = new THREE.PointLight(0xffd93d, 4.0, 18, 1.2);
+  light.position.y = 2;
   group.add(light);
+
+  const arrowGeo = new THREE.ConeGeometry(0.8, 2.0, 4);
+  const arrowMat = new THREE.MeshStandardMaterial({
+    color: 0xffd93d, emissive: 0xffd93d, emissiveIntensity: 2
+  });
+  const arrow = new THREE.Mesh(arrowGeo, arrowMat);
+  arrow.rotation.x = Math.PI;
+  arrow.position.y = 6;
+  group.add(arrow);
+
   group.position.set(x, 0, z);
   scene.add(group);
-  return { obj: group, ring, inner, beam, light, pos: group.position };
+  return { obj: group, ring, inner, beam, beamCore, arrow, light, pos: group.position };
 }
 
 export function removeCaptureZone(zone) {
