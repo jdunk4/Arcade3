@@ -1,119 +1,192 @@
-# MEEBIT: SURVIVAL PROTOCOL
+# Meebit Shooter — v6 Mod Pack
 
-A voxel-style Three.js shooter featuring the Meebits NFT universe. This version adds four major systems on top of the original base game.
+This mod pack adds 7 major features to your Meebit Shooter game:
 
-## New Features
+1. **Diagonal rain** that follows the player and tints to the chapter theme
+2. **Themed goo splats** that persist for 60 seconds and fade out
+3. **Pumpkinheads** restricted to Chapter 1 (waves 1–5, orange)
+4. **Vampires + Red Devils** restricted to Chapter 2 (waves 6–10, red)
+5. **Wizards** with triangle projectiles in Chapter 3 (waves 11–15, yellow)
+6. **Goo Spitters** (tall, lanky, green, ranged) in Chapter 4 (waves 16–20)
+7. **Boss attack variety** — summoner bosses and cube-storm bosses
+8. **Ray Gun** (constant beam, replaces sniper) and **Rocket Launcher** (homing missiles)
 
-### 1. Chapter-based Gradient Themes
-Each **chapter** is 5 waves long. The arena's fog, grid, lamps, and enemy tint all start muted on wave 1 of a chapter and interpolate toward the chapter's full palette by wave 5. Seven chapters cycle: `TOXIC → ARCTIC → PARADISE → CEMETERY → INFERNO → SOLAR → MATRIX`, then start over with cumulative difficulty.
+---
 
-Inside every chapter the five waves have fixed flavors:
-- **W1** — Rescue (free a caged Meebit)
-- **W2** — Combat
-- **W3** — Capture (weapon reward zone)
-- **W4** — Mining (blocks fall, bullets blocked, pickaxe needed)
-- **W5** — Boss
+## Install
 
-### 2. Rescuable Meebits
-On wave 1 of every chapter a random Meebit (from the 20,000 collection) appears in a spinning cage with a light beam beacon. Walk up to the beam and stay close for **2 seconds** to free them. Freed Meebits follow you briefly then run to the edge of the arena. The portrait is pulled live from the Meebits API:
-```
-https://meebits.app/meebitimages/characterimage?index=<id>&type=portrait&imageType=png
-```
-
-Freed Meebits are saved to your permanent collection across runs.
-
-### 3. Mineable Blocks + Pickaxe
-On wave 4 of every chapter, cubes rain from the sky and lock in place as terrain. They block bullets (yours *and* enemy projectiles), and enemies path around them. Press **Q** to switch to the pickaxe and mine a block (takes ~3 swings) for bonus XP pickups and a 30% chance of a health pickup. Blocks are tinted to match the current chapter.
-
-### 4. Persistent Save + Wallet Connect
-Progress is saved to `localStorage` (`mbs_save_v1`):
-- High score
-- Furthest chapter/wave reached
-- Lifetime collection of rescued Meebits (deduplicated IDs)
-- Selected avatar ID
-
-Click **CONNECT WALLET** on the title screen to connect via MetaMask (or any injected provider). If you own one or more Meebits on Ethereum mainnet (contract `0x7Bd29408f11D2bFC23c34f18275bBf23bB716Bc7`), the first one in your wallet becomes your in-game avatar ID. Ethers v6 is loaded from CDN on demand, so there's no wallet code in the critical path.
-
-## Controls
-
-| Input | Action |
-|---|---|
-| `WASD` / `Arrows` | Move |
-| Mouse | Aim |
-| Hold `LMB` | Fire / mine |
-| `1` / `2` / `3` / `4` | Weapons |
-| `Q` | Toggle pickaxe |
-| `Space` | Dash |
-| `Esc` | Pause |
-
-Mobile has a virtual joystick, fire button, and a separate pickaxe toggle button.
-
-## File Layout
+Five files in `src/` are drop-in replacements for your existing files:
 
 ```
-meebit-shooter/
-├── index.html
-├── assets/
-│   ├── phone_ring.mp3           (optional — drop your original here if you have it)
-│   ├── meebit_fallback.png      (fallback portrait if Meebits API is unreachable)
-│   └── 16801.png                (sprite sheet)
-└── src/
-    ├── main.js                  — main loop, input, camera, game lifecycle
-    ├── config.js                — tunable constants: CHAPTERS, WEAPONS, waves
-    ├── state.js                 — mutable game state
-    ├── scene.js                 — THREE scene, theme interpolation
-    ├── player.js                — voxel player avatar
-    ├── enemies.js               — zomeebs, sprinters, brutes, bosses
-    ├── effects.js               — bullets, pickups, particles, capture zone
-    ├── blocks.js                — falling blocks, collision, mining  [NEW]
-    ├── meebits.js               — rescue NPCs, portrait billboards  [NEW]
-    ├── save.js                  — localStorage persistence           [NEW]
-    ├── wallet.js                — ethers.js / Meebits NFT reader     [NEW]
-    ├── waves.js                 — wave flow, chapter hooks
-    ├── ui.js                    — HUD updates
-    ├── audio.js                 — procedural WebAudio
-    └── styles.css               — overlay, HUD, mobile
+Meebit-Shooter/src/config.js       ← full rewrite
+Meebit-Shooter/src/enemies.js      ← full rewrite
+Meebit-Shooter/src/effects.js      ← full rewrite
+Meebit-Shooter/src/waves.js        ← full rewrite
+Meebit-Shooter/src/main.js         ← full rewrite
 ```
 
-## Running
+Also see `INDEX_HTML_CHANGES.txt` for the inventory slot markup updates.
 
-Serve the directory with any static HTTP server — not `file://` (ES modules and the Meebits API CORS both require http/https):
+**Files you should NOT need to change:** `scene.js`, `state.js`, `ui.js`, `player.js`,
+`audio.js`, `blocks.js`, `spawners.js`, `orbs.js`, `meebits.js`, `save.js`, `wallet.js`,
+`meebitsApi.js`, `styles.css`.
 
-```bash
-cd meebit-shooter
-python3 -m http.server 8080
-# → http://localhost:8080
+> If `state.js` does not already initialize `S._lastTintedChapter`, it'll just be
+> `undefined` on first frame — harmless, it'll pick up the chapter on the next tick.
+
+---
+
+## Feature details
+
+### Diagonal rain
+- 300 drops, each a tall thin box tilted 20° off vertical, falling at ~24 u/s vertical
+  + 10 u/s lateral.
+- The rain follows the player (its parent group is re-positioned every frame) so you
+  never see an edge where rain stops.
+- Re-tinted every time the chapter changes: orange in Inferno, red in Crimson, etc.
+- Toggle with `initRain()` / `disposeRain()` if you want a menu setting later.
+
+### Goo splats
+- Flat circles on the ground, randomly rotated and scaled, colored to the chapter's
+  `grid1` theme color.
+- Spawn rules:
+  - Goo Spitter kills → 1 guaranteed splat.
+  - Other enemy kills → 35% chance (tunable in `GOO_CONFIG.spawnChance`).
+  - Boss kills → 3 splats in a small cluster.
+  - Goo Spitter projectile hit on player → 1 splat where it hit.
+- 60-second lifetime with a 20%-of-life fade-out.
+
+### New enemies
+
+| Enemy | Appears in | Behavior |
+|-------|-----------|----------|
+| Pumpkinhead | Ch.1 only (orange, waves 1–5) | Slow, explodes on death, AoE damage |
+| Vampire | Ch.2 (red, waves 6–10) | Blinks ~every 3.5s toward the player (teleport) |
+| Red Devil | Ch.2 (red, waves 6–10) | Horned, shoots red fireballs from flaming hand |
+| Wizard | Ch.3 (yellow, waves 11–15) | Pointed hat, staff, throws spinning gold triangles |
+| Goo Spitter | Ch.4 (green, waves 16–20) | Tall lanky, ranged, leaves goo where it dies/hits |
+
+The mix is enforced in `waveEnemyMix()` in `config.js` — each chapter only spawns its
+signature enemies alongside zomeeb/sprinter/brute baseline.
+
+### Boss patterns
+
+Every boss has `pattern: 'summoner'` or `pattern: 'cubestorm'` set in `BOSSES`:
+
+- **Summoner** (Mega Zomeeb + Void Lord):
+  - Every 6–8 seconds, spawns 2 chapter-appropriate minions at its feet.
+  - At 50% HP, spawns 4 extra minions in a "panic" burst.
+- **Cubestorm** (Brute King + Solar Tyrant):
+  - Every 5 seconds, drops 2–3 cubes from the sky near the player.
+  - Each cube has a ground warning ring (yellow = will hatch, red = will explode).
+  - 60% hatch into a chapter-appropriate enemy; 40% explode and damage the player
+    (25 dmg, 2.5u radius).
+  - At 50% HP, drops 5 cubes at once.
+
+### Ray Gun (slot 4)
+- `weapon.isBeam: true`
+- Continuous beam rendered from the player's gun forward.
+- Beam length auto-clips at the first wall/block OR extends to `beamRange` (30u).
+- While held, damage ticks every 50ms to every enemy intersecting the beam cylinder
+  (0.35u width + enemy hit radius).
+- **Penetrates through enemies** (it's a ray!) so you can hit multiple in a line.
+- Also damages portals during spawner waves.
+
+### Rocket Launcher (slot 5)
+- `weapon.isHoming: true`
+- Locks onto the nearest enemy in a 90° cone in front of the player on fire.
+- Steers toward the target with a 6.0 rad/sec turn rate.
+- Re-acquires a new target if the original dies mid-flight.
+- On impact: 120 direct damage + 80 falloff AoE over a 4u radius.
+- AoE damages portals at reduced (60%) effectiveness.
+- Leaves a smoke trail (tiny hitBurst puffs every 30ms).
+
+### Weapon unlock order
+Boss rewards and capture-zone rewards now progress through:
+`shotgun → smg → raygun → rocket`
+
+So the raygun arrives around the 3rd-4th chapter and rocket around the 5th boss kill.
+If you want the rocket to gate on wave 20 specifically, edit `grantBossReward()` in
+`waves.js`.
+
+---
+
+## Key bindings
+```
+1 → pistol
+2 → shotgun
+3 → smg
+4 → raygun    (was: sniper)
+5 → rocket    (NEW)
+Q → pickaxe
+Space → dash
+Esc → pause
 ```
 
-Or `npx serve`, `caddy file-server`, etc. Wallet connect only works on a real page, not a file URL.
+The mobile fire button works with every weapon. The ray gun specifically needs
+`mouse.down` (or `fireBtn` touchdown) held — releasing stops the beam.
 
-## Dependencies
+---
 
-All loaded from CDN via the import map in `index.html`:
-- `three@0.160.0` — voxel rendering
-- `ethers@6.13.2` — wallet read (dynamically imported the first time you click Connect)
+## Save migration
+Old saves that had `sniper` in `ownedWeapons` get automatically converted to `raygun`
+the first time `startGame()` is called in main.js. No data loss; you keep whatever
+you'd unlocked.
 
-No build step, no bundler, no npm install.
+---
 
-## Tuning Notes
+## Tunable constants (all in `config.js`)
 
-The theme-intensity curve is in `scene.js`:
 ```js
-strengthForWave(localWave) // 0.22 → 0.40 → 0.58 → 0.76 → 1.0
+// Rain
+RAIN_CONFIG = {
+  dropCount: 300,    // bump to 500 for heavier storms
+  area: 60,          // half-extent of spawn square
+  speedY: -24,       // negative = falling
+  speedX: 10,        // diagonal drift (wind)
+  height: 30,        // spawn height
+}
+
+// Goo splats
+GOO_CONFIG = {
+  lifetimeSec: 60,   // 1 minute
+  size: 0.9,         // base radius
+  spawnChance: 0.35, // chance per non-spitter kill
+}
+
+// Ray gun
+WEAPONS.raygun = {
+  fireRate: 0.05,    // 20 ticks/sec
+  damage: 12,        // per tick → 240 dps sustained
+  beamRange: 30,
+  beamWidth: 0.35,
+}
+
+// Rocket
+WEAPONS.rocket = {
+  fireRate: 0.85,
+  damage: 120,             // direct-hit
+  speed: 28,
+  homingStrength: 6.0,     // rad/sec turn
+  explosionRadius: 4.0,
+  explosionDamage: 80,
+}
 ```
-If wave 1 of a chapter feels too muted, raise the `0.22` floor. If wave 5 feels too saturated, clip the ceiling below 1.0.
 
-Block spawn pacing and count are in `config.js` under `getWaveDef('mining')`:
-```js
-blockFallRate: 2.2,  // seconds between drops
-blockCount: 18 + chapterIdx * 2,
-```
+---
 
-Rescue hold time is `MEEBIT_CONFIG.rescueHoldTime` (default 2s). Set it higher to make wave 1 harder with enemies swarming.
+## Known rough edges
 
-## Save Data
-
-To wipe progress, open DevTools console and run:
-```js
-localStorage.removeItem('mbs_save_v1')
-```
+- **Beam + capture zone interaction**: the beam doesn't currently count as "kills in
+  zone" for capture progress. If you want that, wrap the `if (e.hp <= 0) killEnemy(j)`
+  call in `applyBeamDamage` to check `isInCaptureZone(e.pos)` before decrement.
+- **Rocket target prediction**: the homing math aims at the enemy's current position,
+  not predicted. Fast enemies can out-run a rocket at close range. If you want lead,
+  compute `target.pos + target.vel * 0.2` before steering.
+- **Rain visibility in bright chapters** (Solar): the rain color matches `grid1` which
+  in Solar is yellow. You might prefer to force the rain color to always stay a cool
+  hue. Call `setRainTint(0xaaccff)` after `applyTheme` in `startWave` to override.
+- **Vampire blink + walls**: blink currently ignores block collision. Usually fine
+  because it lands near the player in open arena, but edge-case spawns might put it
+  behind a block. Add `resolveCollision(e.pos, 0.5)` after the blink teleport if that
+  bothers you.
