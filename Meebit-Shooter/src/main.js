@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'three'; 
 import { scene, camera, renderer, CAMERA_OFFSET, applyTheme, Scene } from './scene.js';
 import { S, keys, mouse, joyState, resetGame, getWeapon, shake } from './state.js';
 import { PLAYER, WEAPONS, CHAPTERS, ARENA, GOO_CONFIG } from './config.js';
