@@ -304,7 +304,16 @@ export function updateCivilians(dt, enemies, player, onCivilianKilled, onCivilia
         c.pos.x += (dx / d) * step;
         c.pos.z += (dz / d) * step;
       }
-      if (d > 0.01) c.obj.rotation.y = Math.atan2(dx, dz);
+      if (d > 0.01) {
+        // Smooth-rotate toward the anchor direction instead of
+        // snapping. Prevents flicker when the anchor position
+        // (player) moves erratically.
+        const targetAngle = Math.atan2(dx, dz);
+        let diff = targetAngle - c.obj.rotation.y;
+        while (diff >  Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        c.obj.rotation.y += diff * Math.min(1, dt * 8);
+      }
 
       if (c.animRefs) {
         c.walkPhase += dt * 9;
@@ -315,20 +324,83 @@ export function updateCivilians(dt, enemies, player, onCivilianKilled, onCivilia
         if (c.animRefs.armR) c.animRefs.armR.rotation.x = sw * 0.6;
       }
     } else if (enemiesNear >= 2 && nearestEnemy) {
+      // PANIC — commit to a stable flee direction. Recomputing the
+      // flee vector every frame against `nearestEnemy` causes violent
+      // rotation flicker when two enemies are roughly equidistant
+      // (the civilian snaps to face away from A, then B, then A...)
+      // and the jitter term oscillates the heading sinusoidally.
+      //
+      // Instead: pick a flee direction once when entering panic (or
+      // when the current committed vector is stale) and hold it for
+      // ~0.5s. Only re-evaluate if the held threat gets dangerously
+      // close, forcing a deliberate re-plan.
+      const wasPanic = c.state === 'panic';
       c.state = 'panic';
       c.panicPhase += dt * 8;
-      const ax = c.pos.x - nearestEnemy.pos.x;
-      const az = c.pos.z - nearestEnemy.pos.z;
-      const d = Math.sqrt(ax * ax + az * az) || 1;
-      const nx = ax / d, nz = az / d;
-      const perpX = -nz, perpZ = nx;
-      const jitter = Math.sin(c.panicPhase) * 0.6;
-      const vx = nx + perpX * jitter;
-      const vz = nz + perpZ * jitter;
+
+      // Refresh the committed flee direction if:
+      //   - civilian just entered panic (no vector yet), OR
+      //   - the hold timer has elapsed, OR
+      //   - the originally fled-from threat is now very close (<3.5u)
+      c._fleeHoldTimer = (c._fleeHoldTimer || 0) - dt;
+      const tooClose = c._fleeThreat
+        ? (c.pos.x - c._fleeThreat.pos.x) ** 2 + (c.pos.z - c._fleeThreat.pos.z) ** 2 < 3.5 * 3.5
+        : true;
+      const needsReplan = !wasPanic || c._fleeHoldTimer <= 0 || tooClose;
+
+      if (needsReplan) {
+        // Compute flee direction: average of vectors pointing away
+        // from every enemy within PANIC_RADIUS, weighted by inverse
+        // distance. Averaging across ALL nearby threats gives a
+        // stable consensus direction that doesn't pop when one
+        // enemy edges closer than another.
+        let fleeX = 0, fleeZ = 0;
+        for (const e of enemies) {
+          if (e.isBoss) continue;
+          const ex = c.pos.x - e.pos.x;
+          const ez = c.pos.z - e.pos.z;
+          const ed2 = ex * ex + ez * ez;
+          if (ed2 > PANIC_RADIUS * PANIC_RADIUS) continue;
+          const ed = Math.sqrt(ed2) || 0.001;
+          // Weight: closer enemies push harder
+          const w = 1 / ed;
+          fleeX += (ex / ed) * w;
+          fleeZ += (ez / ed) * w;
+        }
+        const fleeLen = Math.sqrt(fleeX * fleeX + fleeZ * fleeZ) || 1;
+        c._fleeDirX = fleeX / fleeLen;
+        c._fleeDirZ = fleeZ / fleeLen;
+        c._fleeThreat = nearestEnemy;    // remember who we're fleeing
+        c._fleeHoldTimer = 0.5;          // hold this direction 0.5s
+      }
+
+      // Apply a small, low-frequency perpendicular wobble so the
+      // civilian doesn't run in a perfectly straight line (reads
+      // as frantic, not robotic). Amplitude kept low so the flee
+      // direction still reads as committed.
+      const perpX = -c._fleeDirZ;
+      const perpZ =  c._fleeDirX;
+      const wobble = Math.sin(c.panicPhase * 0.5) * 0.15;
+      const vx = c._fleeDirX + perpX * wobble;
+      const vz = c._fleeDirZ + perpZ * wobble;
       const vlen = Math.sqrt(vx * vx + vz * vz) || 1;
       c.pos.x += (vx / vlen) * PANIC_SPEED * dt;
       c.pos.z += (vz / vlen) * PANIC_SPEED * dt;
-      c.obj.rotation.y = Math.atan2(vx, vz);
+
+      // Rotation: face the COMMITTED flee direction, not the
+      // wobbled instantaneous velocity. This is the key fix for the
+      // "flashing in two directions" look — rotation.y is no longer
+      // driven by a noisy per-frame vector.
+      const targetAngle = Math.atan2(c._fleeDirX, c._fleeDirZ);
+      // Smooth-rotate toward the target so direction changes (when
+      // the hold timer expires) still look graceful, not snappy.
+      const curAngle = c.obj.rotation.y;
+      let diff = targetAngle - curAngle;
+      // Normalize to [-PI, PI] so we take the short way around
+      while (diff >  Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      c.obj.rotation.y = curAngle + diff * Math.min(1, dt * 6);
+
       c.screamCooldown -= dt;
       if (c.screamCooldown <= 0) {
         c.screamCooldown = 0.6 + Math.random() * 0.4;
@@ -354,7 +426,12 @@ export function updateCivilians(dt, enemies, player, onCivilianKilled, onCivilia
       if (d > 0.5) {
         c.pos.x += (dx / d) * WANDER_SPEED * dt;
         c.pos.z += (dz / d) * WANDER_SPEED * dt;
-        c.obj.rotation.y = Math.atan2(dx, dz);
+        // Smooth-rotate toward the wander target
+        const targetAngle = Math.atan2(dx, dz);
+        let diff = targetAngle - c.obj.rotation.y;
+        while (diff >  Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        c.obj.rotation.y += diff * Math.min(1, dt * 5);
       }
     }
 
