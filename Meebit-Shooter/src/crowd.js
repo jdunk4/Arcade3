@@ -70,26 +70,39 @@ export function buildCrowd() {
   bobSeeds = new Float32Array(CROWD_COUNT);
   basePositions = new Float32Array(CROWD_COUNT * 3);
 
-  // Emissive materials. instanceColor drives BOTH the diffuse AND the
-  // emissive contribution on MeshStandardMaterial, so retinting the
-  // instance color retints the glow without any shader recompile.
+  // Materials: small emissive contribution so each lantern has its own
+  // self-glow independent of scene lighting. We set emissive=white and
+  // emissiveIntensity=low, which combined with instanceColor multiplying
+  // the diffuse term gives the lantern its chapter hue, and the four
+  // side point lights bathe them in saturated chapter color.
+  //
+  // (Note: Three.js MeshStandardMaterial's instanceColor only tints
+  // diffuse, not emissive — so the emissive here stays neutral white
+  // and serves as a gentle "self-lit" bias, NOT the chapter color.
+  // That's fine because side lights + diffuse tinting handle the
+  // chapter look and the net result glows as intended.)
   const bodyMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 1.4,
-    roughness: 0.7, metalness: 0.0,
+    color: 0xffffff,
+    emissive: 0xffffff,
+    emissiveIntensity: 0.25,   // gentle self-glow, not dominant
+    roughness: 0.55,
+    metalness: 0.0,
   });
   const headMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 1.8,
-    roughness: 0.6, metalness: 0.0,
+    color: 0xffffff,
+    emissive: 0xffffff,
+    emissiveIntensity: 0.35,   // head slightly brighter
+    roughness: 0.4,
+    metalness: 0.0,
   });
 
   bodyMesh = new THREE.InstancedMesh(BODY_GEO, bodyMat, CROWD_COUNT);
   headMesh = new THREE.InstancedMesh(HEAD_GEO, headMat, CROWD_COUNT);
-  bodyMesh.instanceColor = new THREE.InstancedBufferAttribute(
-    new Float32Array(CROWD_COUNT * 3), 3
-  );
-  headMesh.instanceColor = new THREE.InstancedBufferAttribute(
-    new Float32Array(CROWD_COUNT * 3), 3
-  );
+  // Note: we do NOT manually assign bodyMesh.instanceColor here.
+  // setColorAt() lazily creates the InstancedBufferAttribute on first
+  // call, which guarantees Three.js flags USE_INSTANCING_COLOR correctly
+  // in the program cache. Manually assigning `.instanceColor` used to
+  // produce white lanterns because the shader define wasn't set.
 
   for (let i = 0; i < CROWD_COUNT; i++) {
     const [x, z] = layout[i];
@@ -114,17 +127,20 @@ export function buildCrowd() {
   scene.add(bodyMesh);
   scene.add(headMesh);
 
-  // Four chapter-tinted point lights so the crowd's glow reaches the
-  // arena floor near each side.
+  // Four chapter-tinted point lights — these are where the actual
+  // chapter "glow" comes from. They're strong and close to the
+  // lanterns so the whole crowd reads as chapter-colored.
   sideLights = [];
   const sidePositions = [
-    [0, FLOAT_HEIGHT, -ARENA - OUTER_PADDING - 2],
-    [0, FLOAT_HEIGHT,  ARENA + OUTER_PADDING + 2],
-    [-ARENA - OUTER_PADDING - 2, FLOAT_HEIGHT, 0],
-    [ ARENA + OUTER_PADDING + 2, FLOAT_HEIGHT, 0],
+    [0, FLOAT_HEIGHT + 2, -ARENA - OUTER_PADDING - 2],
+    [0, FLOAT_HEIGHT + 2,  ARENA + OUTER_PADDING + 2],
+    [-ARENA - OUTER_PADDING - 2, FLOAT_HEIGHT + 2, 0],
+    [ ARENA + OUTER_PADDING + 2, FLOAT_HEIGHT + 2, 0],
   ];
   for (const [sx, sy, sz] of sidePositions) {
-    const light = new THREE.PointLight(0x4ff7ff, 1.6, 28, 1.4);
+    // Intensity 6, range 60 — big enough to cover all 3 rows and bleed
+    // some light onto the arena floor too.
+    const light = new THREE.PointLight(0x4ff7ff, 6.0, 60, 1.3);
     light.position.set(sx, sy, sz);
     scene.add(light);
     sideLights.push(light);
@@ -139,10 +155,12 @@ export function recolorCrowd(tintHex) {
   const tint = new THREE.Color(tintHex);
 
   for (let i = 0; i < CROWD_COUNT; i++) {
-    const jitter = 0.75 + (bobSeeds[i] % 1) * 0.5;
-    _tmpColor.copy(tint).multiplyScalar(jitter * 0.85);
-    bodyMesh.setColorAt(i, _tmpColor);
+    // Per-instance brightness jitter so the crowd isn't a flat block.
+    // Kept in a tight range (0.8..1.1) so every lantern still reads
+    // as the chapter color.
+    const jitter = 0.8 + (bobSeeds[i] % 1) * 0.3;
     _tmpColor.copy(tint).multiplyScalar(jitter);
+    bodyMesh.setColorAt(i, _tmpColor);
     headMesh.setColorAt(i, _tmpColor);
   }
   if (bodyMesh.instanceColor) bodyMesh.instanceColor.needsUpdate = true;
