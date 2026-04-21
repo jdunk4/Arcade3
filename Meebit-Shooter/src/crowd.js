@@ -15,11 +15,11 @@ import { ARENA } from './config.js';
 // Layout: square perimeter, a few rows deep.
 // ---------------------------------------------------------------
 const ROWS = 3;
-const SPACING_ALONG_SIDE = 3.0;   // gap between lanterns along each side
-const ROW_STEP = 2.6;             // distance between consecutive rows (outward)
-const OUTER_PADDING = 5.0;        // how far the inner row sits beyond arena wall
-const FLOAT_HEIGHT = 2.2;         // base y-height — floating above ground
-const BOB_AMPLITUDE = 0.35;       // vertical bob range
+const SPACING_ALONG_SIDE = 4.5;   // was 3.0 — spread lanterns farther apart
+const ROW_STEP = 4.0;             // was 2.6 — rows are deeper apart
+const OUTER_PADDING = 8.0;        // was 5.0 — push the inner row back
+const FLOAT_HEIGHT = 2.2;
+const BOB_AMPLITUDE = 0.35;
 
 let CROWD_COUNT = 0;
 
@@ -70,30 +70,20 @@ export function buildCrowd() {
   bobSeeds = new Float32Array(CROWD_COUNT);
   basePositions = new Float32Array(CROWD_COUNT * 3);
 
-  // Materials: small emissive contribution so each lantern has its own
-  // self-glow independent of scene lighting. We set emissive=white and
-  // emissiveIntensity=low, which combined with instanceColor multiplying
-  // the diffuse term gives the lantern its chapter hue, and the four
-  // side point lights bathe them in saturated chapter color.
-  //
-  // (Note: Three.js MeshStandardMaterial's instanceColor only tints
-  // diffuse, not emissive — so the emissive here stays neutral white
-  // and serves as a gentle "self-lit" bias, NOT the chapter color.
-  // That's fine because side lights + diffuse tinting handle the
-  // chapter look and the net result glows as intended.)
-  const bodyMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    emissive: 0xffffff,
-    emissiveIntensity: 0.25,   // gentle self-glow, not dominant
-    roughness: 0.55,
-    metalness: 0.0,
+  // MeshBasicMaterial — UNLIT. Scene ambient + hemi + side lights were
+  // washing the standard-material lanterns toward white no matter how
+  // saturated the instance color was. Basic material ignores lights
+  // entirely, so the diffuse = exactly the instanceColor × material
+  // color. For lanterns this actually reads correctly: they're lights,
+  // not lit objects, so they should project their color regardless of
+  // what's nearby.
+  const bodyMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,   // white base — instanceColor multiplies this to the chapter hue
+    toneMapped: false, // preserve color saturation through ACES tone mapping
   });
-  const headMat = new THREE.MeshStandardMaterial({
+  const headMat = new THREE.MeshBasicMaterial({
     color: 0xffffff,
-    emissive: 0xffffff,
-    emissiveIntensity: 0.35,   // head slightly brighter
-    roughness: 0.4,
-    metalness: 0.0,
+    toneMapped: false,
   });
 
   bodyMesh = new THREE.InstancedMesh(BODY_GEO, bodyMat, CROWD_COUNT);
@@ -127,20 +117,27 @@ export function buildCrowd() {
   scene.add(bodyMesh);
   scene.add(headMesh);
 
-  // Four chapter-tinted point lights — these are where the actual
-  // chapter "glow" comes from. They're strong and close to the
-  // lanterns so the whole crowd reads as chapter-colored.
+  // Eight chapter-tinted point lights positioned around the perimeter.
+  // Four on the side-midpoints, four on the corners. This gives an
+  // even chapter-colored wash across the arena floor edges without
+  // hot spots. Intensity 7 / range 55 is strong enough to visibly
+  // bleed onto the floor tiles.
   sideLights = [];
+  const outerDist = ARENA + OUTER_PADDING + 4;
   const sidePositions = [
-    [0, FLOAT_HEIGHT + 2, -ARENA - OUTER_PADDING - 2],
-    [0, FLOAT_HEIGHT + 2,  ARENA + OUTER_PADDING + 2],
-    [-ARENA - OUTER_PADDING - 2, FLOAT_HEIGHT + 2, 0],
-    [ ARENA + OUTER_PADDING + 2, FLOAT_HEIGHT + 2, 0],
+    // Side midpoints
+    [0, FLOAT_HEIGHT + 1, -outerDist],
+    [0, FLOAT_HEIGHT + 1,  outerDist],
+    [-outerDist, FLOAT_HEIGHT + 1, 0],
+    [ outerDist, FLOAT_HEIGHT + 1, 0],
+    // Corners
+    [-outerDist * 0.75, FLOAT_HEIGHT + 1, -outerDist * 0.75],
+    [ outerDist * 0.75, FLOAT_HEIGHT + 1, -outerDist * 0.75],
+    [-outerDist * 0.75, FLOAT_HEIGHT + 1,  outerDist * 0.75],
+    [ outerDist * 0.75, FLOAT_HEIGHT + 1,  outerDist * 0.75],
   ];
   for (const [sx, sy, sz] of sidePositions) {
-    // Intensity 6, range 60 — big enough to cover all 3 rows and bleed
-    // some light onto the arena floor too.
-    const light = new THREE.PointLight(0x4ff7ff, 6.0, 60, 1.3);
+    const light = new THREE.PointLight(0x4ff7ff, 7.0, 55, 1.3);
     light.position.set(sx, sy, sz);
     scene.add(light);
     sideLights.push(light);
@@ -155,10 +152,10 @@ export function recolorCrowd(tintHex) {
   const tint = new THREE.Color(tintHex);
 
   for (let i = 0; i < CROWD_COUNT; i++) {
-    // Per-instance brightness jitter so the crowd isn't a flat block.
-    // Kept in a tight range (0.8..1.1) so every lantern still reads
-    // as the chapter color.
-    const jitter = 0.8 + (bobSeeds[i] % 1) * 0.3;
+    // Very tight jitter range so every lantern still reads as a
+    // SATURATED chapter color. Some variation keeps it from being a
+    // perfectly uniform wall, but we don't want washed-out lanterns.
+    const jitter = 0.9 + (bobSeeds[i] % 1) * 0.2;   // 0.9 .. 1.1
     _tmpColor.copy(tint).multiplyScalar(jitter);
     bodyMesh.setColorAt(i, _tmpColor);
     headMesh.setColorAt(i, _tmpColor);
