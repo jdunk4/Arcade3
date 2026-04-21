@@ -101,7 +101,18 @@ export const Save = {
     p.highestWave = Math.max(p.highestWave, wave);
     const set = new Set(p.rescuedCollection);
     for (const id of rescuedIds) set.add(id);
-    p.rescuedCollection = Array.from(set).sort((a, b) => a - b);
+    // Sort tolerantly: legacy entries are numeric Meebit IDs (0..19999);
+    // bonus-wave entries are "herdId:idx" strings (e.g. "pigs:42"). Numbers
+    // sort first (ascending), then strings alphabetically. This keeps old
+    // saves readable while supporting the new tagged IDs.
+    p.rescuedCollection = Array.from(set).sort((a, b) => {
+      const an = typeof a === 'number';
+      const bn = typeof b === 'number';
+      if (an && bn) return a - b;
+      if (an) return -1;
+      if (bn) return 1;
+      return String(a).localeCompare(String(b));
+    });
     p.totalRescues = p.rescuedCollection.length;
     p.lastRun = { score, wave, chapter, rescuedIds: [...rescuedIds], timestamp: Date.now() };
     return writePlayer(p);
