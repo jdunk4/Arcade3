@@ -35,10 +35,31 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // Start empty and populate once you've verified rights to each asset.
 // ------------------------------------------------------------------
 const LOCAL_ASSET_POOL = [
-  // Examples (uncomment after adding the files and verifying rights):
-  // 'assets/civilians/futbol_01.glb',
-  // 'assets/civilians/futbol_02.glb',
-  // 'assets/civilians/futbol_03.vrm',
+  'assets/civilians/00001.vrm',
+  'assets/civilians/00002.vrm',
+  'assets/civilians/00003.vrm',
+  'assets/civilians/00004.vrm',
+  'assets/civilians/00005.vrm',
+  'assets/civilians/00006.vrm',
+  'assets/civilians/00007.vrm',
+  'assets/civilians/00008.vrm',
+  'assets/civilians/00009.vrm',
+  'assets/civilians/00010.vrm',
+  'assets/civilians/00011.vrm',
+  'assets/civilians/00012.vrm',
+  'assets/civilians/00013.vrm',
+  'assets/civilians/00014.vrm',
+  'assets/civilians/00015.vrm',
+  'assets/civilians/00016.vrm',
+  'assets/civilians/00017.vrm',
+  'assets/civilians/00018.vrm',
+  'assets/civilians/00019.vrm',
+  'assets/civilians/00020.vrm',
+  'assets/civilians/00021.vrm',
+  'assets/civilians/00022.vrm',
+  'assets/civilians/00023.vrm',
+  'assets/civilians/00024.vrm',
+  'assets/civilians/00025.vrm',
 ];
 
 // Public CORS proxy. Format: https://corsproxy.io/?<url-encoded-target>
