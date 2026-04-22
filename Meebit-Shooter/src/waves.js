@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { S, shake, updateChapterFromWave } from './state.js';
+import { mouse, keys } from './state.js';
 import {
   getWaveDef, WEAPONS, CHAPTERS, WAVES_PER_CHAPTER, MEEBIT_CONFIG,
   CAPTURE_RADIUS, CAPTURE_ENEMY_SLOWDOWN, CAPTURE_KILL_BONUS,
@@ -623,8 +624,43 @@ function spawnFromPortal(portal, mix) {
 // clean and the game loop doesn't need any cinematic-aware gating because
 // boss waves don't spawn filler enemies anyway.
 // ============================================================================
+// ============================================================================
+// PRE-BOSS CINEMATIC
+//
+// Plays a full-screen OPAQUE cinematic before the boss appears. Purpose:
+//   1. Dramatic beat — gives the boss reveal real weight.
+//   2. FREEZE MASK — the cinematic is fully opaque and the game is paused
+//      while it's up, so when we spawn the boss (and trigger the first-time
+//      shader/PSO compile for that boss model), the freeze happens BEHIND the
+//      overlay. Player sees smooth title card motion, not a gameplay stutter.
+//   3. Safety-net pool build — if preparePigPool hasn't completed for this
+//      chapter yet (shouldn't happen after the matrix dive, but defensive),
+//      kicks off that work during the cinematic too.
+//
+// Strategy (in timeline order):
+//   t=0     : pause game (S.paused=true), clear input buffer
+//   t=0     : mount overlay, fade in opaque chapter-tinted background
+//   t=300ms : start title animations
+//   t=1200ms: spawn boss (first-render shader compile happens NOW, hidden)
+//   t=5400ms: fade overlay out
+//   t=6020ms: unpause, showBossBar, toast "APPROACHES"
+//
+// Visual tone:
+//   - Fully opaque. NOT a transparent tint overlay — the arena behind must
+//     not be visible because if we can see it, we can see the freeze.
+//   - Heavy chapter-color presence. Ch.1 orange dominates Ch.1 cinematic;
+//     Ch.2 crimson; Ch.3 gold; Ch.4 toxic green; Ch.5 arctic cyan; Ch.6 magenta.
+//   - Black interior so text reads cleanly — color is in vignette + accents.
+// ============================================================================
 let _cinematicEl = null;   // currently-on-screen overlay, if any
 let _cinematicTimer = 0;   // setTimeout id for the end-of-cinematic fire
+let _cinematicSpawnTimer = 0; // setTimeout id for the mid-cinematic boss spawn
+let _cinematicActive = false; // true while cinematic is up (also implies S.paused)
+
+// True while the pre-boss cinematic is on screen. Other modules can consult
+// this if they ever need to know whether input gating is cinematic-driven
+// vs pause-menu-driven.
+export function isBossCinematicActive() { return _cinematicActive; }
 
 function _playBossCinematic(wd) {
   // If we're somehow replaying the cinematic (shouldn't happen in normal flow),
@@ -636,8 +672,21 @@ function _playBossCinematic(wd) {
   const chapterName = chapter.name;
   const bossName = (wd.bossType || 'BOSS').replace(/_/g, ' ');
   const tintHex = chapter.full.grid1 || 0xffffff;
+  const accentHex = chapter.full.orb || chapter.full.lamp || tintHex;
   // Convert 0xRRGGBB to CSS-friendly "#rrggbb"
   const cssTint = '#' + tintHex.toString(16).padStart(6, '0');
+  const cssAccent = '#' + accentHex.toString(16).padStart(6, '0');
+
+  // --- HARD PAUSE the game & clear input buffer. ---
+  // Setting S.paused = true stops the entire update loop (movement, enemies,
+  // projectiles, firing), so any heavy work we do during the cinematic
+  // (boss spawn shader-compile, pool build) happens without competing with
+  // a live game. Clearing mouse.down/keys prevents buffered input from
+  // firing the instant the cinematic ends.
+  _cinematicActive = true;
+  S.paused = true;
+  mouse.down = false;
+  for (const k in keys) keys[k] = false;
 
   // --- Safety-net pool build in parallel (fire-and-forget). ---
   // If the pool is already built, this resolves instantly. If not, it spreads
@@ -647,53 +696,73 @@ function _playBossCinematic(wd) {
     preparePigPool(S.chapter, null, renderer, camera)
       .catch(err => console.warn('[cinematic] pool build (non-fatal):', err));
   } catch (err) {
-    // preparePigPool is async but synchronous errors (bad import etc.) would
-    // fall here — swallow them since the dive-built pool is the primary path.
     console.warn('[cinematic] pool build threw (non-fatal):', err);
   }
 
-  // --- Build the overlay DOM. ---
+  // --- Build the overlay DOM. OPAQUE full-screen. ---
+  // Background: heavy chapter tint radial (outer) + black interior. No alpha
+  // in the outermost stop — nothing behind should be visible.
   const overlay = document.createElement('div');
   overlay.id = 'boss-cinematic';
   overlay.style.cssText = `
     position: fixed; inset: 0;
-    background: radial-gradient(ellipse at center,
-      ${_cssWithAlpha(cssTint, 0.28)} 0%,
-      rgba(0,0,0,0.82) 55%,
-      rgba(0,0,0,0.96) 100%);
+    background:
+      radial-gradient(ellipse at center,
+        #000000 0%,
+        #000000 30%,
+        ${_cssWithAlpha(cssTint, 0.55)} 75%,
+        ${cssTint} 100%);
     z-index: 9500;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     opacity: 0;
-    transition: opacity 0.6s ease-out;
-    pointer-events: none;
+    transition: opacity 0.4s ease-out;
+    pointer-events: auto;
     overflow: hidden;
     font-family: monospace;
   `;
+  // A secondary full-bleed layer with a subtle grid pattern in the tint —
+  // sells the "chapter" feeling without needing textures. Purely decorative.
+  const gridPattern = document.createElement('div');
+  gridPattern.style.cssText = `
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(${_cssWithAlpha(cssTint, 0.22)} 1px, transparent 1px),
+      linear-gradient(90deg, ${_cssWithAlpha(cssTint, 0.22)} 1px, transparent 1px);
+    background-size: 56px 56px;
+    mix-blend-mode: screen;
+    opacity: 0.55;
+    mask-image: radial-gradient(ellipse at center, transparent 20%, black 70%);
+    -webkit-mask-image: radial-gradient(ellipse at center, transparent 20%, black 70%);
+  `;
+  overlay.appendChild(gridPattern);
 
   // Chapter line
   const chapLine = document.createElement('div');
   chapLine.style.cssText = `
     color: ${cssTint};
-    font-size: clamp(20px, 2.6vw, 32px);
-    letter-spacing: 10px;
-    text-shadow: 0 0 10px ${cssTint}, 0 0 22px ${cssTint};
-    opacity: 0; transform: translateY(-16px);
-    transition: opacity 0.7s ease-out, transform 0.7s ease-out;
-    margin-bottom: 18px;
+    font-size: clamp(22px, 2.8vw, 36px);
+    font-weight: bold;
+    letter-spacing: 12px;
+    text-shadow: 0 0 12px ${cssTint}, 0 0 28px ${cssTint}, 0 0 48px ${_cssWithAlpha(cssTint, 0.8)};
+    opacity: 0; transform: translateY(-20px);
+    transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+    margin-bottom: 22px;
+    z-index: 2;
   `;
   chapLine.textContent = `CHAPTER ${chapterNum} · ${chapterName}`;
   overlay.appendChild(chapLine);
 
-  // Divider
+  // Divider — thicker + fatter glow than before
   const divider = document.createElement('div');
   divider.style.cssText = `
-    width: 38vw; height: 2px;
-    background: linear-gradient(to right, transparent, ${cssTint}, transparent);
-    box-shadow: 0 0 14px ${cssTint};
+    width: 46vw; height: 3px;
+    background: linear-gradient(to right, transparent, ${cssTint} 20%, ${cssAccent} 50%, ${cssTint} 80%, transparent);
+    box-shadow: 0 0 20px ${cssTint}, 0 0 40px ${_cssWithAlpha(cssTint, 0.6)};
     opacity: 0;
-    transition: opacity 0.8s ease-out;
-    margin-bottom: 22px;
+    transition: opacity 0.7s ease-out;
+    margin-bottom: 28px;
+    z-index: 2;
   `;
   overlay.appendChild(divider);
 
@@ -701,17 +770,19 @@ function _playBossCinematic(wd) {
   const bossLine = document.createElement('div');
   bossLine.style.cssText = `
     color: #ffffff;
-    font-size: clamp(44px, 7vw, 110px);
+    font-size: clamp(48px, 8vw, 128px);
     font-weight: bold;
-    letter-spacing: 8px;
+    letter-spacing: 10px;
     text-shadow:
-      0 0 18px ${cssTint},
-      0 0 36px ${cssTint},
-      0 0 60px ${_cssWithAlpha(cssTint, 0.8)};
-    opacity: 0; transform: scale(0.85);
+      0 0 20px ${cssTint},
+      0 0 44px ${cssTint},
+      0 0 72px ${_cssWithAlpha(cssTint, 0.9)},
+      0 0 120px ${_cssWithAlpha(cssAccent, 0.6)};
+    opacity: 0; transform: scale(0.82);
     transition: opacity 0.7s ease-out 0.2s, transform 0.9s ease-out 0.2s;
     text-align: center;
     max-width: 92vw;
+    z-index: 2;
   `;
   bossLine.textContent = bossName;
   overlay.appendChild(bossLine);
@@ -720,12 +791,13 @@ function _playBossCinematic(wd) {
   const flavor = document.createElement('div');
   flavor.style.cssText = `
     color: ${cssTint};
-    font-size: clamp(12px, 1.4vw, 16px);
-    letter-spacing: 6px;
-    margin-top: 28px;
-    text-shadow: 0 0 10px ${cssTint};
+    font-size: clamp(13px, 1.5vw, 17px);
+    letter-spacing: 8px;
+    margin-top: 36px;
+    text-shadow: 0 0 12px ${cssTint};
     opacity: 0;
     transition: opacity 0.8s ease-out 0.5s;
+    z-index: 2;
   `;
   flavor.textContent = '// INCOMING HOSTILE //';
   overlay.appendChild(flavor);
@@ -737,9 +809,10 @@ function _playBossCinematic(wd) {
     position: absolute; left: -40%; top: 18%;
     width: 40%; height: 2px;
     background: linear-gradient(to right, transparent, ${cssTint}, transparent);
-    box-shadow: 0 0 12px ${cssTint};
-    opacity: 0.85;
+    box-shadow: 0 0 14px ${cssTint};
+    opacity: 0.9;
     animation: boss-scan-h 3.2s ease-in-out infinite;
+    z-index: 2;
   `;
   overlay.appendChild(scanTop);
   const scanBot = document.createElement('div');
@@ -747,9 +820,10 @@ function _playBossCinematic(wd) {
     position: absolute; right: -40%; bottom: 18%;
     width: 40%; height: 2px;
     background: linear-gradient(to left, transparent, ${cssTint}, transparent);
-    box-shadow: 0 0 12px ${cssTint};
-    opacity: 0.85;
+    box-shadow: 0 0 14px ${cssTint};
+    opacity: 0.9;
     animation: boss-scan-h-rev 3.2s ease-in-out infinite;
+    z-index: 2;
   `;
   overlay.appendChild(scanBot);
 
@@ -780,24 +854,37 @@ function _playBossCinematic(wd) {
       bossLine.style.opacity = '1';
       bossLine.style.transform = 'scale(1)';
     }, 400);
-    setTimeout(() => { flavor.style.opacity = '0.9'; }, 900);
+    setTimeout(() => { flavor.style.opacity = '0.95'; }, 900);
   });
 
-  // --- Audio cue on entry (use existing waveStart as a thematic stinger;
-  //     keeps the module's dependency surface flat — Audio already imported). ---
+  // --- Audio cue on entry ---
   try { Audio.waveStart(); } catch (e) {}
 
+  // --- Spawn the boss MID-cinematic so its shader-compile freeze is masked. ---
+  // The overlay is fully opaque at this point, so any stutter the renderer
+  // hits compiling the boss's shader/PSO happens behind the curtain.
+  // 1200ms in: far enough past fade-in that the overlay is 100% opaque and
+  // the title has settled; far enough before fade-out (at 5400ms) that any
+  // freeze finishes before the player is looking at gameplay again.
+  _cinematicSpawnTimer = setTimeout(() => {
+    try {
+      spawnBoss();
+    } catch (err) {
+      console.warn('[cinematic] spawnBoss error:', err);
+    }
+  }, 1200);
+
   // --- Schedule end-of-cinematic ---
-  // Total on-screen time: ~6.0s. Long enough to read, short enough to not
-  // overstay. 0.6s fade-out overlaps with boss spawn + HUD reveal.
+  // Total on-screen time: ~6.0s (5.4s hold + 0.6s fade).
   const HOLD_MS = 5400;
   _cinematicTimer = setTimeout(() => {
-    // Fade out
     overlay.style.opacity = '0';
     setTimeout(() => {
       _teardownBossCinematic();
-      // Now actually spawn the boss and reveal the health bar.
-      spawnBoss();
+      // Unpause, reveal HUD, toast. Boss is already alive behind the overlay
+      // and will start acting on the first resumed frame.
+      S.paused = false;
+      _cinematicActive = false;
       UI.showBossBar(bossName);
       UI.toast(bossName + ' APPROACHES', '#ff2e4d', 2000);
     }, 620);
@@ -806,10 +893,18 @@ function _playBossCinematic(wd) {
 
 function _teardownBossCinematic() {
   if (_cinematicTimer) { clearTimeout(_cinematicTimer); _cinematicTimer = 0; }
+  if (_cinematicSpawnTimer) { clearTimeout(_cinematicSpawnTimer); _cinematicSpawnTimer = 0; }
   if (_cinematicEl && _cinematicEl.parentNode) _cinematicEl.parentNode.removeChild(_cinematicEl);
   _cinematicEl = null;
   const kf = document.getElementById('boss-cinematic-keyframes');
   if (kf && kf.parentNode) kf.parentNode.removeChild(kf);
+  // If we're being torn down abruptly (reset), also make sure we don't leave
+  // the game paused in cinematic-mode. The normal end-of-cinematic path
+  // already handles this; this is the safety net for resetWaves().
+  if (_cinematicActive) {
+    _cinematicActive = false;
+    S.paused = false;
+  }
 }
 
 // Helper — takes a "#rrggbb" string and an alpha 0..1, returns "rgba(r,g,b,a)".
