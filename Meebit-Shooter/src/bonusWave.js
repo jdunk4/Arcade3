@@ -461,6 +461,19 @@ export function clearBonusWave() {
  * Nuke every saved pig from the scene and reset the formation counter.
  * Called on full game reset (player died → restart). The visual trophy
  * wall of freed pigs should only accumulate within a single run.
+ *
+ * IMPORTANT: this does NOT clear the pig pools. Pools hold the pre-built,
+ * PSO-warmed clone meshes for every chapter's bonus wave — they take ~3-6
+ * seconds of shader-compile work to rebuild, which is the single biggest
+ * freeze vector in the whole game. The pools are session-scoped and stay
+ * valid across game-over/restart cycles: the underlying VRM cache survives,
+ * the hidden meshes at y=-1000 don't interfere with the new run, and
+ * bonusWave tracks in-use entries with `inUse` flags that get reset when
+ * each wave ends anyway.
+ *
+ * Pools are only torn down when you genuinely want them gone (page reload,
+ * or explicit call to clearPigPool()). The matrix dive builds them once;
+ * they stick for the life of the tab.
  */
 export function clearSavedPigs() {
   for (const s of savedPigs) {
@@ -471,8 +484,13 @@ export function clearSavedPigs() {
   // Reset the shuffled-slot bag so the next run gets a fresh random layout.
   _slotBag = null;
   _slotBagCursor = 0;
-  // Nuke any pool meshes still hanging around — game is fully resetting.
-  clearPigPool();
+  // NOTE: pools deliberately preserved. See doc comment above.
+  // Reset inUse flags so a fresh run can pull from the pool cleanly —
+  // stray "in use" markers from a previous run would otherwise leave
+  // pool entries that can never be allocated.
+  for (const pool of pigPools.values()) {
+    for (const entry of pool) entry.inUse = false;
+  }
 }
 
 /**
@@ -552,6 +570,10 @@ export async function prefetchNextHerd(nextChapterIdx, renderer, camera) {
  * @param {(info:{chapterIdx:number,built:number,count:number})=>void} [onProgress]
  *        called after each clone is added (for the matrix-dive progress bar)
  */
+// Tracks in-flight preparePigPool() calls by chapter so concurrent requests
+// for the same chapter share the same Promise and don't double-build.
+const _pigPoolBuildPromises = new Map();
+
 export async function preparePigPool(chapterIdx, countOverride, renderer, camera, onProgress) {
   // If this chapter's pool is already built, no-op.
   const existing = pigPools.get(chapterIdx);
@@ -560,6 +582,28 @@ export async function preparePigPool(chapterIdx, countOverride, renderer, camera
     return;
   }
 
+  // CONCURRENT-BUILD GUARD. If another caller is already building this
+  // chapter's pool, await that work instead of starting a duplicate build.
+  // Without this guard, two near-simultaneous calls would both see an empty
+  // pool and each kick off a 3-5 second clone+compile pass, blocking the
+  // main thread twice.
+  const inFlight = _pigPoolBuildPromises.get(chapterIdx);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const promise = _buildPigPool(chapterIdx, countOverride, renderer, camera, onProgress);
+  _pigPoolBuildPromises.set(chapterIdx, promise);
+  try {
+    await promise;
+  } finally {
+    _pigPoolBuildPromises.delete(chapterIdx);
+  }
+}
+
+// Internal builder — the actual work. Split out so the concurrent guard
+// above can share a single Promise across callers without duplicating logic.
+async function _buildPigPool(chapterIdx, countOverride, renderer, camera, onProgress) {
   const chapter = CHAPTERS[chapterIdx % CHAPTERS.length];
   if (!chapter || !chapter.bonusHerd) return;
   const herdId = chapter.bonusHerd.id;
