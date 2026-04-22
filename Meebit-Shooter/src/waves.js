@@ -889,11 +889,22 @@ function _playBossCinematic(wd) {
   const cssTint = '#' + tintHex.toString(16).padStart(6, '0');
   const cssAccent = '#' + accentHex.toString(16).padStart(6, '0');
 
-  // --- HARD PAUSE the game & clear input buffer. ---
+  // --- Flag cinematic active + clear input buffer. ---
+  // The game keeps running behind the opaque overlay — enemies spawn and
+  // move, AI ticks, the boss appears 1.2s in and begins attacking. What
+  // we DO freeze is player input: the game loop checks _cinematicActive
+  // before reading keys/mouse so the player can't move or fire while the
+  // title card is up. That way the world feels continuous instead of
+  // stopping cold, but the player isn't getting shot because they're
+  // mashing buttons they can't see the effect of.
   _cinematicActive = true;
-  S.paused = true;
   mouse.down = false;
   for (const k in keys) keys[k] = false;
+  // Grant invulnerability for the full cinematic duration + a small grace
+  // period on exit. Without this, enemies could walk into the player's
+  // position and chew health during the ~6s they can't fight back.
+  // 6.5s covers 5.4s hold + 0.6s fade + 0.5s grace after unlock.
+  S.invulnTimer = Math.max(S.invulnTimer || 0, 6.5);
 
   // --- Get the cached overlay DOM, configure it for this chapter, mount it. ---
   const dom = _ensureCinematicDom();
@@ -961,7 +972,6 @@ function _playBossCinematic(wd) {
     dom.root.style.opacity = '0';
     setTimeout(() => {
       _teardownBossCinematic();
-      S.paused = false;
       _cinematicActive = false;
       UI.showBossBar(bossName);
       UI.toast(bossName + ' APPROACHES', '#ff2e4d', 2000);
@@ -978,10 +988,10 @@ function _teardownBossCinematic() {
   if (_cineDom && _cineDom.root && _cineDom.root.parentNode) {
     _cineDom.root.parentNode.removeChild(_cineDom.root);
   }
-  if (_cinematicActive) {
-    _cinematicActive = false;
-    S.paused = false;
-  }
+  // The game was never paused; just clear the active flag so input gating
+  // in main.js goes back to normal.
+  _cinematicActive = false;
+}
 }
 
 // Helper — takes a "#rrggbb" string and an alpha 0..1, returns "rgba(r,g,b,a)".
