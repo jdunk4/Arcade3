@@ -130,6 +130,7 @@ export function startWave(waveNum) {
     // The cinematic is fire-and-forget from startWave's perspective: the
     // wave is already "type === boss" and waveActive is true, so enemy-spawn
     // loops won't try to run here (boss waves don't spawn filler enemies).
+    console.info('[waves] boss wave starting — entering cinematic');
     _playBossCinematic(waveDef);
   } else if (waveDef.type === 'capture') {
     const angle = Math.random() * Math.PI * 2;
@@ -667,6 +668,9 @@ function _playBossCinematic(wd) {
   // tear down any existing one first.
   _teardownBossCinematic();
 
+  const t0 = performance.now();
+  console.info('[cinematic] begin');
+
   const chapter = CHAPTERS[S.chapter % CHAPTERS.length];
   const chapterNum = S.chapter + 1;
   const chapterName = chapter.name;
@@ -688,20 +692,15 @@ function _playBossCinematic(wd) {
   mouse.down = false;
   for (const k in keys) keys[k] = false;
 
-  // --- Safety-net pool build in parallel (fire-and-forget). ---
-  // If the pool is already built, this resolves instantly. If not, it spreads
-  // clone + PSO-warm work across the cinematic's lifetime, which is exactly
-  // the kind of "hidden loading" we want.
-  try {
-    preparePigPool(S.chapter, null, renderer, camera)
-      .catch(err => console.warn('[cinematic] pool build (non-fatal):', err));
-  } catch (err) {
-    console.warn('[cinematic] pool build threw (non-fatal):', err);
-  }
-
   // --- Build the overlay DOM. OPAQUE full-screen. ---
   // Background: heavy chapter tint radial (outer) + black interior. No alpha
   // in the outermost stop — nothing behind should be visible.
+  //
+  // CRITICAL: mount with opacity:1 (not 0 + fade-in). The old approach left
+  // the overlay invisible for one frame while heavy JS queued up, producing
+  // a visible freeze on the gameplay frame underneath. Mounting opaque from
+  // the first paint means the very first frame after this function returns
+  // shows the cinematic, not frozen gameplay.
   const overlay = document.createElement('div');
   overlay.id = 'boss-cinematic';
   overlay.style.cssText = `
@@ -715,7 +714,7 @@ function _playBossCinematic(wd) {
     z-index: 9500;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    opacity: 0;
+    opacity: 1;
     transition: opacity 0.4s ease-out;
     pointer-events: auto;
     overflow: hidden;
@@ -845,35 +844,50 @@ function _playBossCinematic(wd) {
   document.body.appendChild(overlay);
   _cinematicEl = overlay;
 
-  // --- Animate in ---
-  requestAnimationFrame(() => {
-    overlay.style.opacity = '1';
-    chapLine.style.opacity = '1'; chapLine.style.transform = 'translateY(0)';
-    setTimeout(() => { divider.style.opacity = '1'; }, 200);
-    setTimeout(() => {
-      bossLine.style.opacity = '1';
-      bossLine.style.transform = 'scale(1)';
-    }, 400);
-    setTimeout(() => { flavor.style.opacity = '0.95'; }, 900);
-  });
+  // Force synchronous layout + reflow so the browser commits the DOM state.
+  // Reading offsetHeight forces the engine to flush pending style calcs.
+  // This doesn't guarantee a paint, but it guarantees the next paint cycle
+  // WILL include the overlay.
+  // eslint-disable-next-line no-unused-expressions
+  overlay.offsetHeight;
 
-  // --- Audio cue on entry ---
-  try { Audio.waveStart(); } catch (e) {}
+  console.info(`[cinematic] overlay mounted at +${(performance.now() - t0).toFixed(1)}ms`);
+
+  // --- Animate in the inner content on the NEXT paint, after the opaque
+  //     background is already on screen. ---
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      console.info(`[cinematic] first paint at +${(performance.now() - t0).toFixed(1)}ms — starting heavy work`);
+      chapLine.style.opacity = '1'; chapLine.style.transform = 'translateY(0)';
+      setTimeout(() => { divider.style.opacity = '1'; }, 200);
+      setTimeout(() => {
+        bossLine.style.opacity = '1';
+        bossLine.style.transform = 'scale(1)';
+      }, 400);
+      setTimeout(() => { flavor.style.opacity = '0.95'; }, 900);
+
+      // --- NOW do the heavy work, after TWO frames have painted. ---
+      // Safety-net pool build (no-op if already done by the matrix dive).
+      try {
+        preparePigPool(S.chapter, null, renderer, camera)
+          .catch(err => console.warn('[cinematic] pool build (non-fatal):', err));
+      } catch (err) {
+        console.warn('[cinematic] pool build threw (non-fatal):', err);
+      }
+
+      // Audio stinger after paint so it syncs with the visual.
+      try { Audio.waveStart(); } catch (e) {}
+    });
+  });
 
   // --- Spawn the boss MID-cinematic so its shader-compile freeze is masked. ---
   // The overlay is fully opaque at this point, so any stutter the renderer
   // hits compiling the boss's shader/PSO happens behind the curtain.
-  // 1200ms in: far enough past fade-in that the overlay is 100% opaque and
-  // the title has settled; far enough before fade-out (at 5400ms) that any
-  // freeze finishes before the player is looking at gameplay again.
   _cinematicSpawnTimer = setTimeout(() => {
+    const tSpawn = performance.now();
+    console.info(`[cinematic] spawning boss at +${(tSpawn - t0).toFixed(1)}ms`);
     try {
       spawnBoss();
-      // Force an immediate eager shader/PSO compile for everything now in
-      // the scene — notably the freshly-spawned boss. This is the key line
-      // that pays the compile cost while the opaque overlay still hides it.
-      // If this throws, the fallback is the normal first-frame compile path
-      // (which would stutter, but the game wouldn't break).
       try {
         if (renderer && renderer.compile) renderer.compile(scene, camera);
       } catch (compileErr) {
@@ -882,6 +896,7 @@ function _playBossCinematic(wd) {
     } catch (err) {
       console.warn('[cinematic] spawnBoss error:', err);
     }
+    console.info(`[cinematic] boss ready in ${(performance.now() - tSpawn).toFixed(1)}ms`);
   }, 1200);
 
   // --- Schedule end-of-cinematic ---
@@ -897,6 +912,7 @@ function _playBossCinematic(wd) {
       _cinematicActive = false;
       UI.showBossBar(bossName);
       UI.toast(bossName + ' APPROACHES', '#ff2e4d', 2000);
+      console.info(`[cinematic] end at +${(performance.now() - t0).toFixed(1)}ms`);
     }, 620);
   }, HOLD_MS);
 }
