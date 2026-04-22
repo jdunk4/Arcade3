@@ -81,10 +81,15 @@ export function prewarmShaders(renderer) {
   }
 
   // -----------------------------------------------------------------
-  // 2. One of every boss.
+  // 2. One of every boss × every chapter tint.
+  //    Bosses cycle across chapters (4 boss types, 6 chapters), and each
+  //    chapter has a unique enemyTint — so a boss can land on 6 different
+  //    tinted material variants. Pre-warming only 2 chapters' worth left
+  //    chapters 3-6 to compile a fresh shader on boss spawn — a ~80ms
+  //    hitch behind the cinematic. Covering all 6 tints here eliminates it.
   // -----------------------------------------------------------------
   for (const bossKey of Object.keys(BOSSES)) {
-    for (const chapter of CHAPTERS.slice(0, 2)) {
+    for (const chapter of CHAPTERS) {
       try {
         const b = makeBoss(bossKey, chapter.full.enemyTint, warmPos);
         _hideObj(b.obj);
