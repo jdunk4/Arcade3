@@ -1,0 +1,795 @@
+// ============================================================================
+// src/powerups.js — end-of-chapter reward cards + persistent effects.
+//
+// FLOW
+//   1. Boss dies. waves.js fires the "CHAPTER N COMPLETE" toast.
+//   2. We intercept the normal 3-2-1 countdown and show a 3-card modal.
+//   3. Player picks ONE card. The pick is applied permanently + the
+//      countdown resumes.
+//   4. End of next chapter → same modal. Picks STACK.
+//
+// CARDS
+//   A) FOLLOWER MEEBIT — adds a Galaga-style escort that trails the
+//      player's movement with per-slot lag. Each follower auto-fires
+//      at the nearest enemy with a pistol-equivalent shot. Up to 6
+//      followers (one per chapter reward). Each follower is the
+//      chapter's themed meebit (pigs for Inferno, elephants for
+//      Crimson, skeletons for Solar, robots for Toxic, visitors for
+//      Arctic, dissected for Paradise).
+//
+//   B) CHAIN LIGHTNING — any player-weapon kill arcs lightning to the
+//      nearest living enemy within range for reduced damage. Stacks
+//      increase jump count and per-jump damage.
+//
+//   C) POISON TRAIL — player drops poison patches while moving.
+//      Enemies touching a patch take DoT damage and move slower while
+//      standing in poison. Stacks thicken the trail and increase DPS.
+//
+// INTEGRATION
+//   - main.js imports { initPowerups, maybeShowChapterReward,
+//     updatePowerups, chainLightningOnKill, clearAllPowerups,
+//     powerupsActive }. See the bottom of this file for the full API.
+//   - waves.js (via main.js wave-change detector) calls
+//     maybeShowChapterReward(S.chapter) at the moment CHAPTER N
+//     COMPLETE fires. The modal pauses the game until pick.
+//   - main.js calls chainLightningOnKill(enemy) at every player-kill
+//     site so the chain can arc. The function is a no-op if the
+//     player hasn't picked the card.
+// ============================================================================
+
+import * as THREE from 'three';
+import { scene } from './scene.js';
+import { S } from './state.js';
+import { ARENA, CHAPTERS, WAVES_PER_CHAPTER } from './config.js';
+import { Audio } from './audio.js';
+import { hitBurst } from './effects.js';
+import { enemies } from './enemies.js';
+import { getHerdMeshByFilename, getHerdFilenamesSync } from './herdVrmLoader.js';
+
+// Re-usable scratch
+const _v = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+
+// ============================================================================
+// PERSISTENT STATE
+// ============================================================================
+// Stack counts per upgrade. Starts at 0. Each chapter reward bumps one
+// of these by 1. We check them from update loops to apply effects.
+// Kept as a plain object (not on S) so save-load doesn't have to learn
+// about them yet — they live for the duration of the run only.
+// ============================================================================
+
+const stacks = {
+  follower: 0,       // number of Galaga-style trailing pets
+  chainLightning: 0, // 0 = off, 1 = +1 jump, 2 = +2 jumps, ...
+  poisonTrail: 0,    // 0 = off, 1+ = trail density & damage
+};
+
+// One kept per chapter so we only offer the modal ONCE per chapter boundary
+// even if the main loop's wave-change detector fires twice.
+const rewardedChapters = new Set();
+
+// The countdown-resume callback held while the modal is up. When the player
+// clicks a card we invoke this to continue the normal wave flow.
+let pendingResume = null;
+
+// ============================================================================
+// FOLLOWERS (Galaga escort)
+// ============================================================================
+// Each follower samples the player's position into a shared ring buffer.
+// Its own mesh reads from (current index - lag) so it trails naturally:
+//   slot 0 → 8 samples behind
+//   slot 1 → 16 samples behind
+//   ...
+// With a 60Hz sample rate, 8 samples ≈ 133ms — close enough to feel
+// "right behind the player" without overlapping.
+// ============================================================================
+
+const FOLLOWER_MAX = 6;
+const FOLLOWER_LAG_PER_SLOT = 8;     // ring-buffer frames
+const FOLLOWER_RING_SIZE = 256;      // holds ~4s of trail at 60Hz
+const FOLLOWER_FIRE_INTERVAL = 0.55; // sec between shots
+const FOLLOWER_RANGE = 24;
+const FOLLOWER_DAMAGE = 22;
+const FOLLOWER_BULLET_SPEED = 42;
+const FOLLOWER_BULLET_LIFE = 1.2;
+const FOLLOWER_BULLET_COLOR = 0x4ff7ff;
+
+// Map chapter index → which herd folder to pull the follower mesh from.
+// Uses the same themed herds as the bonus wave so followers look right.
+function getFollowerHerdForChapter(chapterIdx) {
+  const chap = CHAPTERS[chapterIdx % CHAPTERS.length];
+  return chap && chap.bonusHerd ? chap.bonusHerd.id : 'pigs';
+}
+
+const followers = [];   // { obj, slot, chapterIdx, herdId, ready, fireCd }
+const followerBullets = [];
+
+const playerTrail = {
+  ring: new Array(FOLLOWER_RING_SIZE),
+  head: 0,
+  initialized: false,
+};
+
+function _initTrail(pos) {
+  for (let i = 0; i < FOLLOWER_RING_SIZE; i++) {
+    playerTrail.ring[i] = { x: pos.x, z: pos.z, facing: 0 };
+  }
+  playerTrail.head = 0;
+  playerTrail.initialized = true;
+}
+
+function _pushTrail(pos, facing) {
+  if (!playerTrail.initialized) _initTrail(pos);
+  playerTrail.head = (playerTrail.head + 1) % FOLLOWER_RING_SIZE;
+  const s = playerTrail.ring[playerTrail.head];
+  s.x = pos.x;
+  s.z = pos.z;
+  s.facing = facing;
+}
+
+function _readTrail(lagSamples) {
+  const idx = (playerTrail.head - lagSamples + FOLLOWER_RING_SIZE * 2) % FOLLOWER_RING_SIZE;
+  return playerTrail.ring[idx];
+}
+
+async function _spawnFollower(chapterIdx) {
+  const slot = followers.length;
+  if (slot >= FOLLOWER_MAX) return;
+
+  const herdId = getFollowerHerdForChapter(chapterIdx);
+  const chap = CHAPTERS[chapterIdx % CHAPTERS.length];
+  const tint = chap && chap.full ? chap.full.grid1 : 0xaabbcc;
+
+  // Placeholder so the follower "exists" in the update loop immediately
+  // even while the VRM is still downloading.
+  const placeholder = new THREE.Group();
+  placeholder.position.copy(_v.set(0, 0, 0));
+  scene.add(placeholder);
+
+  const fol = {
+    obj: placeholder,
+    pos: placeholder.position,
+    slot,
+    chapterIdx,
+    herdId,
+    ready: false,
+    fireCd: FOLLOWER_FIRE_INTERVAL * (0.4 + Math.random() * 0.4),
+    walkPhase: Math.random() * Math.PI * 2,
+    facing: 0,
+  };
+  followers.push(fol);
+
+  try {
+    // Grab a random file from the herd folder; fall back to a voxel
+    // meebit if the herd isn't yet preloaded or the fetch 404s.
+    const files = getHerdFilenamesSync(herdId) || [];
+    const filename = files.length
+      ? files[Math.floor(Math.random() * files.length)]
+      : null;
+
+    let mesh;
+    if (filename) {
+      mesh = await getHerdMeshByFilename(herdId, filename, tint);
+    } else {
+      mesh = null;
+    }
+
+    if (mesh) {
+      // Drop feet-on-floor and rescale to ~2.2 units tall.
+      mesh.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(mesh);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      if (size.y > 0.01 && isFinite(size.y)) {
+        mesh.scale.multiplyScalar(2.2 / size.y);
+        mesh.updateMatrixWorld(true);
+      }
+      const box2 = new THREE.Box3().setFromObject(mesh);
+      if (isFinite(box2.min.y)) mesh.position.y -= box2.min.y;
+      mesh.traverse(o => {
+        if (o.isMesh || o.isSkinnedMesh) {
+          o.frustumCulled = false;
+          o.castShadow = true;
+        }
+      });
+      if (fol.obj && fol.obj.parent) scene.remove(fol.obj);
+      scene.add(mesh);
+      fol.obj = mesh;
+      fol.pos = mesh.position;
+    } else {
+      // Fallback: colored cube so the slot still renders.
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0xffffff, emissive: tint, emissiveIntensity: 0.6,
+      });
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.5, 0.6), mat);
+      body.position.y = 0.75;
+      placeholder.add(body);
+    }
+
+    // Aura ring below so it reads as an ally at a glance.
+    const auraGeo = new THREE.RingGeometry(0.8, 1.2, 20);
+    const auraMat = new THREE.MeshBasicMaterial({
+      color: tint, side: THREE.DoubleSide, transparent: true, opacity: 0.45,
+    });
+    const aura = new THREE.Mesh(auraGeo, auraMat);
+    aura.rotation.x = -Math.PI / 2;
+    aura.position.y = 0.05;
+    fol.obj.add(aura);
+
+    fol.ready = true;
+  } catch (err) {
+    console.warn('[Follower] failed to load', herdId, err);
+    fol.ready = true;   // keep the slot; the placeholder remains visible
+  }
+}
+
+function _updateFollowers(dt, playerPos, playerFacing) {
+  _pushTrail(playerPos, playerFacing);
+  for (const f of followers) {
+    if (!f.ready || !f.obj) continue;
+
+    const lag = FOLLOWER_LAG_PER_SLOT * (f.slot + 1);
+    const sample = _readTrail(lag);
+    // Smooth follow — lerp toward the lagged sample so motion feels fluid
+    // even if the ring gets stale near game start.
+    f.pos.x += (sample.x - f.pos.x) * Math.min(1, dt * 12);
+    f.pos.z += (sample.z - f.pos.z) * Math.min(1, dt * 12);
+    f.obj.rotation.y = sample.facing;
+
+    // Walk bob
+    f.walkPhase += dt * 9;
+    f.obj.position.y = Math.abs(Math.sin(f.walkPhase)) * 0.05;
+
+    // Auto-fire at nearest enemy in range
+    f.fireCd -= dt;
+    if (f.fireCd <= 0) {
+      const tgt = _findNearestEnemy(f.pos, FOLLOWER_RANGE);
+      if (tgt) {
+        _fireFollowerShot(f, tgt);
+        f.fireCd = FOLLOWER_FIRE_INTERVAL;
+      } else {
+        // Short retry window so we snap onto a target quickly when one appears
+        f.fireCd = 0.15;
+      }
+    }
+  }
+
+  // Follower bullets
+  for (let i = followerBullets.length - 1; i >= 0; i--) {
+    const b = followerBullets[i];
+    const ud = b.userData;
+    b.position.addScaledVector(ud.vel, dt);
+    ud.life -= dt;
+    if (ud.life <= 0 ||
+        Math.abs(b.position.x) > ARENA ||
+        Math.abs(b.position.z) > ARENA) {
+      scene.remove(b);
+      followerBullets.splice(i, 1);
+      continue;
+    }
+    // Only hits enemies — no blocks, no civilians, no hives.
+    let hit = -1;
+    for (let j = enemies.length - 1; j >= 0; j--) {
+      const e = enemies[j];
+      const r = e.isBoss ? 2.5 : 0.9;
+      const dx = e.pos.x - b.position.x;
+      const dz = e.pos.z - b.position.z;
+      if (dx * dx + dz * dz < r * r) { hit = j; break; }
+    }
+    if (hit >= 0) {
+      const e = enemies[hit];
+      // Bosses take reduced follower damage too (same rationale as Pixl Pals).
+      const dmg = e.isBoss ? ud.damage * 0.25 : ud.damage;
+      e.hp -= dmg;
+      e.hitFlash = 0.15;
+      hitBurst(b.position, ud.color, 5);
+      if (e.hp <= 0 && _killHandler) _killHandler(hit);
+      scene.remove(b);
+      followerBullets.splice(i, 1);
+    }
+  }
+}
+
+function _fireFollowerShot(f, target) {
+  const origin = new THREE.Vector3(f.pos.x, 1.3, f.pos.z);
+  _v.copy(target.pos).sub(origin);
+  _v.y = 0;
+  const d = _v.length();
+  if (d < 0.001) return;
+  _v.normalize();
+
+  const geo = new THREE.BoxGeometry(0.22, 0.22, 0.55);
+  const mat = new THREE.MeshBasicMaterial({
+    color: FOLLOWER_BULLET_COLOR, transparent: true, opacity: 0.95,
+  });
+  const m = new THREE.Mesh(geo, mat);
+  m.position.copy(origin);
+  m.lookAt(origin.x + _v.x, origin.y, origin.z + _v.z);
+  m.userData = {
+    vel: _v.clone().multiplyScalar(FOLLOWER_BULLET_SPEED),
+    life: FOLLOWER_BULLET_LIFE,
+    damage: FOLLOWER_DAMAGE,
+    color: FOLLOWER_BULLET_COLOR,
+  };
+  scene.add(m);
+  followerBullets.push(m);
+}
+
+// ============================================================================
+// CHAIN LIGHTNING
+// ============================================================================
+// Triggered externally by chainLightningOnKill(enemy). We arc to the
+// nearest living enemy within CHAIN_RANGE, deal damage, and keep going
+// until jumps run out or no enemy is in range.
+// ============================================================================
+
+const CHAIN_RANGE = 8;
+const CHAIN_BASE_DAMAGE = 60;
+const CHAIN_FALLOFF = 0.8;     // each jump = 80% of the previous damage
+const CHAIN_BASE_JUMPS = 2;    // stack 1 = 2 jumps, stack 2 = 3, ...
+
+const chainBolts = [];         // visual line segments with lifetime
+
+function _chainJumps() {
+  return CHAIN_BASE_JUMPS + Math.max(0, stacks.chainLightning - 1);
+}
+
+export function chainLightningOnKill(deadEnemyOrPos) {
+  if (stacks.chainLightning <= 0) return;
+  // Accept either an enemy object or a Vector3 origin
+  const origin = _v.set(
+    deadEnemyOrPos.pos ? deadEnemyOrPos.pos.x : deadEnemyOrPos.x,
+    1.5,
+    deadEnemyOrPos.pos ? deadEnemyOrPos.pos.z : deadEnemyOrPos.z
+  ).clone();
+
+  let from = origin.clone();
+  let dmg = CHAIN_BASE_DAMAGE;
+  const hitSet = new Set();           // avoid arcing back to the same enemy
+  if (deadEnemyOrPos.pos) hitSet.add(deadEnemyOrPos);
+  let jumps = _chainJumps();
+
+  while (jumps > 0) {
+    let best = null, bestDsq = CHAIN_RANGE * CHAIN_RANGE;
+    for (const e of enemies) {
+      if (hitSet.has(e)) continue;
+      const dx = e.pos.x - from.x;
+      const dz = e.pos.z - from.z;
+      const dsq = dx * dx + dz * dz;
+      if (dsq < bestDsq) { bestDsq = dsq; best = e; }
+    }
+    if (!best) break;
+    // Bosses take reduced chain damage, same 0.25 multiplier we use elsewhere.
+    const finalDmg = best.isBoss ? dmg * 0.25 : dmg;
+    best.hp -= finalDmg;
+    best.hitFlash = 0.2;
+    hitSet.add(best);
+
+    _spawnChainBolt(from, new THREE.Vector3(best.pos.x, 1.5, best.pos.z));
+    if (best.hp <= 0 && _killHandler) {
+      const idx = enemies.indexOf(best);
+      if (idx >= 0) _killHandler(idx);
+    }
+    from = new THREE.Vector3(best.pos.x, 1.5, best.pos.z);
+    dmg *= CHAIN_FALLOFF;
+    jumps--;
+  }
+  if (hitSet.size > (deadEnemyOrPos.pos ? 1 : 0)) {
+    Audio.hit && Audio.hit();
+  }
+}
+
+function _spawnChainBolt(a, b) {
+  // Jagged lightning using a few random midpoints along the segment.
+  const pts = [];
+  const steps = 6;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const x = a.x + (b.x - a.x) * t + (Math.random() - 0.5) * 0.6 * Math.sin(t * Math.PI);
+    const y = a.y + (b.y - a.y) * t + (Math.random() - 0.5) * 0.4 * Math.sin(t * Math.PI);
+    const z = a.z + (b.z - a.z) * t + (Math.random() - 0.5) * 0.6 * Math.sin(t * Math.PI);
+    pts.push(new THREE.Vector3(x, y, z));
+  }
+  const geom = new THREE.BufferGeometry().setFromPoints(pts);
+  const mat = new THREE.LineBasicMaterial({
+    color: 0x88eeff, transparent: true, opacity: 1.0,
+  });
+  const line = new THREE.Line(geom, mat);
+  line.userData.life = 0.18;
+  scene.add(line);
+  chainBolts.push(line);
+  // Brief sparkles at endpoints
+  hitBurst(a, 0x88eeff, 4);
+  hitBurst(b, 0x88eeff, 6);
+}
+
+function _updateChainBolts(dt) {
+  for (let i = chainBolts.length - 1; i >= 0; i--) {
+    const b = chainBolts[i];
+    b.userData.life -= dt;
+    b.material.opacity = Math.max(0, b.userData.life / 0.18);
+    if (b.userData.life <= 0) {
+      scene.remove(b);
+      b.geometry.dispose();
+      b.material.dispose();
+      chainBolts.splice(i, 1);
+    }
+  }
+}
+
+// ============================================================================
+// POISON TRAIL
+// ============================================================================
+// Every POISON_DROP_INTERVAL sec while the player is moving we drop a
+// poison patch at their feet. Each patch is a disc + persistent collision
+// zone with DoT + slow. Patches fade over POISON_LIFE seconds.
+// ============================================================================
+
+const POISON_DROP_INTERVAL = 0.22;
+const POISON_LIFE = 3.5;
+const POISON_RADIUS = 1.3;
+const POISON_DPS = 18;            // base. Scales with stack count.
+const POISON_SLOW = 0.55;         // multiplier on enemy speed
+const POISON_COLOR = 0x66ff33;
+const POISON_MAX_PATCHES = 60;
+
+const poisonPatches = [];
+let poisonDropTimer = 0;
+let lastPlayerX = 0, lastPlayerZ = 0;
+
+function _poisonDps() {
+  return POISON_DPS + (stacks.poisonTrail - 1) * 10;  // tier 1 → 18, tier 2 → 28, ...
+}
+
+function _dropPoisonPatch(x, z) {
+  if (poisonPatches.length >= POISON_MAX_PATCHES) {
+    // Recycle oldest
+    const old = poisonPatches.shift();
+    scene.remove(old.mesh);
+  }
+  const geo = new THREE.CircleGeometry(POISON_RADIUS, 20);
+  const mat = new THREE.MeshBasicMaterial({
+    color: POISON_COLOR, transparent: true, opacity: 0.55,
+    side: THREE.DoubleSide,
+  });
+  const m = new THREE.Mesh(geo, mat);
+  m.rotation.x = -Math.PI / 2;
+  m.position.set(x, 0.06, z);
+  scene.add(m);
+  poisonPatches.push({
+    x, z, life: POISON_LIFE, mesh: m, mat,
+  });
+}
+
+function _updatePoisonTrail(dt, playerPos) {
+  if (stacks.poisonTrail > 0) {
+    // Drop a patch if the player moved enough since last drop
+    const dx = playerPos.x - lastPlayerX;
+    const dz = playerPos.z - lastPlayerZ;
+    const movedSq = dx * dx + dz * dz;
+    poisonDropTimer -= dt;
+    if (poisonDropTimer <= 0 && movedSq > 0.01) {
+      _dropPoisonPatch(playerPos.x, playerPos.z);
+      lastPlayerX = playerPos.x;
+      lastPlayerZ = playerPos.z;
+      // Higher stack counts drop patches more frequently (denser trail)
+      poisonDropTimer = Math.max(0.05, POISON_DROP_INTERVAL / stacks.poisonTrail);
+    }
+  }
+
+  // Age + visually fade patches; apply damage + slow to overlapping enemies
+  const dps = _poisonDps();
+  for (let i = poisonPatches.length - 1; i >= 0; i--) {
+    const p = poisonPatches[i];
+    p.life -= dt;
+    if (p.life <= 0) {
+      scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mat.dispose();
+      poisonPatches.splice(i, 1);
+      continue;
+    }
+    p.mat.opacity = 0.55 * (p.life / POISON_LIFE);
+
+    // Damage + slow enemies inside
+    const r2 = POISON_RADIUS * POISON_RADIUS;
+    for (const e of enemies) {
+      if (e.hp <= 0) continue;
+      const ex = e.pos.x - p.x;
+      const ez = e.pos.z - p.z;
+      if (ex * ex + ez * ez < r2) {
+        // Damage — no kill-handler call here. Poison is a soft,
+        // sustained tick; letting the main bullet pipeline kill
+        // the enemy means the player still gets score/XP/loot
+        // drops via the normal path.
+        const effDps = e.isBoss ? dps * 0.25 : dps;
+        e.hp -= effDps * dt;
+        e.hitFlash = Math.max(e.hitFlash || 0, 0.08);
+        // Flag the slow for this frame. enemies.js reads this before
+        // applying movement if _poisoned is true; we expose a simple
+        // slowing side-channel.
+        e._poisonedUntil = (typeof e._poisonedUntil === 'number')
+          ? Math.max(e._poisonedUntil, 0.2)
+          : 0.2;
+      }
+    }
+  }
+
+  // Decay poison slow timer on every enemy (in case they've stepped out)
+  for (const e of enemies) {
+    if (typeof e._poisonedUntil === 'number' && e._poisonedUntil > 0) {
+      e._poisonedUntil -= dt;
+    }
+  }
+}
+
+// Exposed helper — enemies.js can multiply speed by this value to apply slow.
+export function getEnemySpeedMult(enemy) {
+  if (!enemy) return 1;
+  if (typeof enemy._poisonedUntil === 'number' && enemy._poisonedUntil > 0) {
+    return POISON_SLOW;
+  }
+  return 1;
+}
+
+// ============================================================================
+// CARD MODAL
+// ============================================================================
+
+const CARDS = [
+  {
+    key: 'follower',
+    titleFn: (chapterIdx) => {
+      const chap = CHAPTERS[chapterIdx % CHAPTERS.length];
+      const herd = chap && chap.bonusHerd ? chap.bonusHerd : { label: 'MEEBIT', icon: '🤖' };
+      return { title: herd.icon + ' ' + herd.label + ' ESCORT', sub: 'Permanent follower that trails you and fires. Stacks up to 6.' };
+    },
+    color: '#00ff66',
+  },
+  {
+    key: 'chainLightning',
+    titleFn: () => ({
+      title: '⚡ CHAIN LIGHTNING',
+      sub: 'Kills arc lightning between nearby enemies. Stacks add jumps.',
+    }),
+    color: '#88eeff',
+  },
+  {
+    key: 'poisonTrail',
+    titleFn: () => ({
+      title: '☠ POISON TRAIL',
+      sub: 'Movement drops toxic patches. Enemies take damage + slow. Stacks thicken the trail.',
+    }),
+    color: '#66ff33',
+  },
+];
+
+let _modalEl = null;
+
+function _buildModalOnce() {
+  if (_modalEl) return _modalEl;
+  const el = document.createElement('div');
+  el.id = 'powerup-modal';
+  el.style.cssText = [
+    'position:fixed',
+    'inset:0',
+    'z-index:100',
+    'display:none',
+    'align-items:center',
+    'justify-content:center',
+    'background:rgba(0,0,0,0.82)',
+    'backdrop-filter:blur(4px)',
+    'font-family:Impact,monospace',
+  ].join(';');
+  el.innerHTML = `
+    <div style="text-align:center;max-width:920px;padding:20px;">
+      <div style="font-size:14px;letter-spacing:6px;color:#fff;opacity:0.7;margin-bottom:6px;" id="pu-sub">CHAPTER COMPLETE</div>
+      <div style="font-size:42px;letter-spacing:4px;color:#ffd93d;text-shadow:0 0 24px #ffd93d,3px 3px 0 #000;margin-bottom:28px;">CHOOSE A POWER-UP</div>
+      <div id="pu-cards" style="display:flex;gap:20px;justify-content:center;flex-wrap:wrap;"></div>
+      <div style="margin-top:22px;font-size:11px;letter-spacing:3px;color:#888;">CLICK A CARD · 1 / 2 / 3</div>
+    </div>
+  `;
+  document.body.appendChild(el);
+  _modalEl = el;
+  return el;
+}
+
+function _renderModal(chapterIdx) {
+  const el = _buildModalOnce();
+  const sub = el.querySelector('#pu-sub');
+  sub.textContent = 'CHAPTER ' + (chapterIdx + 1) + ' COMPLETE';
+
+  const cardsEl = el.querySelector('#pu-cards');
+  cardsEl.innerHTML = '';
+  CARDS.forEach((card, idx) => {
+    const info = card.titleFn(chapterIdx);
+    const countLabel = stacks[card.key] > 0
+      ? `<div style="font-size:12px;color:${card.color};opacity:0.8;margin-top:6px;">OWNED: ${stacks[card.key]}</div>`
+      : '';
+    const div = document.createElement('div');
+    div.style.cssText = [
+      'cursor:pointer',
+      'width:260px',
+      'padding:22px 18px',
+      'border:3px solid ' + card.color,
+      'border-radius:10px',
+      'background:rgba(0,0,0,0.7)',
+      'box-shadow:0 0 22px ' + card.color + '66',
+      'color:' + card.color,
+      'transition:transform 0.15s, box-shadow 0.15s',
+      'user-select:none',
+    ].join(';');
+    div.innerHTML = `
+      <div style="font-size:12px;letter-spacing:3px;opacity:0.6;">CARD ${idx + 1}</div>
+      <div style="font-size:22px;letter-spacing:2px;margin:10px 0 12px;">${info.title}</div>
+      <div style="font-size:12px;letter-spacing:1px;color:#ccc;line-height:1.4;">${info.sub}</div>
+      ${countLabel}
+    `;
+    div.addEventListener('mouseenter', () => {
+      div.style.transform = 'translateY(-4px)';
+      div.style.boxShadow = '0 0 40px ' + card.color;
+    });
+    div.addEventListener('mouseleave', () => {
+      div.style.transform = '';
+      div.style.boxShadow = '0 0 22px ' + card.color + '66';
+    });
+    div.addEventListener('click', () => _pickCard(card.key, chapterIdx));
+    cardsEl.appendChild(div);
+  });
+
+  el.style.display = 'flex';
+}
+
+function _hideModal() {
+  if (_modalEl) _modalEl.style.display = 'none';
+}
+
+function _pickCard(key, chapterIdx) {
+  if (stacks[key] == null) return;
+  stacks[key] += 1;
+
+  if (key === 'follower') {
+    _spawnFollower(chapterIdx);   // fire-and-forget async load
+  }
+  // Chain lightning + poison are read lazily every frame — nothing else to do here.
+
+  Audio.levelup && Audio.levelup();
+
+  _hideModal();
+  S.paused = false;
+  const cb = pendingResume;
+  pendingResume = null;
+  if (cb) cb();
+}
+
+// Keyboard shortcut: 1 / 2 / 3 while the modal is up
+function _onKey(e) {
+  if (!_modalEl || _modalEl.style.display !== 'flex') return;
+  const map = { '1': 0, '2': 1, '3': 2 };
+  if (map[e.key] != null) {
+    const card = CARDS[map[e.key]];
+    // Need chapterIdx — we stashed it on the modal for this lookup
+    _pickCard(card.key, _modalEl._chapterIdx);
+  }
+}
+
+// ============================================================================
+// PUBLIC API
+// ============================================================================
+
+/**
+ * One-time module setup. Safe to call multiple times.
+ */
+export function initPowerups() {
+  _buildModalOnce();
+  window.removeEventListener('keydown', _onKey);
+  window.addEventListener('keydown', _onKey);
+}
+
+/**
+ * Register the kill pipeline — same pattern as turrets.js / pixlPals.js.
+ * Receives the index of the enemy in the enemies[] array to remove.
+ */
+let _killHandler = null;
+export function registerPowerupKillHandler(fn) {
+  _killHandler = fn;
+}
+
+/**
+ * Called at chapter completion (right when the COMPLETE toast fires).
+ * Pauses the game, shows the card modal, and invokes `resumeCallback`
+ * after the player picks.
+ *
+ * If the chapter already offered a reward, no-op + immediately resumes.
+ */
+export function maybeShowChapterReward(chapterIdx, resumeCallback) {
+  if (rewardedChapters.has(chapterIdx)) {
+    if (resumeCallback) resumeCallback();
+    return false;
+  }
+  rewardedChapters.add(chapterIdx);
+  pendingResume = resumeCallback || null;
+  S.paused = true;
+  _buildModalOnce()._chapterIdx = chapterIdx;
+  _renderModal(chapterIdx);
+  return true;
+}
+
+/**
+ * Per-frame tick. Called from main.js animate() AFTER updatePlayer so we
+ * always sample the current player position.
+ */
+export function updatePowerups(dt, playerPos, playerFacing) {
+  if (!S.running || S.paused) return;
+  _updateFollowers(dt, playerPos, playerFacing);
+  _updateChainBolts(dt);
+  _updatePoisonTrail(dt, playerPos);
+}
+
+/**
+ * Reset all powerup state on game reset.
+ */
+export function clearAllPowerups() {
+  // Followers
+  for (const f of followers) {
+    if (f.obj && f.obj.parent) scene.remove(f.obj);
+  }
+  followers.length = 0;
+  for (const b of followerBullets) {
+    if (b && b.parent) scene.remove(b);
+  }
+  followerBullets.length = 0;
+
+  // Chain bolts
+  for (const b of chainBolts) {
+    if (b && b.parent) scene.remove(b);
+    if (b.geometry) b.geometry.dispose();
+    if (b.material) b.material.dispose();
+  }
+  chainBolts.length = 0;
+
+  // Poison
+  for (const p of poisonPatches) {
+    if (p.mesh && p.mesh.parent) scene.remove(p.mesh);
+    if (p.mesh && p.mesh.geometry) p.mesh.geometry.dispose();
+    if (p.mat) p.mat.dispose();
+  }
+  poisonPatches.length = 0;
+
+  // Stacks + flags
+  stacks.follower = 0;
+  stacks.chainLightning = 0;
+  stacks.poisonTrail = 0;
+  rewardedChapters.clear();
+  pendingResume = null;
+  playerTrail.initialized = false;
+  _hideModal();
+}
+
+/**
+ * True if any powerup has been picked (used for HUD / debug).
+ */
+export function powerupsActive() {
+  return stacks.follower > 0 || stacks.chainLightning > 0 || stacks.poisonTrail > 0;
+}
+
+export function getPowerupStacks() {
+  return { ...stacks };
+}
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+function _findNearestEnemy(fromPos, maxRange) {
+  let best = null, bestDsq = maxRange * maxRange;
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i];
+    const dx = e.pos.x - fromPos.x;
+    const dz = e.pos.z - fromPos.z;
+    const dsq = dx * dx + dz * dz;
+    if (dsq < bestDsq) { bestDsq = dsq; best = e; }
+  }
+  return best;
+}
