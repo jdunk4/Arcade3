@@ -45,6 +45,7 @@ import { Audio } from './audio.js';
 import { hitBurst } from './effects.js';
 import { enemies } from './enemies.js';
 import { getHerdMeshByFilename, getHerdFilenamesSync } from './herdVrmLoader.js';
+import { attachMixer, animationsReady } from './animation.js';
 
 // Re-usable scratch
 const _v = new THREE.Vector3();
@@ -197,6 +198,18 @@ async function _spawnFollower(chapterIdx) {
       scene.add(mesh);
       fol.obj = mesh;
       fol.pos = mesh.position;
+
+      // Attach rifle-run animation mixer. Only works on VRM-rigged meshes
+      // (HipsBone / LeftUpperLegBone / etc.) — the herd VRMs satisfy that.
+      // Silently skipped if animations haven't finished preloading yet.
+      if (animationsReady()) {
+        try {
+          fol.mixer = attachMixer(mesh);
+          fol.mixer.playRifleAim();   // start in aim pose; update loop flips to run when moving
+        } catch (e) {
+          console.warn('[Follower] attachMixer failed', e);
+        }
+      }
     } else {
       // Fallback: colored cube so the slot still renders.
       const mat = new THREE.MeshStandardMaterial({
@@ -233,13 +246,34 @@ function _updateFollowers(dt, playerPos, playerFacing) {
     const sample = _readTrail(lag);
     // Smooth follow — lerp toward the lagged sample so motion feels fluid
     // even if the ring gets stale near game start.
+    const prevX = f.pos.x;
+    const prevZ = f.pos.z;
     f.pos.x += (sample.x - f.pos.x) * Math.min(1, dt * 12);
     f.pos.z += (sample.z - f.pos.z) * Math.min(1, dt * 12);
     f.obj.rotation.y = sample.facing;
 
-    // Walk bob
-    f.walkPhase += dt * 9;
-    f.obj.position.y = Math.abs(Math.sin(f.walkPhase)) * 0.05;
+    // Drive rifle-run animation if a mixer is attached, else keep the old
+    // procedural bob as a fallback so non-VRM / unloaded followers still
+    // show motion. Speed scales with actual ground speed this frame so the
+    // feet step at roughly the right tempo.
+    if (f.mixer) {
+      const groundSpeed = Math.hypot(f.pos.x - prevX, f.pos.z - prevZ) / Math.max(dt, 1e-4);
+      if (groundSpeed > 0.5) {
+        f.mixer.playRifleRun();
+        // 4.5 is a magic number: tuned so the rifle-run clip's stride
+        // reads as "jogging" at the follower's normal trail speed.
+        f.mixer.setSpeed(Math.min(1.6, Math.max(0.6, groundSpeed / 4.5)));
+      } else {
+        f.mixer.playRifleAim();
+        f.mixer.setSpeed(1.0);
+      }
+      f.mixer.update(dt);
+    } else {
+      // Fallback walk bob (no mixer attached — asset wasn't VRM, or anims
+      // still loading at spawn time)
+      f.walkPhase += dt * 9;
+      f.obj.position.y = Math.abs(Math.sin(f.walkPhase)) * 0.05;
+    }
 
     // Auto-fire at nearest enemy in range
     f.fireCd -= dt;
@@ -956,6 +990,7 @@ export function updatePowerups(dt, playerPos, playerFacing) {
 export function clearAllPowerups() {
   // Followers
   for (const f of followers) {
+    if (f.mixer) { try { f.mixer.stop && f.mixer.stop(); } catch (e) {} f.mixer = null; }
     if (f.obj && f.obj.parent) scene.remove(f.obj);
   }
   followers.length = 0;
