@@ -390,6 +390,17 @@ export function updateWaves(dt) {
         fireShockwave(lastHivePos);
       }
       startHiveRetraction();
+
+      // CH.7 FINALE — instead of ending the wave when hives die, VESSEL
+      // ZERO spawns at the center of the arena. The run ends when SHE
+      // dies, not when the hives die. Flag prevents re-spawn on the
+      // (impossible) case of hive-clear firing twice.
+      if (waveDef && waveDef.ch7 && waveDef.ch7Finale && !S.vesselZeroSpawned) {
+        S.vesselZeroSpawned = true;
+        _spawnVesselZeroFinale(lastHivePos);
+        return;   // do NOT call endWave — she has to die first
+      }
+
       endWave();
       return;
     }
@@ -663,6 +674,49 @@ function _fireEmp() {
 // BOSS PATTERN LOGIC — summoner or cubestorm
 // ============================================================================
 function updateBossPattern(dt, boss) {
+  // --- BROODMOTHER (VESSEL ZERO) — ch.7 final boss pattern ---
+  // Instead of the single 50% HP trigger the other bosses use, VESSEL
+  // ZERO has THREE escalating panic phases at 75%, 50%, and 25% HP.
+  // Between phases she spawns continuous pressure: 3-5 infectors every
+  // 2.5s + a roach swarm every 6s. She doesn't melee, doesn't ranged-
+  // fire — her whole threat model is the flood.
+  if (boss.pattern === 'broodmother') {
+    const hpFrac = boss.hp / boss.hpMax;
+
+    // Panic phases — each is a one-shot trigger.
+    if (!boss.phase75Triggered && hpFrac < 0.75) {
+      boss.phase75Triggered = true;
+      _broodmotherPanic(boss, 15, 10);
+      UI.toast('THE BROODMOTHER AWAKENS', '#ff4466', 2500);
+    }
+    if (!boss.phase50Triggered && hpFrac < 0.50) {
+      boss.phase50Triggered = true;
+      _broodmotherPanic(boss, 20, 15);
+      UI.toast('THE FLOOD RISES', '#ff2233', 2500);
+    }
+    if (!boss.phase25Triggered && hpFrac < 0.25) {
+      boss.phase25Triggered = true;
+      _broodmotherPanic(boss, 25, 20);
+      UI.toast('VESSEL ZERO RECLAIMS HER CHILDREN', '#aa0033', 3000);
+    }
+
+    // Continuous infector drip.
+    boss.infectorSpawnCd -= dt;
+    if (boss.infectorSpawnCd <= 0) {
+      boss.infectorSpawnCd = 2.5;
+      _broodmotherSpawnInfectors(boss, 3 + Math.floor(Math.random() * 3));
+    }
+
+    // Periodic roach burst — the flood-wave moment.
+    boss.roachSwarmCd -= dt;
+    if (boss.roachSwarmCd <= 0) {
+      boss.roachSwarmCd = 6.0;
+      _broodmotherSpawnRoaches(boss, 8 + Math.floor(Math.random() * 5));
+    }
+
+    return;   // broodmother doesn't run the standard summoner/cubestorm logic
+  }
+
   // Trigger at 50% HP one-time "panic" summon
   if (!boss.halfHpTriggered && boss.hp / boss.hpMax < 0.5) {
     boss.halfHpTriggered = true;
@@ -686,6 +740,67 @@ function updateBossPattern(dt, boss) {
       rainCubes(boss, 2 + Math.floor(Math.random() * 2));
     }
   }
+}
+
+// ============================================================================
+// BROODMOTHER HELPERS — spawn the flood
+// ============================================================================
+/**
+ * Spawn N infectors in a ring around the boss. Infectors are the
+ * parasite enemy type — they seek the player, possess meebits on
+ * contact, etc. These count toward S.kills on death like normal
+ * enemies. Maw pulse boost gives a visible "she's summoning" tell.
+ */
+function _broodmotherSpawnInfectors(boss, count) {
+  const fullTheme = CHAPTERS[S.chapter % CHAPTERS.length].full;
+  const tint = fullTheme.enemyTint;
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2 + Math.random() * 0.6;
+    const r = 3.5 + Math.random() * 2.5;
+    const x = boss.pos.x + Math.cos(a) * r;
+    const z = boss.pos.z + Math.sin(a) * r;
+    const e = makeEnemy('infector', tint, new THREE.Vector3(x, 0, z));
+    if (e) {
+      hitBurst(new THREE.Vector3(x, 1.5, z), 0xff4466, 6);
+      hitBurst(new THREE.Vector3(x, 1.5, z), tint, 4);
+    }
+  }
+  if (boss._vesselPulseBoost != null) boss._vesselPulseBoost = 1.0;
+}
+
+/**
+ * Spawn N roaches in a tight swarm. Roaches are the smaller, faster
+ * parasite — the flood-wave read. They emerge closer to the boss than
+ * infectors so they read as "bursting out of her body."
+ */
+function _broodmotherSpawnRoaches(boss, count) {
+  const fullTheme = CHAPTERS[S.chapter % CHAPTERS.length].full;
+  const tint = fullTheme.enemyTint;
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = 1.8 + Math.random() * 1.6;
+    const x = boss.pos.x + Math.cos(a) * r;
+    const z = boss.pos.z + Math.sin(a) * r;
+    const e = makeEnemy('roach', tint, new THREE.Vector3(x, 0, z));
+    if (e) {
+      hitBurst(new THREE.Vector3(x, 0.8, z), 0xff4466, 3);
+    }
+  }
+  if (boss._vesselPulseBoost != null) boss._vesselPulseBoost = 1.3;
+  shake(0.15, 0.2);
+}
+
+/**
+ * Panic burst at an HP threshold. Big simultaneous spawn of infectors
+ * AND roaches, screen shake, maw flashes bright. The player should feel
+ * overwhelmed for 2-3 seconds after each one.
+ */
+function _broodmotherPanic(boss, infectorCount, roachCount) {
+  _broodmotherSpawnInfectors(boss, infectorCount);
+  _broodmotherSpawnRoaches(boss, roachCount);
+  shake(0.5, 0.6);
+  try { Audio.bigBoom && Audio.bigBoom(); } catch (e) {}
+  if (boss._vesselPulseBoost != null) boss._vesselPulseBoost = 2.5;
 }
 
 function summonMinions(boss, count) {
@@ -1265,6 +1380,57 @@ function spawnBoss() {
   S.bossRef = makeBoss(waveDef.bossType, fullTheme.enemyTint, pos);
 }
 
+// ============================================================================
+// VESSEL ZERO FINALE SPAWN — ch.7 wave 3, after hives destroyed
+// ============================================================================
+/**
+ * Dramatic entrance for the ch.7 final boss. Called from the hive-clear
+ * path (NOT the normal spawnBoss() route, because ch.7 wave 3 has no
+ * bossType in its waveDef — she's a post-hive spawn, not a wave-start
+ * spawn).
+ *
+ * Places her at the arena center (where the hives were), fires the
+ * standard boss-bar UI, seeds bossFightStartTime so the pixl pal
+ * co-deploy timer would have worked (moot in ch.7 since pals are
+ * force-deployed on wave 31 start, but harmless to set).
+ *
+ * @param {THREE.Vector3|null} lastHivePos — passed through from the
+ *   hive-clear handler; we prefer it so VESSEL ZERO materializes from
+ *   the exact spot the last hive died, keeping narrative continuity.
+ *   Falls back to arena center if null.
+ */
+function _spawnVesselZeroFinale(lastHivePos) {
+  const fullTheme = CHAPTERS[S.chapter % CHAPTERS.length].full;
+  const pos = lastHivePos
+    ? new THREE.Vector3(lastHivePos.x, 0, lastHivePos.z)
+    : new THREE.Vector3(0, 0, 0);
+
+  // Dramatic entrance — screen shake, big burst, audio slam, heavy toast.
+  shake(1.5, 0.8);
+  try { Audio.bigBoom && Audio.bigBoom(); } catch (e) {}
+  for (let i = 0; i < 4; i++) {
+    setTimeout(() => {
+      hitBurst(new THREE.Vector3(pos.x, 2 + i * 1.2, pos.z), 0xff4466, 32);
+      hitBurst(new THREE.Vector3(pos.x, 2 + i * 1.2, pos.z), 0xffffff, 20);
+      hitBurst(new THREE.Vector3(pos.x, 2 + i * 1.2, pos.z), fullTheme.enemyTint, 24);
+    }, i * 150);
+  }
+
+  // Spawn her. makeBoss detects the VESSEL_ZERO key and routes to the
+  // custom mesh builder.
+  S.bossRef = makeBoss('VESSEL_ZERO', fullTheme.enemyTint, pos);
+  S.bossFightStartTime = S.timeElapsed;
+
+  // Toast + boss bar. Big names get a longer duration toast — this one
+  // is the climax of the run, give the player a moment to read it.
+  UI.toast('VESSEL ZERO: BROODMOTHER · THE FLOOD BEGINS', '#ff2233', 4500);
+  if (S.bossRef && UI.showBossBar) {
+    // showBossBar signature is (name, tintHex) — we pass the display
+    // name and a deep crimson tint appropriate to the broodmother.
+    UI.showBossBar(S.bossRef.name || 'VESSEL ZERO', 0xff2233);
+  }
+}
+
 function grantWeapon(weaponId) {
   S.ownedWeapons.add(weaponId);
   S.currentWeapon = weaponId;
@@ -1396,7 +1562,14 @@ function endWave() {
   const ch7FinaleJustFinished =
     waveDef && waveDef.ch7 && waveDef.localWave === 3;
   if (ch7FinaleJustFinished) {
-    UI.toast('SIMULATION CLEANSED', '#ffffff', 5000);
+    // Different victory copy depending on whether VESSEL ZERO was
+    // reached. If she spawned, the run was completed by killing her;
+    // otherwise (hives cleared but boss spawn was somehow skipped,
+    // e.g. debug fast-forward) fall back to the original toast.
+    const victoryMsg = S.vesselZeroSpawned
+      ? 'BROODMOTHER FELLED · SIMULATION CLEANSED'
+      : 'SIMULATION CLEANSED';
+    UI.toast(victoryMsg, '#ffffff', 5000);
     Save.onChapterComplete({
       chapter: S.chapter, wave: S.wave, score: S.score, rescuedIds: S.rescuedIds,
     });
