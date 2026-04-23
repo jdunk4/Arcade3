@@ -353,17 +353,27 @@ export const IDLE_HIP_EXCLUDE_BONES = [
   'HipsBone', 'SpineBone', 'ChestBone',
 ];
 
+// Pose values extracted from the first keyframe of rifle_aim.glb via our
+// Mixamo→VRM bone map. Mixamo authored this as a standing shooter stance
+// (rifle held across chest, elbows bent, forearms forward), so it's an
+// already-correct reference for a "holding a gun" arm configuration on
+// a T-pose rig. Using real clip data beats reasoning about axis
+// conventions — numbers come from the source of truth.
+//
+// Note the big values on LowerArms (±1.72 rad ≈ 98°): those are the
+// elbow bends. Shoulders and UpperArms carry the "tuck and lower" of
+// the arms toward a chest-level grip.
 const GUN_HOLD_POSE = {
   // RIGHT ARM — primary grip (weapon hand)
-  RightShoulderBone: { x:  0,     y:  0,     z:  0    },
-  RightUpperArmBone: { x:  0,     y: -1.30,  z: -1.20 },  // forward + down
-  RightLowerArmBone: { x: -0.40,  y: -0.60,  z:  0    },  // bend elbow
-  RightHandBone:     { x:  0,     y:  0,     z: -0.20 },
-  // LEFT ARM — support grip
-  LeftShoulderBone:  { x:  0,     y:  0,     z:  0    },
-  LeftUpperArmBone:  { x:  0,     y:  1.30,  z:  1.20 },  // mirrored
-  LeftLowerArmBone:  { x: -0.40,  y:  0.60,  z:  0    },
-  LeftHandBone:      { x:  0,     y:  0,     z:  0.20 },
+  RightShoulderBone: { x: +0.057, y: +0.731, z: +0.171 },
+  RightUpperArmBone: { x: +0.597, y: -0.643, z: -1.158 },
+  RightLowerArmBone: { x:  0.000, y:  0.000, z: -1.718 },  // ~98° elbow bend
+  RightHandBone:     { x: -0.439, y: +0.726, z: +0.747 },
+  // LEFT ARM — support grip (braces the weapon)
+  LeftShoulderBone:  { x: +0.104, y: -0.644, z: +0.148 },
+  LeftUpperArmBone:  { x: +1.060, y: -0.249, z: +0.704 },
+  LeftLowerArmBone:  { x:  0.000, y:  0.000, z: +1.134 },
+  LeftHandBone:      { x: -2.237, y: -0.817, z: -2.370 },
 };
 
 // Reusable scratch quaternions/euler — allocation-free per-frame path.
