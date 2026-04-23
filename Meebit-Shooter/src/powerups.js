@@ -40,7 +40,7 @@
 import * as THREE from 'three';
 import { scene } from './scene.js';
 import { S } from './state.js';
-import { ARENA, CHAPTERS, WAVES_PER_CHAPTER } from './config.js';
+import { ARENA, CHAPTERS, WAVES_PER_CHAPTER, PLAYER } from './config.js';
 import { Audio } from './audio.js';
 import { hitBurst } from './effects.js';
 import { enemies } from './enemies.js';
@@ -177,15 +177,14 @@ async function _spawnFollower(chapterIdx) {
     }
 
     if (mesh) {
-      // Drop feet-on-floor and rescale to ~2.2 units tall.
+      // Follower should read the same size as the player. PLAYER.scale (1.8)
+      // is applied directly on the raw Meebit VRM in player.js; matching
+      // that here keeps followers in proportion. We skip the 2.2-unit
+      // normalization that was in place before — that was tuned for small
+      // herd critters, not the player-size Meebit.
       mesh.updateMatrixWorld(true);
-      const box = new THREE.Box3().setFromObject(mesh);
-      const size = new THREE.Vector3();
-      box.getSize(size);
-      if (size.y > 0.01 && isFinite(size.y)) {
-        mesh.scale.multiplyScalar(2.2 / size.y);
-        mesh.updateMatrixWorld(true);
-      }
+      mesh.scale.setScalar(PLAYER.scale);
+      mesh.updateMatrixWorld(true);
       const box2 = new THREE.Box3().setFromObject(mesh);
       if (isFinite(box2.min.y)) mesh.position.y -= box2.min.y;
       mesh.traverse(o => {
@@ -262,7 +261,49 @@ function _updateFollowers(dt, playerPos, playerFacing) {
     const prevZ = f.pos.z;
     f.pos.x += (sample.x - f.pos.x) * Math.min(1, dt * 12);
     f.pos.z += (sample.z - f.pos.z) * Math.min(1, dt * 12);
-    f.obj.rotation.y = sample.facing;
+
+    // STANDOFF BEHIND PLAYER.
+    // The trail ring buffer samples lagged positions, but when the player
+    // stands still EVERY sample is current position → followers stack on
+    // top of the player. Fix: if a follower is within the standoff radius,
+    // push it back along -playerFacing so it sits behind. Each slot gets
+    // progressively farther back (slot 0 closest, slot N farthest) so
+    // multiple followers form a tail instead of all crowding one point.
+    const STANDOFF_BASE = 2.4;                  // base distance behind player
+    const STANDOFF_PER_SLOT = 1.6;              // extra offset per slot
+    const desiredBehind = STANDOFF_BASE + STANDOFF_PER_SLOT * f.slot;
+    const dxFromPlayer = f.pos.x - playerPos.x;
+    const dzFromPlayer = f.pos.z - playerPos.z;
+    const distFromPlayer = Math.sqrt(dxFromPlayer * dxFromPlayer + dzFromPlayer * dzFromPlayer);
+    // Direction "behind" the player = opposite of facing.
+    //   playerFacing is a yaw angle. forward = (sin(facing), cos(facing)).
+    //   behind  = (-sin(facing), -cos(facing)).
+    const behindX = -Math.sin(playerFacing);
+    const behindZ = -Math.cos(playerFacing);
+    // Target = player pos + behind * desiredBehind
+    const targetX = playerPos.x + behindX * desiredBehind;
+    const targetZ = playerPos.z + behindZ * desiredBehind;
+    // Blend the trail follow with the standoff target. Blend weight ramps
+    // up as the follower gets closer to the player — at arm's length we're
+    // fully on the standoff target; far away we defer to the trail.
+    // Threshold chosen so normal travel stays trail-driven and only the
+    // "stand still" / "turn into follower" edge cases force the correction.
+    const STANDOFF_KICKIN = desiredBehind + 1.0;
+    if (distFromPlayer < STANDOFF_KICKIN) {
+      const blend = 1 - Math.min(1, Math.max(0, (distFromPlayer - desiredBehind * 0.5) / STANDOFF_KICKIN));
+      f.pos.x += (targetX - f.pos.x) * blend * Math.min(1, dt * 10);
+      f.pos.z += (targetZ - f.pos.z) * blend * Math.min(1, dt * 10);
+    }
+
+    // Face the direction of actual movement if moving; otherwise face the
+    // player's facing so they look like they're watching the player's back.
+    const movedX = f.pos.x - prevX;
+    const movedZ = f.pos.z - prevZ;
+    if (movedX * movedX + movedZ * movedZ > 0.0004) {
+      f.obj.rotation.y = Math.atan2(movedX, movedZ);
+    } else {
+      f.obj.rotation.y = playerFacing;
+    }
 
     // Drive the shared walk mixer if attached, else keep the old procedural
     // bob as a fallback so non-VRM / unloaded followers still show motion.
