@@ -537,57 +537,262 @@ export function getEnemySpeedMult(enemy) {
 // CARD MODAL
 // ============================================================================
 
+// Chapter-indexed follower card image paths (uploaded to repo at
+// assets/cards/). These are the hero images for the "ESCORT" pick.
+const FOLLOWER_CARD_IMAGES = {
+  0: 'assets/cards/pig_card.png',        // CH.1 Inferno
+  1: 'assets/cards/elephant_card.png',   // CH.2 Crimson
+  2: 'assets/cards/skeleton_card.png',   // CH.3 Solar
+  3: 'assets/cards/robot_card.png',      // CH.4 Toxic
+  4: 'assets/cards/visitor_card.png',    // CH.5 Arctic
+  5: 'assets/cards/dissected_card.png',  // CH.6 Paradise
+};
+
+// Card definitions. Image-backed cards render the PNG as the card face;
+// placeholder cards render a styled solid block with the title overlay.
 const CARDS = [
   {
     key: 'follower',
+    accent: '#ffd93d',
     titleFn: (chapterIdx) => {
       const chap = CHAPTERS[chapterIdx % CHAPTERS.length];
       const herd = chap && chap.bonusHerd ? chap.bonusHerd : { label: 'MEEBIT', icon: '🤖' };
-      return { title: herd.icon + ' ' + herd.label + ' ESCORT', sub: 'Permanent follower that trails you and fires. Stacks up to 6.' };
+      return {
+        title: herd.icon + ' ' + herd.label + ' ESCORT',
+        sub: 'Permanent follower. Auto-fires. Stacks to 6.',
+      };
     },
-    color: '#00ff66',
+    imageFn: (chapterIdx) => FOLLOWER_CARD_IMAGES[chapterIdx % 6] || FOLLOWER_CARD_IMAGES[0],
   },
   {
     key: 'chainLightning',
+    accent: '#88eeff',
     titleFn: () => ({
       title: '⚡ CHAIN LIGHTNING',
-      sub: 'Kills arc lightning between nearby enemies. Stacks add jumps.',
+      sub: 'Kills arc lightning between enemies. Stacks add jumps.',
     }),
-    color: '#88eeff',
+    imageFn: () => null, // placeholder — art TBD
   },
   {
     key: 'poisonTrail',
+    accent: '#66ff33',
     titleFn: () => ({
       title: '☠ POISON TRAIL',
-      sub: 'Movement drops toxic patches. Enemies take damage + slow. Stacks thicken the trail.',
+      sub: 'Toxic patches slow and damage enemies.',
     }),
-    color: '#66ff33',
+    imageFn: () => null, // placeholder — art TBD
   },
 ];
 
 let _modalEl = null;
+let _styleEl = null;
+
+// Inject the modal stylesheet once. Defines the card layout, pulsing gold
+// glow around each card, and the animated matrix rain overlay that tints
+// each card face in green.
+function _injectStyles() {
+  if (_styleEl) return;
+  _styleEl = document.createElement('style');
+  _styleEl.id = 'powerup-modal-styles';
+  _styleEl.textContent = `
+    #powerup-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(5px);
+      font-family: Impact, 'Arial Black', sans-serif;
+    }
+    #powerup-modal .pu-header {
+      font-size: 14px;
+      letter-spacing: 6px;
+      color: #fff;
+      opacity: 0.7;
+      margin-bottom: 6px;
+      text-align: center;
+    }
+    #powerup-modal .pu-title {
+      font-size: 42px;
+      letter-spacing: 4px;
+      color: #ffd93d;
+      text-shadow: 0 0 24px #ffd93d, 3px 3px 0 #000;
+      margin-bottom: 28px;
+      text-align: center;
+    }
+    #powerup-modal .pu-cards {
+      display: flex;
+      gap: 22px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    #powerup-modal .pu-card {
+      position: relative;
+      width: 260px;
+      height: 360px;
+      border-radius: 12px;
+      cursor: pointer;
+      overflow: hidden;
+      user-select: none;
+      transition: transform 0.18s ease, filter 0.18s ease;
+      background: #000;
+      box-shadow: 0 0 0 3px var(--accent), 0 0 28px var(--accent-glow);
+      animation: puCardGlow 2.4s ease-in-out infinite;
+    }
+    #powerup-modal .pu-card:hover {
+      transform: translateY(-6px) scale(1.03);
+      filter: brightness(1.12);
+      animation-play-state: paused;
+      box-shadow: 0 0 0 3px var(--accent), 0 0 48px var(--accent), 0 0 80px var(--accent-glow);
+    }
+    @keyframes puCardGlow {
+      0%, 100% { box-shadow: 0 0 0 3px var(--accent), 0 0 22px var(--accent-glow); }
+      50%      { box-shadow: 0 0 0 3px var(--accent), 0 0 42px var(--accent); }
+    }
+    #powerup-modal .pu-card-face {
+      position: absolute;
+      inset: 0;
+      background-size: cover;
+      background-position: center;
+      background-color: #0a0a14;
+    }
+    /* Matrix rain — a CSS-only animated cover. Thin green vertical streaks
+       scroll downward over the image, set to "screen" blend so the image
+       stays readable but picks up a green glitch-tint. */
+    #powerup-modal .pu-matrix {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      mix-blend-mode: screen;
+      opacity: 0.55;
+      background:
+        repeating-linear-gradient(
+          to bottom,
+          rgba(0, 255, 80, 0.0) 0px,
+          rgba(0, 255, 80, 0.0) 4px,
+          rgba(0, 255, 80, 0.55) 6px,
+          rgba(0, 255, 80, 0.0) 12px
+        ),
+        repeating-linear-gradient(
+          to right,
+          rgba(0, 0, 0, 0.0) 0px,
+          rgba(0, 0, 0, 0.0) 10px,
+          rgba(0, 40, 10, 0.6) 11px,
+          rgba(0, 0, 0, 0.0) 14px
+        );
+      background-size: 100% 200px, 100% 100%;
+      animation: puMatrixRain 2.6s linear infinite;
+    }
+    @keyframes puMatrixRain {
+      0%   { background-position: 0 0, 0 0; }
+      100% { background-position: 0 200px, 0 0; }
+    }
+    /* Global green tint that gets multiplied over the image so it reads as
+       "matrix-coded" while still legible. */
+    #powerup-modal .pu-tint {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(
+        to bottom,
+        rgba(0, 255, 80, 0.15),
+        rgba(0, 60, 20, 0.05) 40%,
+        rgba(0, 0, 0, 0.35)
+      );
+      mix-blend-mode: multiply;
+    }
+    /* Scan-line flicker for extra matrix-y feel */
+    #powerup-modal .pu-scan {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: repeating-linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0) 0px,
+        rgba(0, 0, 0, 0) 2px,
+        rgba(0, 0, 0, 0.18) 3px
+      );
+      opacity: 0.5;
+    }
+    #powerup-modal .pu-panel {
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      padding: 10px 12px 12px;
+      background: linear-gradient(to top, rgba(0,0,0,0.92), rgba(0,0,0,0.6) 70%, rgba(0,0,0,0));
+      text-align: center;
+    }
+    #powerup-modal .pu-num {
+      position: absolute;
+      top: 8px; left: 10px;
+      color: var(--accent);
+      font-size: 14px;
+      letter-spacing: 3px;
+      opacity: 0.9;
+      text-shadow: 0 0 6px var(--accent-glow), 1px 1px 0 #000;
+    }
+    #powerup-modal .pu-owned {
+      position: absolute;
+      top: 8px; right: 10px;
+      color: var(--accent);
+      font-size: 11px;
+      letter-spacing: 2px;
+      background: rgba(0,0,0,0.7);
+      border: 1px solid var(--accent);
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+    #powerup-modal .pu-card-title {
+      color: var(--accent);
+      font-size: 20px;
+      letter-spacing: 2px;
+      text-shadow: 0 0 12px var(--accent-glow), 2px 2px 0 #000;
+      margin-bottom: 6px;
+    }
+    #powerup-modal .pu-card-sub {
+      color: #ccc;
+      font-size: 12px;
+      letter-spacing: 1px;
+      line-height: 1.4;
+      font-family: Arial, sans-serif;
+    }
+    /* Placeholder cards — simple themed block with big centered emoji */
+    #powerup-modal .pu-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 120px;
+      color: var(--accent);
+      text-shadow: 0 0 32px var(--accent-glow);
+      background:
+        radial-gradient(circle at 50% 45%, rgba(255,255,255,0.08), rgba(0,0,0,0) 65%),
+        linear-gradient(180deg, #0a0a1a, #000);
+    }
+    #powerup-modal .pu-hint {
+      margin-top: 22px;
+      font-size: 11px;
+      letter-spacing: 3px;
+      color: #888;
+      text-align: center;
+    }
+  `;
+  document.head.appendChild(_styleEl);
+}
 
 function _buildModalOnce() {
   if (_modalEl) return _modalEl;
+  _injectStyles();
   const el = document.createElement('div');
   el.id = 'powerup-modal';
-  el.style.cssText = [
-    'position:fixed',
-    'inset:0',
-    'z-index:100',
-    'display:none',
-    'align-items:center',
-    'justify-content:center',
-    'background:rgba(0,0,0,0.82)',
-    'backdrop-filter:blur(4px)',
-    'font-family:Impact,monospace',
-  ].join(';');
   el.innerHTML = `
-    <div style="text-align:center;max-width:920px;padding:20px;">
-      <div style="font-size:14px;letter-spacing:6px;color:#fff;opacity:0.7;margin-bottom:6px;" id="pu-sub">CHAPTER COMPLETE</div>
-      <div style="font-size:42px;letter-spacing:4px;color:#ffd93d;text-shadow:0 0 24px #ffd93d,3px 3px 0 #000;margin-bottom:28px;">CHOOSE A POWER-UP</div>
-      <div id="pu-cards" style="display:flex;gap:20px;justify-content:center;flex-wrap:wrap;"></div>
-      <div style="margin-top:22px;font-size:11px;letter-spacing:3px;color:#888;">CLICK A CARD · 1 / 2 / 3</div>
+    <div style="max-width: 960px; padding: 20px;">
+      <div class="pu-header" id="pu-sub">CHAPTER COMPLETE</div>
+      <div class="pu-title">CHOOSE A POWER-UP</div>
+      <div class="pu-cards" id="pu-cards"></div>
+      <div class="pu-hint">CLICK A CARD · OR PRESS 1 / 2 / 3</div>
     </div>
   `;
   document.body.appendChild(el);
@@ -597,45 +802,63 @@ function _buildModalOnce() {
 
 function _renderModal(chapterIdx) {
   const el = _buildModalOnce();
+  el._chapterIdx = chapterIdx;
   const sub = el.querySelector('#pu-sub');
   sub.textContent = 'CHAPTER ' + (chapterIdx + 1) + ' COMPLETE';
 
   const cardsEl = el.querySelector('#pu-cards');
   cardsEl.innerHTML = '';
+
+  // Placeholder emoji per card key (used when no image available).
+  const PLACEHOLDER_EMOJI = {
+    chainLightning: '⚡',
+    poisonTrail: '☠',
+  };
+
   CARDS.forEach((card, idx) => {
     const info = card.titleFn(chapterIdx);
-    const countLabel = stacks[card.key] > 0
-      ? `<div style="font-size:12px;color:${card.color};opacity:0.8;margin-top:6px;">OWNED: ${stacks[card.key]}</div>`
+    const imgPath = card.imageFn ? card.imageFn(chapterIdx) : null;
+
+    const cardEl = document.createElement('div');
+    cardEl.className = 'pu-card';
+    // Glow tint is a 40% alpha version of accent. For a hex like #88eeff
+    // we just use the full color for the glow and let box-shadow do the work.
+    cardEl.style.setProperty('--accent', card.accent);
+    cardEl.style.setProperty('--accent-glow', card.accent + '99'); // 60% alpha
+
+    // Face: either a background-image or a placeholder block with emoji
+    let faceHtml;
+    if (imgPath) {
+      faceHtml = `
+        <div class="pu-card-face" style="background-image:url('${imgPath}');"></div>
+        <div class="pu-matrix"></div>
+        <div class="pu-tint"></div>
+        <div class="pu-scan"></div>
+      `;
+    } else {
+      const emoji = PLACEHOLDER_EMOJI[card.key] || '?';
+      faceHtml = `
+        <div class="pu-placeholder">${emoji}</div>
+        <div class="pu-matrix"></div>
+        <div class="pu-scan"></div>
+      `;
+    }
+
+    const ownedHtml = stacks[card.key] > 0
+      ? `<div class="pu-owned">OWNED: ${stacks[card.key]}</div>`
       : '';
-    const div = document.createElement('div');
-    div.style.cssText = [
-      'cursor:pointer',
-      'width:260px',
-      'padding:22px 18px',
-      'border:3px solid ' + card.color,
-      'border-radius:10px',
-      'background:rgba(0,0,0,0.7)',
-      'box-shadow:0 0 22px ' + card.color + '66',
-      'color:' + card.color,
-      'transition:transform 0.15s, box-shadow 0.15s',
-      'user-select:none',
-    ].join(';');
-    div.innerHTML = `
-      <div style="font-size:12px;letter-spacing:3px;opacity:0.6;">CARD ${idx + 1}</div>
-      <div style="font-size:22px;letter-spacing:2px;margin:10px 0 12px;">${info.title}</div>
-      <div style="font-size:12px;letter-spacing:1px;color:#ccc;line-height:1.4;">${info.sub}</div>
-      ${countLabel}
+
+    cardEl.innerHTML = `
+      ${faceHtml}
+      <div class="pu-num">${idx + 1}</div>
+      ${ownedHtml}
+      <div class="pu-panel">
+        <div class="pu-card-title">${info.title}</div>
+        <div class="pu-card-sub">${info.sub}</div>
+      </div>
     `;
-    div.addEventListener('mouseenter', () => {
-      div.style.transform = 'translateY(-4px)';
-      div.style.boxShadow = '0 0 40px ' + card.color;
-    });
-    div.addEventListener('mouseleave', () => {
-      div.style.transform = '';
-      div.style.boxShadow = '0 0 22px ' + card.color + '66';
-    });
-    div.addEventListener('click', () => _pickCard(card.key, chapterIdx));
-    cardsEl.appendChild(div);
+    cardEl.addEventListener('click', () => _pickCard(card.key, chapterIdx));
+    cardsEl.appendChild(cardEl);
   });
 
   el.style.display = 'flex';
