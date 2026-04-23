@@ -104,6 +104,18 @@ const SILO_TUBE_GEO   = new THREE.CylinderGeometry(1.8, 1.8, 4.5, 10, 1, true);
 const SILO_CAP_GEO    = new THREE.CylinderGeometry(1.85, 1.85, 0.3, 10);
 const SILO_RIM_GEO    = new THREE.TorusGeometry(1.85, 0.16, 6, 16);
 
+// v6 silo detail — structural amp pass.
+// Support struts that angle from the base plate up to the tube (4 sides).
+const SILO_STRUT_GEO  = new THREE.BoxGeometry(0.25, 2.2, 0.35);
+// Riveted armor panels on the tube exterior — 4 vertical strips.
+const SILO_PANEL_GEO  = new THREE.BoxGeometry(0.18, 3.8, 0.5);
+// Caution stripe ring near the top of the tube (tinted emissive).
+const SILO_STRIPE_GEO = new THREE.TorusGeometry(1.87, 0.08, 6, 18);
+// Warning light bulbs on top of the struts.
+const SILO_LIGHT_GEO  = new THREE.SphereGeometry(0.16, 8, 6);
+// Small access hatch near the base (flat box against the tube).
+const SILO_HATCH_GEO  = new THREE.BoxGeometry(0.9, 0.7, 0.15);
+
 // Missile geometry — nose cone + body + fins. Sits inside the silo tube
 // at rest position (y = -1.8, i.e. fully inside the shaft). During Stage
 // 3b it raises to y = +3.8 when the missile is armed. Stage 3c takes
@@ -270,17 +282,64 @@ function _buildSilo(tint) {
   const g = new THREE.Group();
   g.position.set(LAYOUT.silo.x, 0, LAYOUT.silo.z);
 
-  // Base plate
+  // --- BASE PLATE ---
   const base = new THREE.Mesh(SILO_BASE_GEO, _getAccentDim(tint));
   base.position.y = 0.25;
   base.castShadow = true;
   base.receiveShadow = true;
   g.add(base);
 
-  // Open tube (the silo shaft — double-sided so the interior is visible)
+  // --- OPEN TUBE (launch shaft) ---
   const tube = new THREE.Mesh(SILO_TUBE_GEO, _getBodyMat());
   tube.position.y = 2.75;
   g.add(tube);
+
+  // --- v6 DETAIL: 4 SUPPORT STRUTS ---
+  // Angled vertical braces running from the base plate up the side of
+  // the tube. One on each cardinal direction. These read as structural
+  // reinforcement and break up the plain tube silhouette.
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;   // 45° offset
+    const strut = new THREE.Mesh(SILO_STRUT_GEO, _getAccentDim(tint));
+    strut.position.set(Math.cos(a) * 2.1, 1.4, Math.sin(a) * 2.1);
+    strut.rotation.y = -a;
+    strut.castShadow = true;
+    g.add(strut);
+
+    // Warning light on top of each strut, chapter-tinted.
+    const light = new THREE.Mesh(SILO_LIGHT_GEO, _getRimMat(tint));
+    light.position.set(Math.cos(a) * 2.1, 2.55, Math.sin(a) * 2.1);
+    g.add(light);
+  }
+
+  // --- v6 DETAIL: 4 VERTICAL ARMOR PANELS on the tube ---
+  // Orthogonal to the struts so they alternate around the silo.
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    const panel = new THREE.Mesh(SILO_PANEL_GEO, _getBodyMat());
+    panel.position.set(Math.cos(a) * 1.92, 2.75, Math.sin(a) * 1.92);
+    panel.rotation.y = -a;
+    g.add(panel);
+  }
+
+  // --- v6 DETAIL: CAUTION STRIPE near the top ---
+  // Emissive chapter-tinted ring hugging the tube's upper portion.
+  const stripe = new THREE.Mesh(SILO_STRIPE_GEO, _getRimMat(tint));
+  stripe.position.y = 4.3;
+  stripe.rotation.x = Math.PI / 2;
+  g.add(stripe);
+
+  // --- v6 DETAIL: ACCESS HATCH at the base ---
+  const hatch = new THREE.Mesh(SILO_HATCH_GEO, _getAccentDim(tint));
+  hatch.position.set(0, 1.1, 1.85);
+  g.add(hatch);
+  // Small emissive door indicator on the hatch.
+  const hatchIndicator = new THREE.Mesh(
+    new THREE.BoxGeometry(0.2, 0.08, 0.03),
+    _getRimMat(tint),
+  );
+  hatchIndicator.position.set(0, 1.35, 1.93);
+  g.add(hatchIndicator);
 
   // Cap (stage 3b will animate this opening — slides off to the side)
   const cap = new THREE.Mesh(SILO_CAP_GEO, _getBodyMat());
