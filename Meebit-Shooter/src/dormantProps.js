@@ -243,9 +243,13 @@ export function updateHiveShields(dt, time) {
     shield.position.z = hive.pos.z;
 
     if (shield.userData._dropping) {
-      // 0.8s collapse animation — shrink + fade to zero, then delete.
+      // Quick 0.25s collapse — shrink + fade to zero, then delete. Short
+      // so the "shield down" visual reads as instant when the EMP
+      // shockwave ring passes each hive (previously 0.8s made shields
+      // look like they were dropping at the END of detonation rather
+      // than as-the-ring-reaches-them).
       shield.userData._dropT += dt;
-      const t = Math.min(1, shield.userData._dropT / 0.8);
+      const t = Math.min(1, shield.userData._dropT / 0.25);
       const eased = 1 - (1 - t) * (1 - t);
       shield.scale.setScalar(1 + eased * 0.6);
       shield.material.opacity = 0.55 * (1 - eased);
