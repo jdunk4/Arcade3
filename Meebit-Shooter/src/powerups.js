@@ -40,7 +40,7 @@
 import * as THREE from 'three';
 import { scene } from './scene.js';
 import { S } from './state.js';
-import { ARENA, CHAPTERS, WAVES_PER_CHAPTER, PLAYER } from './config.js';
+import { ARENA, CHAPTERS, WAVES_PER_CHAPTER, PLAYER, PARADISE_FALLEN_CHAPTER_IDX } from './config.js';
 import { Audio } from './audio.js';
 import { hitBurst } from './effects.js';
 import { enemies } from './enemies.js';
@@ -177,20 +177,10 @@ async function _spawnFollower(chapterIdx) {
     }
 
     if (mesh) {
-      // Follower should read the same on-screen height as the player.
-      // Player ends up ~2.6 units tall (raw Meebit VRM ~1.44u × PLAYER.scale 1.8).
-      // The herd GLBs the follower pulls from are smaller at rest than the
-      // player VRM, so we normalize to 2.6 directly instead of applying
-      // PLAYER.scale (which overshoots on these meshes — they were reading
-      // noticeably taller than the player at scale 1.8).
+      // Follower size is already set by herdVrmLoader (normalized to 2.6u
+      // tall to match the player's on-screen height). No extra rescale
+      // here — doing one would double-normalize and shrink every follower.
       mesh.updateMatrixWorld(true);
-      const box = new THREE.Box3().setFromObject(mesh);
-      const size = new THREE.Vector3();
-      box.getSize(size);
-      if (size.y > 0.01 && isFinite(size.y)) {
-        mesh.scale.multiplyScalar(2.6 / size.y);
-        mesh.updateMatrixWorld(true);
-      }
       const box2 = new THREE.Box3().setFromObject(mesh);
       if (isFinite(box2.min.y)) mesh.position.y -= box2.min.y;
       mesh.traverse(o => {
@@ -268,37 +258,46 @@ function _updateFollowers(dt, playerPos, playerFacing) {
     f.pos.x += (sample.x - f.pos.x) * Math.min(1, dt * 12);
     f.pos.z += (sample.z - f.pos.z) * Math.min(1, dt * 12);
 
-    // STANDOFF BEHIND PLAYER.
-    // The trail ring buffer samples lagged positions, but when the player
-    // stands still EVERY sample is current position → followers stack on
-    // top of the player. Fix: if a follower is within the standoff radius,
-    // push it back along -playerFacing so it sits behind. Each slot gets
-    // progressively farther back (slot 0 closest, slot N farthest) so
-    // multiple followers form a tail instead of all crowding one point.
+    // STANDOFF + V-FORMATION BEHIND PLAYER.
+    // Followers stay behind the player in a Galaga-style V shape rather
+    // than a single-file line. Slot 0 is the wingman closest to center-
+    // left, slot 1 is center-right, slot 2 is outer-left, etc. Alternating
+    // sides and widening the V per row reads as squad formation instead
+    // of a conga line.
     //
-    // Personal-space values: follower 0 sits ~4u behind (a comfortable
-    // step back from the player), each subsequent follower another 2u
-    // behind that. Previous values (2.4/1.6) read as crowding.
-    const STANDOFF_BASE = 4.0;                  // base distance behind player
-    const STANDOFF_PER_SLOT = 2.0;              // extra offset per slot
-    const desiredBehind = STANDOFF_BASE + STANDOFF_PER_SLOT * f.slot;
+    // Layout math:
+    //   row  = floor(slot / 2)                 0, 0, 1, 1, 2, 2
+    //   side = (slot % 2) === 0 ? -1 : 1       L, R, L, R, L, R
+    //   behind = STANDOFF_BASE + row * STANDOFF_PER_ROW
+    //   lateral = (1 + row) * LATERAL_STEP * side
+    //
+    // So slots 0/1 sit at one step behind on each shoulder, slots 2/3
+    // behind and wider, etc. Fills in as followers are earned.
+    const STANDOFF_BASE = 4.0;
+    const STANDOFF_PER_ROW = 2.2;
+    const LATERAL_STEP = 2.2;
+    const row = Math.floor(f.slot / 2);
+    const side = (f.slot % 2) === 0 ? -1 : 1;
+    const desiredBehind = STANDOFF_BASE + row * STANDOFF_PER_ROW;
+    const desiredLateral = (1 + row) * LATERAL_STEP * side;
     const dxFromPlayer = f.pos.x - playerPos.x;
     const dzFromPlayer = f.pos.z - playerPos.z;
     const distFromPlayer = Math.sqrt(dxFromPlayer * dxFromPlayer + dzFromPlayer * dzFromPlayer);
-    // Direction "behind" the player = opposite of facing.
+    // Direction vectors relative to the player's facing.
     //   playerFacing is a yaw angle. forward = (sin(facing), cos(facing)).
     //   behind  = (-sin(facing), -cos(facing)).
+    //   right   = (cos(facing), -sin(facing))   (perpendicular, clockwise)
     const behindX = -Math.sin(playerFacing);
     const behindZ = -Math.cos(playerFacing);
-    // Target = player pos + behind * desiredBehind
-    const targetX = playerPos.x + behindX * desiredBehind;
-    const targetZ = playerPos.z + behindZ * desiredBehind;
-    // Blend the trail follow with the standoff target. Blend weight ramps
-    // up as the follower gets closer to the player — at arm's length we're
-    // fully on the standoff target; far away we defer to the trail.
-    // Threshold chosen so normal travel stays trail-driven and only the
-    // "stand still" / "turn into follower" edge cases force the correction.
-    const STANDOFF_KICKIN = desiredBehind + 1.0;
+    const rightX  =  Math.cos(playerFacing);
+    const rightZ  = -Math.sin(playerFacing);
+    // Target = player pos + behind * desiredBehind + right * desiredLateral
+    const targetX = playerPos.x + behindX * desiredBehind + rightX * desiredLateral;
+    const targetZ = playerPos.z + behindZ * desiredBehind + rightZ * desiredLateral;
+    // Blend the trail follow with the standoff target. Blend ramps up as
+    // the follower gets closer to the player so close range always sits
+    // in formation; far away, trail dominates.
+    const STANDOFF_KICKIN = desiredBehind + Math.abs(desiredLateral) + 1.0;
     if (distFromPlayer < STANDOFF_KICKIN) {
       const blend = 1 - Math.min(1, Math.max(0, (distFromPlayer - desiredBehind * 0.5) / STANDOFF_KICKIN));
       f.pos.x += (targetX - f.pos.x) * blend * Math.min(1, dt * 10);
@@ -1028,6 +1027,13 @@ export function registerPowerupKillHandler(fn) {
  * If the chapter already offered a reward, no-op + immediately resumes.
  */
 export function maybeShowChapterReward(chapterIdx, resumeCallback) {
+  // CH7 (PARADISE FALLEN) has no powerup rewards. Finale chapter keeps
+  // the combat pure — player faces the flood with only the pal, flinger,
+  // and super-nuke already in play. Skip the modal entirely and continue.
+  if (chapterIdx === PARADISE_FALLEN_CHAPTER_IDX) {
+    if (resumeCallback) resumeCallback();
+    return false;
+  }
   if (rewardedChapters.has(chapterIdx)) {
     if (resumeCallback) resumeCallback();
     return false;
