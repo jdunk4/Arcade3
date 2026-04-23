@@ -44,6 +44,9 @@ export const S = {
   captureTarget: 0,
   captureRadius: 5.0,
   captureMissileLaunching: false,
+  // Ch.7 finale one-shot: prevents re-triggering the VESSEL ZERO spawn
+  // if the hive-clear event somehow fires twice in the same run.
+  vesselZeroSpawned: false,
 
   // Mining
   miningActive: false,
@@ -164,6 +167,7 @@ export function resetGame() {
   S.captureProgress = 0;
   S.captureTarget = 0;
   S.captureMissileLaunching = false;
+  S.vesselZeroSpawned = false;
   S.miningActive = false;
   S.blockFallTimer = 0;
   S.blocksSpawned = 0;
