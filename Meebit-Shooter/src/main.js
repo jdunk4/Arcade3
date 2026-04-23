@@ -2722,4 +2722,4 @@ function collectPickup(p) {
 }
 
 animate();
-console.log('%c>>> MEEBIT SURVIVAL PROTOCOL v6 -- RAIN, GOO, RAYGUN, ROCKETS <<<', 'color:#00ff66; font-size:14px; font-weight:bold;');
+console.log('%c>>> MEEBIT SURVIVAL PROTOCOL v27 -- BEGIN SIMULATION! <<<', 'color:#00ff66; font-size:14px; font-weight:bold;');
