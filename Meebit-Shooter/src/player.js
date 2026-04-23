@@ -12,7 +12,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { scene } from './scene.js';
 import { PLAYER, WEAPONS, GUEST_AVATAR_URL } from './config.js';
 import { S } from './state.js';
-import { attachMixer, animationsReady, applyGunHoldPose, GUN_HOLD_EXCLUDE_BONES } from './animation.js';
+import { attachMixer, animationsReady, applyGunHoldPose, GUN_HOLD_EXCLUDE_BONES, IDLE_HIP_EXCLUDE_BONES } from './animation.js';
 
 export const player = {
   obj: null,
@@ -270,9 +270,19 @@ function tryAttachPlayerMixer() {
   // Bones we DON'T want the walk/run clips to animate. Imported from
   // animation.js so the player, followers, and pixl pals all use the
   // exact same exclusion list (they all share the Meebit VRM rig).
+  //
+  // We use the per-clip excludeBones shape: arms are excluded on EVERY
+  // clip (gun-hold pose takes over each frame), and the idle clips
+  // additionally exclude hip/spine/chest because the Mixamo Standing
+  // Idles bake in a 60°+ hip cock that tips Meebit VRMs sideways.
   player.mixer = attachMixer(player.obj, {
     restPoseCompensation: needsCompensation,
-    excludeBones: GUN_HOLD_EXCLUDE_BONES,
+    excludeBones: {
+      default: GUN_HOLD_EXCLUDE_BONES,
+      idle2:   IDLE_HIP_EXCLUDE_BONES,
+      idle3:   IDLE_HIP_EXCLUDE_BONES,
+      idle4:   IDLE_HIP_EXCLUDE_BONES,
+    },
   });
   player.mixer.playIdle(2);   // start in a still idle; update loop flips to walk when moving
   return true;
