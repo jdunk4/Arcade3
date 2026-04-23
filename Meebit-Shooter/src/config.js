@@ -237,18 +237,55 @@ export function getWaveDef(wave) {
   const chapterIdx = Math.floor((wave - 1) / WAVES_PER_CHAPTER);
 
   // -------- CHAPTER 7 (PARADISE FALLEN) override --------
-  // Structure: only 3 waves, all infector-dominated, hives always emit
-  // infectors, escalating intensity. Player vs enemy vs enemy — the
-  // infectors eat the other enemies. Only the Super Nuke neutralizes.
-  // Wave 3 = finale with a "boss-level" infector assault.
+  // --- PARADISE FALLEN (ch.7, the finale) ---
+  // 3 waves: Mining → Missile (EMP) → Hive Finale.
+  //
+  //   Wave 31 (local 1) MINING   — clear 5 ores while infectors flood in.
+  //   Wave 32 (local 2) MISSILE  — 5-zone power-up sequence ends in EMP
+  //                                launch that drops the hive shields.
+  //                                Mechanically identical to a normal
+  //                                chapter's wave 2 but with infector-
+  //                                heavy mix.
+  //   Wave 33 (local 3) HIVES    — the finale: all 6 hives live, heavy
+  //                                infector flood, super-nuke available.
+  //
+  // NO bonus wave. Meebit collection skipped for the finale so we keep
+  // the pacing tight.
   if (chapterIdx === PARADISE_FALLEN_CHAPTER_IDX) {
     const ch7Wave = ((wave - 1) % CH7_WAVE_COUNT) + 1;
+
+    // ALL-ENEMY MIX for the finale. Drawn from every prior chapter's
+    // roster — zomeebs, sprinters, brutes, spitters, phantoms, spiders,
+    // pumpkins, ghosts, vampires, red devils, wizards, goo spitters —
+    // all fighting each other and the infector flood. Infector share
+    // ESCALATES each local wave (30% → 45% → 60%) so the flood dynamic
+    // tightens as the finale progresses. Other types share what's left.
+    //
+    // Wave 1: breadth — mostly old enemies, some infectors. Player
+    //         learns the possession dynamic while fighting a full zoo.
+    // Wave 2: missile run. Infectors mid-mix while the player clears
+    //         the 5 zones. Post-EMP the shields fall for wave 3.
+    // Wave 3: full flood. Infectors dominate; every other enemy is
+    //         fodder for possession. Hardest.
+    const infectorShare = ch7Wave === 1 ? 0.30 : (ch7Wave === 2 ? 0.45 : 0.60);
+    const roachShare    = ch7Wave === 1 ? 0.00 : (ch7Wave === 2 ? 0.05 : 0.10);
+    const otherShare    = 1 - infectorShare - roachShare;
+    // Split the "other" share evenly across the 12 non-infector types.
+    const OTHER_TYPES = [
+      'zomeeb', 'sprinter', 'brute', 'spitter', 'phantom', 'spider',
+      'pumpkin', 'ghost', 'vampire', 'red_devil', 'wizard', 'goospitter',
+    ];
+    const per = otherShare / OTHER_TYPES.length;
+    const mix = { infector: infectorShare };
+    if (roachShare > 0) mix.roach = roachShare;
+    for (const t of OTHER_TYPES) mix[t] = per;
+
     if (ch7Wave === 1) {
       return {
         type: 'mining',
         oresRequired: 5,
-        enemies: { zomeeb: 0.25, sprinter: 0.20, infector: 0.40, brute: 0.15 },
-        spawnRate: 2.4,
+        enemies: mix,
+        spawnRate: 2.6,
         blockFallRate: 4.0,
         blockCount: 8,
         ch7: true,
@@ -256,29 +293,31 @@ export function getWaveDef(wave) {
       };
     }
     if (ch7Wave === 2) {
+      // WAVE 32 — MISSILE / POWER-UP.
+      // Reuses the normal chapter's wave-2 flow: 5 zones (POWER → TURRETS_A
+      // → TURRETS_B → RADIO → EMP), missile launches at the end and drops
+      // every hive's shield for the finale that follows.
       return {
-        type: 'hive',
-        hiveCount: 4,
-        hiveHp: 14,
-        // Hives in ch.7 ALWAYS emit infectors regardless of the mix below.
-        // See spawners.js override for this logic.
-        hivesEmitInfectors: true,
-        enemies: { zomeeb: 0.20, sprinter: 0.15, infector: 0.50, brute: 0.15 },
-        spawnRate: 2.8,
+        type: 'powerup',
+        enemies: mix,
+        spawnRate: 3.0,
+        zoneHoldTime: 3.5,
+        zones: ['POWER', 'TURRETS_A', 'TURRETS_B', 'RADIO', 'EMP'],
+        turretCount: 3,
         ch7: true,
         localWave: ch7Wave, chapterIdx,
       };
     }
-    // Wave 3 — FINALE. No boss sprite, but the whole arena is the boss.
-    // Infectors flow constantly; super nuke available as a one-time
-    // consumable. Other enemies spawn but get eaten rapidly.
+    // Wave 33 — FINALE HIVES. Post-EMP, shields are down. 60% infector
+    // share means most new spawns are parasites; they eat the other
+    // enemies and sprint at the player.
     return {
-      type: 'hive',         // reuse hive wave for spawner behavior
+      type: 'hive',
       hiveCount: 6,
       hiveHp: 18,
       hivesEmitInfectors: true,
-      enemies: { zomeeb: 0.15, sprinter: 0.10, infector: 0.60, brute: 0.15 },
-      spawnRate: 3.4,
+      enemies: mix,
+      spawnRate: 3.6,
       ch7: true,
       ch7Finale: true,
       localWave: ch7Wave, chapterIdx,
