@@ -582,16 +582,22 @@ export function resetPlayer() {
 export function setPlayerGlowColor(hex) {
   if (!player.obj) return;
   if (!player._glowFill) {
-    // Warm-white spotlight-like fill. Stronger + wider than civilians'
-    // so the player's immediate area reads well even when moving through
-    // dense sections of the arena.
-    const fill = new THREE.PointLight(0xfff4d6, 5.0, 9.0, 2);
+    // Warm-white fill — bright enough to keep the player legible against
+    // dark floor sections, dim enough that the glow doesn't wash out the
+    // surrounding environment. Previous tuning had the fill at intensity
+    // 5.0 / range 9, which pushed a big wash of light onto the floor
+    // around the player; halving both restores a "local pool of light"
+    // feel without losing legibility.
+    const fill = new THREE.PointLight(0xfff4d6, 2.2, 6.0, 2);
     fill.position.set(0, 3.2, 0);
     player.obj.add(fill);
     player._glowFill = fill;
   }
   if (!player._glowAccent) {
-    const accent = new THREE.PointLight(hex, 1.8, 5.5, 2);
+    // Chapter-tinted accent — subtle, just a hint of mood color at the
+    // player's torso. Was 1.8 / 5.5, now 0.8 / 4.0 so the tint reads
+    // more like body-lighting than ambient dye on the surrounding floor.
+    const accent = new THREE.PointLight(hex, 0.8, 4.0, 2);
     accent.position.set(0, 1.4, 0);
     player.obj.add(accent);
     player._glowAccent = accent;
