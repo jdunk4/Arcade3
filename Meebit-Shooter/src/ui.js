@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { S } from './state.js';
-import { WEAPONS, CHAPTERS, WAVES_PER_CHAPTER, BLOCK_CONFIG } from './config.js';
+import { WEAPONS, CHAPTERS, WAVES_PER_CHAPTER, BLOCK_CONFIG, PARADISE_FALLEN_CHAPTER_IDX, CH7_WAVE_COUNT } from './config.js';
+import { getWaveDef_current } from './waves.js';
 
 // Reusable scratch vectors
 const _v3 = new THREE.Vector3();
@@ -24,7 +25,19 @@ export const UI = {
     const chapEl = document.getElementById('chapter-readout');
     if (chapEl) {
       const chapName = CHAPTERS[S.chapter % CHAPTERS.length].name;
-      chapEl.textContent = 'CH.' + (S.chapter + 1) + ' · ' + chapName + ' · W' + S.localWave + '/' + WAVES_PER_CHAPTER;
+      // CREDITS WAVE — a boss-into-credits sequence that plays after the
+      // ch7 finale. It's not part of the chapter's wave count, so we show
+      // "CREDITS" in place of the W{n}/{total} readout. Driven by the
+      // `creditsWave` flag on the active wave def (getWaveDef_current).
+      const curDef = (typeof getWaveDef_current === 'function') ? getWaveDef_current() : null;
+      if (curDef && curDef.creditsWave) {
+        chapEl.textContent = 'CH.' + (S.chapter + 1) + ' · ' + chapName + ' · CREDITS';
+      } else {
+        // Ch.7 only has 3 waves; show "/3" instead of "/5" so the HUD is
+        // honest about the shorter finale chapter.
+        const waveMax = (S.chapter === PARADISE_FALLEN_CHAPTER_IDX) ? CH7_WAVE_COUNT : WAVES_PER_CHAPTER;
+        chapEl.textContent = 'CH.' + (S.chapter + 1) + ' · ' + chapName + ' · W' + S.localWave + '/' + waveMax;
+      }
     }
 
     const rescEl = document.getElementById('rescue-count');
