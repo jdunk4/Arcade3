@@ -704,7 +704,14 @@ export function makeEnemy(typeKey, tintHex, pos) {
 // MAKE BOSS — with pattern flag for new behavior
 // ============================================================================
 export function makeBoss(bossKey, tintHex, pos) {
-  const spec = BOSSES[bossKey] || BOSSES.MEGA_ZOMEEB;
+  const spec = BOSSES[bossKey] || BOSSES.BLAZE_WARDEN;
+
+  // VESSEL ZERO takes the custom broodmother mesh path. Everything else
+  // uses the standard humanoid build.
+  if (bossKey === 'VESSEL_ZERO') {
+    return makeVesselZero(tintHex, pos, spec);
+  }
+
   const scale = 0.55 * spec.scale;
   const { group, body, bodyMat, armL, armR, legL, legR } = makeHumanoid(tintHex, scale, 0.4);
 
@@ -751,6 +758,259 @@ export function makeBoss(bossKey, tintHex, pos) {
   };
   enemies.push(boss);
   return boss;
+}
+
+// ============================================================================
+// VESSEL ZERO: BROODMOTHER — ch.7 final boss, custom mesh
+// ============================================================================
+// Halo-Gravemind-inspired silhouette: huge oblate central body floating
+// above the arena, 8 writhing tendrils radiating outward, a glowing maw
+// on the front, and a cluster of parasite primitives crawling around her
+// feet. Nothing about this uses makeHumanoid — she doesn't walk, doesn't
+// carry a weapon, doesn't have a crown. She's a biomass queen.
+//
+// The boss entity shape returned here is identical to the humanoid-boss
+// path so existing damage code, HP bar, pattern loop, kill detection all
+// work unchanged. The per-frame animation of tendrils + bob + parasite
+// cluster is driven by updateVesselZeroAnim(), called from the main
+// animate loop in main.js whenever S.bossRef.type === 'VESSEL_ZERO'.
+function makeVesselZero(tintHex, pos, spec) {
+  const group = new THREE.Group();
+  group.position.copy(pos);
+  group.position.y = 0;   // she floats via _bobOffset on the central mass
+
+  // --- CENTRAL MASS — oblate bulbous core ---
+  // Sphere squashed on the Y axis so she reads wide and low, not tall.
+  // scale 6.0 * 0.55 = 3.3 base radius. Very large but not map-filling.
+  const coreRadius = spec.scale * 0.55 * 2.2;   // ~7.3 units wide
+  const coreGeo = new THREE.SphereGeometry(coreRadius, 20, 14);
+  const coreMat = new THREE.MeshStandardMaterial({
+    color: tintHex,
+    emissive: tintHex,
+    emissiveIntensity: 0.5,
+    roughness: 0.6,
+    metalness: 0.2,
+  });
+  const core = new THREE.Mesh(coreGeo, coreMat);
+  core.scale.set(1, 0.55, 1);         // squash vertically → oblate
+  core.position.y = 3.5;              // float above ground
+  core.castShadow = true;
+  group.add(core);
+
+  // --- GLOWING MAW — single large emissive ring on the front ---
+  // Faces -Z (toward positive player spawn area). Pulses in the pattern
+  // loop whenever she's about to summon so the player gets a visual cue.
+  const mawGeo = new THREE.TorusGeometry(1.1, 0.35, 8, 20);
+  const mawMat = new THREE.MeshStandardMaterial({
+    color: 0xff4466,
+    emissive: 0xff4466,
+    emissiveIntensity: 2.4,
+    roughness: 0.4,
+  });
+  const maw = new THREE.Mesh(mawGeo, mawMat);
+  maw.position.set(0, 3.4, coreRadius * 0.85);   // protrudes from front
+  maw.rotation.x = Math.PI / 2;
+  group.add(maw);
+  // Inner maw glow — a brighter disc inside the ring for depth.
+  const mawInnerMat = new THREE.MeshBasicMaterial({
+    color: 0xffccdd,
+    transparent: true,
+    opacity: 0.7,
+    side: THREE.DoubleSide,
+  });
+  const mawInner = new THREE.Mesh(
+    new THREE.CircleGeometry(0.9, 16),
+    mawInnerMat,
+  );
+  mawInner.position.copy(maw.position);
+  mawInner.rotation.y = 0;   // faces +Z like the maw
+  group.add(mawInner);
+
+  // --- 8 GROWTH TENDRILS — twisted appendages radiating outward ---
+  // Each tendril is a thin tapered cylinder anchored at the core surface,
+  // angled outward and upward, with a small bulb on the tip. Per-frame
+  // animation writhes them via sine-wave rotation on their base group.
+  const tendrils = [];
+  const tendrilMat = new THREE.MeshStandardMaterial({
+    color: tintHex,
+    emissive: tintHex,
+    emissiveIntensity: 0.35,
+    roughness: 0.7,
+  });
+  const tendrilBulbMat = new THREE.MeshStandardMaterial({
+    color: 0xff4466,
+    emissive: 0xff4466,
+    emissiveIntensity: 1.6,
+  });
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const tendrilGroup = new THREE.Group();
+    // Anchor at the core's surface at this angle.
+    tendrilGroup.position.set(
+      Math.cos(a) * coreRadius * 0.7,
+      3.5 + (i % 2 === 0 ? 1.2 : 0.6),   // alternate heights for organic
+      Math.sin(a) * coreRadius * 0.7,
+    );
+    // Point the tendril outward and upward.
+    tendrilGroup.rotation.z = Math.cos(a) * -0.6;
+    tendrilGroup.rotation.x = Math.sin(a) * 0.6;
+    tendrilGroup.rotation.y = -a;   // align long axis with radial direction
+
+    const tendrilGeo = new THREE.CylinderGeometry(0.18, 0.35, 3.4, 8);
+    const tendril = new THREE.Mesh(tendrilGeo, tendrilMat);
+    tendril.position.y = 1.7;   // extends up from the anchor
+    tendrilGroup.add(tendril);
+
+    // Bulb on the tip — reads like a seedpod / egg sac.
+    const bulb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.35, 10, 8),
+      tendrilBulbMat,
+    );
+    bulb.position.y = 3.5;
+    tendrilGroup.add(bulb);
+
+    group.add(tendrilGroup);
+    tendrils.push({
+      obj: tendrilGroup,
+      baseRotZ: tendrilGroup.rotation.z,
+      baseRotX: tendrilGroup.rotation.x,
+      phase: Math.random() * Math.PI * 2,
+    });
+  }
+
+  // --- PARASITE CLUSTER at her feet ---
+  // 20 small dark blobs clustered on the ground around her core. They're
+  // pure visual dressing — not real enemies, not in the enemies[] array.
+  // Each has a random walk phase so they shuffle around slightly.
+  const parasites = [];
+  const parasiteMat = new THREE.MeshStandardMaterial({
+    color: 0x330022,
+    emissive: 0x660033,
+    emissiveIntensity: 0.7,
+    roughness: 0.4,
+  });
+  const parasiteGeo = new THREE.SphereGeometry(0.28, 8, 6);
+  for (let i = 0; i < 20; i++) {
+    const pa = Math.random() * Math.PI * 2;
+    const pr = coreRadius * 0.9 + Math.random() * 2.5;
+    const p = new THREE.Mesh(parasiteGeo, parasiteMat);
+    p.position.set(
+      Math.cos(pa) * pr,
+      0.3,
+      Math.sin(pa) * pr,
+    );
+    group.add(p);
+    parasites.push({
+      obj: p,
+      baseA: pa,
+      baseR: pr,
+      phase: Math.random() * Math.PI * 2,
+      wiggleSpeed: 0.8 + Math.random() * 1.6,
+    });
+  }
+
+  scene.add(group);
+
+  // Store animation refs on the boss object so updateVesselZeroAnim can
+  // drive them per-frame. We add custom fields beyond the standard boss
+  // shape — existing code doesn't touch them, so this is safe.
+  const boss = {
+    type: 'VESSEL_ZERO',
+    obj: group,
+    pos: group.position,
+    // We skip body/bodyMat/armL/armR/legL/legR — the existing walk-anim
+    // and damage-flash code that touches those checks for existence
+    // before using them (enemies.js::updateEnemies + main.js damage
+    // apply). If anything does access them unguarded we'll hit undefined
+    // which is a fast-fail; spot-check below.
+    body: core,           // any hit-flash code will tint the core
+    bodyMat: coreMat,
+    speed: spec.speed,
+    hp: spec.hp, hpMax: spec.hp,
+    damage: spec.damage,
+    scoreVal: spec.score,
+    xpVal: spec.xp,
+    walkPhase: 0,
+    hitFlash: 0,
+    touchCooldown: 0,
+    ranged: false,        // she doesn't ranged-fire — her weapon is the swarm
+    range: 0,
+    rangedCooldown: 999,
+    phases: false,
+    phaseTimer: 0,
+    isBoss: true,
+    stationary: true,     // main.js skips movement for this flag — she spawns the flood, doesn't chase
+    bossHitRadius: 3.0,   // matches her squashed core radius so bullets register across her whole body (default boss is 1.6)
+    name: spec.name,
+    pattern: 'broodmother',
+    // Broodmother-specific cooldowns
+    infectorSpawnCd: 2.5,
+    roachSwarmCd: 6.0,
+    phase75Triggered: false,
+    phase50Triggered: false,
+    phase25Triggered: false,
+    // Custom mesh refs for per-frame animation
+    _vesselCore: core,
+    _vesselMaw: maw,
+    _vesselMawMat: mawMat,
+    _vesselTendrils: tendrils,
+    _vesselParasites: parasites,
+    _vesselBobT: 0,
+    _vesselTime: 0,
+    _vesselPulseBoost: 0,   // bumped up during summon events, decays back
+  };
+  enemies.push(boss);
+  return boss;
+}
+
+/**
+ * Per-frame animation for VESSEL ZERO. Call from the main animate loop
+ * whenever S.bossRef && S.bossRef.type === 'VESSEL_ZERO'. Animates:
+ *   - core bob (sinusoidal Y-float)
+ *   - tendril writhe (per-tendril sine on their anchor rotation)
+ *   - parasite shuffle (radial wobble + Y hop)
+ *   - maw pulse (emissive brightness on a continuous wave + summon boost)
+ */
+export function updateVesselZeroAnim(boss, dt) {
+  if (!boss || boss.type !== 'VESSEL_ZERO') return;
+  boss._vesselTime += dt;
+  const t = boss._vesselTime;
+
+  // Core bob
+  if (boss._vesselCore) {
+    boss._vesselCore.position.y = 3.5 + Math.sin(t * 1.2) * 0.25;
+    // Slow Y rotation so she reads alive, not frozen.
+    boss._vesselCore.rotation.y += dt * 0.15;
+  }
+
+  // Tendril writhe — each tendril wiggles independently around its
+  // anchor rotation. Low-frequency + high-amplitude looks organic;
+  // don't crank the speed or it looks like static.
+  for (const td of boss._vesselTendrils || []) {
+    td.obj.rotation.z = td.baseRotZ + Math.sin(t * 0.8 + td.phase) * 0.25;
+    td.obj.rotation.x = td.baseRotX + Math.cos(t * 0.7 + td.phase) * 0.2;
+  }
+
+  // Parasite shuffle — radial wobble (they walk in/out from core) and
+  // small Y hop like they're clambering.
+  for (const p of boss._vesselParasites || []) {
+    const r = p.baseR + Math.sin(t * p.wiggleSpeed + p.phase) * 0.4;
+    const a = p.baseA + Math.cos(t * p.wiggleSpeed * 0.6 + p.phase) * 0.15;
+    p.obj.position.x = Math.cos(a) * r;
+    p.obj.position.z = Math.sin(a) * r;
+    p.obj.position.y = 0.3 + Math.abs(Math.sin(t * p.wiggleSpeed * 1.4 + p.phase)) * 0.15;
+  }
+
+  // Maw pulse — continuous low pulse (0.8–1.2x) plus a summon boost
+  // that's set by updateBossPattern when she fires infectors/roaches.
+  // _vesselPulseBoost decays over ~0.6s after each summon.
+  if (boss._vesselPulseBoost > 0) {
+    boss._vesselPulseBoost = Math.max(0, boss._vesselPulseBoost - dt * 1.6);
+  }
+  const pulse = 2.0 + Math.sin(t * 3.2) * 0.4 + boss._vesselPulseBoost * 1.8;
+  if (boss._vesselMawMat) {
+    boss._vesselMawMat.emissiveIntensity = pulse;
+  }
 }
 
 export function clearAllEnemies() {
