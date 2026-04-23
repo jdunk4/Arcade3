@@ -174,6 +174,12 @@ function remapMixamoClip(rawClip, label) {
  * delta subtraction is what keeps Mixamo's baked-in runner-lean (a
  * constant ~13° forward tilt on the Hips track) from composing with
  * the Meebit rest and producing a permanent sideways body lean.
+ * `opts.excludeBones` — array of bone names whose tracks should be dropped
+ * from every clip this mixer plays. Bones matching any name in the list
+ * stay at whatever rotation the caller writes to them AFTER the mixer
+ * update runs. The player uses this to drop the arm tracks from walk/run
+ * clips (so the full-body walk doesn't swing the arms) and then applies
+ * a static gun-hold pose to the arm bones in its own update tick.
  *
  * Returns:
  *   {
@@ -192,18 +198,23 @@ export function attachMixer(mesh, opts = {}) {
   // restPoseCompensation is requested.
   const restByBone = opts.restPoseCompensation ? _collectRestPose(mesh) : null;
 
+  // Bones whose tracks should be stripped from every clip on this mixer.
+  // Stored as a Set for O(1) lookup during filtering.
+  const excludeSet = (opts.excludeBones && opts.excludeBones.length)
+    ? new Set(opts.excludeBones)
+    : null;
+
   function getAction(key) {
     if (actions[key]) return actions[key];
     const clip = _clipCache[key];
     if (!clip) return null;
 
-    // Rest-pose compensation: build a clip variant whose rotation
-    // keyframes have been pre-multiplied by each bone's rest quaternion.
-    // We cache per-(clip,mesh) so repeated playback reuses the same clip
-    // without rebuilding every time.
-    const effectiveClip = restByBone
-      ? _buildCompensatedClip(clip, restByBone)
-      : clip;
+    // Apply transforms in order: rest-pose comp first, then bone exclusion.
+    // Both return the same clip reference when no transform is needed, so
+    // a mixer with neither option set pays zero cost.
+    let effectiveClip = clip;
+    if (restByBone)  effectiveClip = _buildCompensatedClip(effectiveClip, restByBone);
+    if (excludeSet)  effectiveClip = _buildFilteredClip(effectiveClip, excludeSet);
 
     const action = mixer.clipAction(effectiveClip);
     action.setLoop(THREE.LoopRepeat, Infinity);
@@ -393,5 +404,56 @@ function _buildCompensatedClip(rawClip, restByBone) {
     tracks,
   );
   inner.set(restByBone, clip);
+  return clip;
+}
+
+// ============================================================================
+// BONE EXCLUSION
+// ============================================================================
+// Strip tracks targeting specific bones from a clip. Used by the player to
+// drop the arm tracks from walk/run clips — the legs/hip/spine animate
+// normally while the arm bones stay at whatever local rotation the caller
+// writes to them in its own update tick (for the player: a static gun-hold
+// pose).
+//
+// Cached per-(raw-clip, exclude-set) so multiple mixers using the same
+// exclusion list share one filtered clip.
+// ============================================================================
+
+const _filteredClipCache = new WeakMap();   // WeakMap<rawClip, Map<string, filteredClip>>
+
+function _buildFilteredClip(rawClip, excludeSet) {
+  // Use a stable string key derived from the exclude set so mixers with
+  // the same exclusion list share the same filtered clip.
+  const sortedKey = [...excludeSet].sort().join('|');
+  let inner = _filteredClipCache.get(rawClip);
+  if (!inner) {
+    inner = new Map();
+    _filteredClipCache.set(rawClip, inner);
+  }
+  const cached = inner.get(sortedKey);
+  if (cached) return cached;
+
+  const tracks = [];
+  let droppedCount = 0;
+  for (const track of rawClip.tracks) {
+    const dot = track.name.indexOf('.');
+    const boneName = dot >= 0 ? track.name.slice(0, dot) : track.name;
+    if (excludeSet.has(boneName)) {
+      droppedCount++;
+      continue;
+    }
+    tracks.push(track);
+  }
+
+  const clip = new THREE.AnimationClip(
+    rawClip.name + '-filtered',
+    rawClip.duration,
+    tracks,
+  );
+  inner.set(sortedKey, clip);
+  if (droppedCount > 0) {
+    console.info(`[anim] filtered clip "${rawClip.name}": dropped ${droppedCount} tracks for ${sortedKey}`);
+  }
   return clip;
 }
