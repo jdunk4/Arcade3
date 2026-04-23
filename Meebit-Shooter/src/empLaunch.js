@@ -48,9 +48,11 @@ import { Audio } from './audio.js';
 import { hitBurst } from './effects.js';
 import { getSiloLaunchOrigin, hideSiloMissile, LAYOUT } from './waveProps.js';
 import { spawners } from './spawners.js';
-import { removeHiveShields } from './dormantProps.js';
+import { removeHiveShields, dropHiveShield } from './dormantProps.js';
 import { getCentroidFor } from './triangles.js';
 import { fireShockwave } from './shockwave.js';
+import { makeEnemy } from './enemies.js';
+import { CHAPTERS, getWaveDef } from './config.js';
 
 // Phase durations.
 const FLIGHT_SEC = 1.4;       // longer now — missile arcs across the map
@@ -906,7 +908,11 @@ export function updateLaunch(dt, time) {
       try { Audio.bigBoom && Audio.bigBoom(); } catch (e) {}
       // Shockwave originates from the hive-triangle centroid — where
       // the missile detonated — not the silo. As the ring passes each
-      // hive, drop that hive's shield via the onRadius callback.
+      // hive:
+      //   1) drop its shield (immediate, no waiting for DARKEN_SEC)
+      //   2) spawn 2-3 starter enemies around it so wave 3 has a live
+      //      population the moment it begins, instead of the arena
+      //      feeling empty while hives ramp up emissions.
       const origin = _flightTarget || { x: 0, y: 0.2, z: 0 };
       fireShockwave(
         { x: origin.x, y: 0.2, z: origin.z },
@@ -921,9 +927,18 @@ export function updateLaunch(dt, time) {
               const d = Math.sqrt(dx * dx + dz * dz);
               if (r >= d) {
                 _shockwaveHitHives.add(h);
+                // 1) VISUAL: bright particle burst + chapter-tinted shower
                 hitBurst(new THREE.Vector3(h.pos.x, 2.5, h.pos.z), 0xffffff, 16);
                 const tintNow = CHAPTERS[S.chapter % CHAPTERS.length].full.grid1;
                 hitBurst(new THREE.Vector3(h.pos.x, 2.5, h.pos.z), tintNow, 14);
+                // 2) DROP SHIELD: flip `hive.shielded = false` + start the
+                //    shield-mesh collapse animation immediately.
+                dropHiveShield(h);
+                // 3) STARTER POPULATION: spawn 2-3 enemies in a small ring
+                //    around this hive so wave 3 doesn't open with an empty
+                //    arena. Uses the upcoming wave's mix so the enemy types
+                //    match what the hive would emit naturally.
+                _spawnStarterPopulation(h, tintNow);
               }
             }
           },
@@ -996,4 +1011,67 @@ export function abortLaunch() {
   _phase = 'idle';
   _phaseT = 0;
   _active = false;
+}
+
+// ----------------------------------------------------------------------------
+// STARTER POPULATION
+// ----------------------------------------------------------------------------
+/**
+ * Spawn 2-3 enemies around a single hive as its shield drops during the
+ * missile detonation. Gives wave 3 a visible starting population so the
+ * arena doesn't feel empty while hives ramp their emission cadence.
+ *
+ * Enemy types are picked from the upcoming (wave 3) mix so the starter
+ * set matches what the hive would emit naturally. Falls back to a
+ * 70/30 zomeeb/sprinter mix if no mix is defined.
+ *
+ * Each enemy lands on a small ring around the hive (2-3 units out) and
+ * gets a small burst FX so it reads as "emerging from the hive."
+ */
+function _spawnStarterPopulation(hive, tint) {
+  if (!hive || hive.destroyed) return;
+
+  // Probe the upcoming wave def (wave 3 — the hive wave we're unlocking)
+  // for its enemy mix. This runs mid-detonation so S.wave is still the
+  // powerup wave (wave 2 of the chapter); wave+1 gets us the hive wave.
+  let mix = null;
+  try {
+    const nextDef = getWaveDef(S.wave + 1);
+    if (nextDef && nextDef.enemies) mix = nextDef.enemies;
+  } catch (e) { /* fall through to default */ }
+  if (!mix) mix = { zomeeb: 0.7, sprinter: 0.3 };
+
+  const count = 2 + ((Math.random() < 0.5) ? 0 : 1); // 2 or 3
+  for (let i = 0; i < count; i++) {
+    // Ring placement so the enemies fan out around the hive rather than
+    // piling on top of it.
+    const a = (i / count) * Math.PI * 2 + Math.random() * 0.4;
+    const r = 2.2 + Math.random() * 1.2;
+    const x = hive.pos.x + Math.cos(a) * r;
+    const z = hive.pos.z + Math.sin(a) * r;
+
+    // Pick a type from the weighted mix
+    let total = 0;
+    for (const v of Object.values(mix)) total += v;
+    let roll = Math.random() * total;
+    let type = 'zomeeb';
+    for (const [k, v] of Object.entries(mix)) {
+      if (roll < v) { type = k; break; }
+      roll -= v;
+    }
+
+    try {
+      const e = makeEnemy(type, tint, new THREE.Vector3(x, 0, z));
+      if (e) {
+        e.fromPortal = hive;
+        if (typeof hive.enemiesAlive === 'number') hive.enemiesAlive++;
+      }
+    } catch (err) {
+      // Silently skip — makeEnemy failure shouldn't abort the shockwave
+      // visual.
+    }
+    // Small emergence burst
+    hitBurst(new THREE.Vector3(x, 0.8, z), tint, 6);
+    hitBurst(new THREE.Vector3(x, 0.8, z), 0xffffff, 3);
+  }
 }
