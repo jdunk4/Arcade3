@@ -95,6 +95,12 @@ const PAL_SPAWN_OFFSET = 5.0;      // drop in this far from the player
 const pals = [];         // currently active Pixl Pals
 const palBullets = [];   // bullets fired by pals (separate pipe)
 
+// Hidden mesh pool — prebuilt during the matrix dive by preloadPixlPalGLBs().
+// Each entry: { id, obj, inUse }. Stashed at y=-1000, visible=false. On
+// summon we pull a not-in-use entry, flip it visible, teleport into place.
+// Zero-jank because the clone + shader-compile cost was paid up front.
+const poolEntries = [];
+
 let lastWaveAwarded = 0; // last wave on which we awarded a charge
 let _killHandler = null; // registered by main.js — wires kills to score/XP
 
@@ -116,22 +122,31 @@ export function registerPixlPalKillHandler(fn) {
 }
 
 /**
- * Preload all pixl pal GLBs into the internal Promise cache during the
- * matrix dive. Subsequent calls to _loadPalMesh(id) during gameplay will
- * find a resolved Promise and skip the network fetch entirely — first
- * pal spawn in a run becomes a zero-jank operation.
+ * Preload + PRE-CLONE all pixl pal GLBs into a hidden mesh pool during the
+ * matrix dive. This mirrors the bonus-wave herd pool pattern:
+ *
+ *   1. Fetch every GLB (network + parse — expensive)
+ *   2. SkeletonUtils.clone each one (skeleton rebind — expensive)
+ *   3. Park the clone at y=-1000, visible=false, matrixAutoUpdate=false
+ *      (invisible to the player, skipped in the render loop)
+ *   4. renderer.compile() the whole set (PSO / shader warm — expensive)
+ *
+ * After this runs, trySummonPixlPal() becomes a zero-jank operation: it
+ * finds a ready pool entry, flips visible=true, matrixAutoUpdate=true,
+ * and teleports the mesh into position. No clone, no compile, no parse.
  *
  * Discovery order:
- *   1. Try fetch `assets/civilians/pixlpal/manifest.json`. If it's an
- *      array of `voxlpal-{id}.glb` names, use that.
- *   2. Fallback: use the hardcoded PIXLPAL_GLB_IDS list above.
- *
- * Progress callback fires for each file as it resolves. Errors are
- * suppressed — a failed prefetch just means the first summon will pay
- * the network cost (the existing gameplay path handles it).
+ *   1. Try `assets/civilians/pixlpal/manifest.json` (array of
+ *      voxlpal-*.glb names).
+ *   2. Fallback to hardcoded PIXLPAL_GLB_IDS.
  */
-export async function preloadPixlPalGLBs(onProgress) {
+const POOL_STASH_Y = -1000;
+const POOL_BATCH_PER_FRAME = 2;   // clone this many per frame, yield between batches
+
+export async function preloadPixlPalGLBs(onProgress, renderer, camera) {
   let ids = PIXLPAL_GLB_IDS.slice();
+
+  // --- Discover IDs from manifest ---
   try {
     const res = await fetch('assets/civilians/pixlpal/manifest.json', { cache: 'no-cache' });
     if (res.ok) {
@@ -143,34 +158,77 @@ export async function preloadPixlPalGLBs(onProgress) {
           const m = name.match(/voxlpal-(\d+)\.glb$/i);
           if (m) parsed.push(parseInt(m[1], 10));
         }
-        if (parsed.length > 0) ids = parsed;
+        if (parsed.length > 0) {
+          ids = parsed;
+          console.info(`[pixlPal] manifest found (${ids.length} files)`);
+        }
       }
+    } else {
+      console.info('[pixlPal] no manifest, using hardcoded list (' + ids.length + ' files)');
     }
   } catch (e) {
-    // Manifest missing / unreadable — silently fall back to hardcoded list.
+    console.info('[pixlPal] manifest fetch failed, using hardcoded list');
   }
 
-  let loaded = 0;
   const total = ids.length;
-  // Launch all loads in parallel — GLBs are 2-4 MB each; browser handles
-  // the concurrency cap naturally.
+  let loaded = 0;
+
+  // --- Phase A: fetch all GLBs (populates glbCache as Promise<gltf>) ---
   await Promise.all(ids.map(id => {
-    // Fire the internal loader. It populates glbCache with a Promise that
-    // resolves to the gltf object. We await the CACHE PROMISE directly so
-    // we don't pay the SkeletonUtils.clone + rescale cost here — that
-    // happens inside _loadPalMesh.then(...), and we want prewarm to stay
-    // cheap.
     if (!glbCache.has(id)) {
       const url = `assets/civilians/pixlpal/voxlpal-${id}.glb`;
       glbCache.set(id, new Promise((resolve, reject) => {
         gltfLoader.load(url, resolve, undefined, reject);
       }));
     }
-    return glbCache.get(id).then(
-      () => { loaded++; onProgress && onProgress({ loaded, total, id }); },
-      () => { loaded++; onProgress && onProgress({ loaded, total, id, err: true }); },
-    );
+    return glbCache.get(id).then(() => {}, () => {});
   }));
+  console.info(`[pixlPal] fetched ${total} GLBs`);
+
+  // --- Phase B: build the hidden mesh pool (clones, parked at y=-1000) ---
+  const tmpScene = new THREE.Scene();
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i];
+    try {
+      const mesh = await _loadPalMesh(id);    // fetches-or-returns-cached
+      // _loadPalMesh returns a fresh clone; we keep it as our pool entry.
+      mesh.position.set(0, POOL_STASH_Y, 0);
+      mesh.visible = false;
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
+      mesh.traverse(o => { o.frustumCulled = false; });
+      scene.add(mesh);
+      tmpScene.add(mesh);
+      poolEntries.push({ id, obj: mesh, inUse: false });
+    } catch (err) {
+      console.warn('[pixlPal] pool build failed for', id, err);
+    }
+    loaded++;
+    if (onProgress) onProgress({ loaded, total, id });
+
+    // Yield between batches so the dive's render loop stays responsive.
+    if ((i + 1) % POOL_BATCH_PER_FRAME === 0) {
+      await new Promise(r => requestAnimationFrame(r));
+    }
+  }
+
+  // --- Phase C: PSO / shader warm for the whole set ---
+  try {
+    if (renderer && camera) {
+      renderer.compile(tmpScene, camera);
+    }
+  } catch (err) {
+    console.warn('[pixlPal] renderer.compile failed (non-fatal):', err);
+  }
+  // Re-parent clones back to the real scene (they were attached to
+  // tmpScene temporarily for the compile pass).
+  while (tmpScene.children.length > 0) {
+    const m = tmpScene.children[0];
+    tmpScene.remove(m);
+    scene.add(m);
+  }
+  console.info(`[pixlPal] pool ready: ${poolEntries.length} clones`);
+
   return { loaded, total };
 }
 
@@ -260,29 +318,58 @@ export function trySummonPixlPal(playerPos) {
   const color = '#' + weapon.color.toString(16).padStart(6, '0');
   UI.toast && UI.toast('PIXL PAL · ' + weapon.name, color, 1600);
 
-  // Load GLB (async). Voxel fallback on failure so a pal always renders.
+  // --- POOL PATH — find a prebuilt, hidden mesh and teleport it. ---
+  // This is the zero-jank path: no GLB parse, no SkeletonUtils.clone, no
+  // shader compile. All paid during the matrix dive. Pool was seeded by
+  // preloadPixlPalGLBs(). Ring tint comes from the current chapter.
+  const chapterTint = CHAPTERS[S.chapter % CHAPTERS.length].full.grid1;
+  const pooledMesh = _acquirePoolMesh();
+  if (pooledMesh) {
+    pal.glbId = pooledMesh.userData && pooledMesh.userData.__palId;
+    scene.remove(pal.obj);
+    pooledMesh.visible = true;
+    pooledMesh.matrixAutoUpdate = true;
+    pooledMesh.position.copy(pal.pos);
+    pooledMesh.rotation.y = Math.random() * Math.PI * 2;
+    // Reset per-summon ring (remove any stale aura from a previous use,
+    // then attach a fresh one in the current chapter's tint).
+    _resetPalHighlight(pooledMesh);
+    _applyPalHighlight(pooledMesh, chapterTint);
+    pal.obj = pooledMesh;
+    pal.pos = pooledMesh.position;
+    pal.ready = true;
+
+    if (animationsReady()) {
+      try {
+        pal.mixer = attachMixer(pooledMesh, {
+          excludeBones: {
+            default: GUN_HOLD_EXCLUDE_BONES,
+            idle2:   IDLE_HIP_EXCLUDE_BONES,
+            idle3:   IDLE_HIP_EXCLUDE_BONES,
+            idle4:   IDLE_HIP_EXCLUDE_BONES,
+          },
+        });
+        pal.mixer.playIdle(2);
+      } catch (e) {
+        console.warn('[PixlPal] attachMixer failed', e);
+      }
+    }
+    return true;
+  }
+
+  // --- FALLBACK PATH — pool was never built (first-run crash path) or
+  // exhausted. Do it the slow way: fetch/clone on-demand. Will jank.
+  console.warn('[PixlPal] pool miss — falling back to on-demand load');
   _loadPalMesh(glbId).then(mesh => {
-    if (!pals.includes(pal)) return;        // despawned while loading
+    if (!pals.includes(pal)) return;
     scene.remove(pal.obj);
     mesh.position.copy(pal.pos);
     mesh.rotation.y = Math.random() * Math.PI * 2;
-    _applyPalHighlight(mesh, weapon.color);
+    _applyPalHighlight(mesh, chapterTint);
     scene.add(mesh);
     pal.obj = mesh;
     pal.pos = mesh.position;
     pal.ready = true;
-
-    // Attach the shared walk mixer with arm bones excluded. The pixlpal
-    // GLBs use an Unreal-style rig (thigh_l / upperarm_r / hand_r) whose
-    // bone names DON'T match our Mixamo→VRM retargeting map, so most
-    // rotation tracks silently no-op on these meshes (same as before).
-    // That's OK: the attach remains harmless, and if a VRM-rigged pal
-    // ever gets added it'll animate correctly. The walk-bob fallback
-    // below keeps the mesh visually alive while tracks don't match.
-    //
-    // applyGunHoldPose() is also a no-op on Unreal-rigged pals (bone
-    // names don't match), so safe to call unconditionally. The per-clip
-    // excludeBones maps carry zero cost when tracks don't match anyway.
     if (animationsReady()) {
       try {
         pal.mixer = attachMixer(mesh, {
@@ -300,7 +387,6 @@ export function trySummonPixlPal(playerPos) {
     }
   }).catch(err => {
     console.warn('[PixlPal] GLB load failed for', glbId, err);
-    // Fallback: keep the placeholder as a glow cube
     _buildFallbackVoxel(pal.obj, weapon.color);
     pal.ready = true;
   });
@@ -313,8 +399,8 @@ export function trySummonPixlPal(playerPos) {
  */
 export function clearAllPixlPals() {
   for (const p of pals) {
-    if (p.mixer) { try { p.mixer.stop && p.mixer.stop(); } catch (e) {} p.mixer = null; }
-    if (p.obj && p.obj.parent) scene.remove(p.obj);
+    _releasePoolMesh(p.obj, p.mixer);
+    p.mixer = null;
   }
   pals.length = 0;
   for (const b of palBullets) {
@@ -384,8 +470,8 @@ export function updatePixlPals(dt, playerPos) {
       }
       if (p.despawnTimer <= 0) {
         _palSpawnFx(p.pos);
-        if (p.mixer) { try { p.mixer.stop && p.mixer.stop(); } catch (e) {} p.mixer = null; }
-        scene.remove(p.obj);
+        _releasePoolMesh(p.obj, p.mixer);
+        p.mixer = null;
         pals.splice(i, 1);
         continue;
       }
@@ -700,6 +786,61 @@ function _enemyAlive(e) {
   return !!e && e.hp > 0 && enemies.indexOf(e) >= 0;
 }
 
+// -----------------------------------------------------------------------------
+// INTERNAL: POOL ACQUIRE / RELEASE
+// -----------------------------------------------------------------------------
+
+/**
+ * Find a pool entry that isn't currently in use and return its mesh.
+ * Returns null if the pool is empty (preload didn't run) or exhausted
+ * (every entry is already deployed — shouldn't happen; we only ever
+ * have one live pal at a time).
+ */
+function _acquirePoolMesh() {
+  for (let i = 0; i < poolEntries.length; i++) {
+    const e = poolEntries[i];
+    if (!e.inUse) {
+      e.inUse = true;
+      // Tag with its own id so we can identify it on release.
+      if (e.obj) {
+        if (!e.obj.userData) e.obj.userData = {};
+        e.obj.userData.__palId = e.id;
+      }
+      return e.obj;
+    }
+  }
+  return null;
+}
+
+/**
+ * Return a previously-acquired mesh back to the pool. Hides it, freezes
+ * its matrix, resets the highlight, detaches the mixer, moves it back
+ * to y=-1000. Safe to call if the mesh isn't actually in the pool
+ * (e.g. a fallback voxel) — it just silently no-ops.
+ */
+function _releasePoolMesh(mesh, mixer) {
+  if (!mesh) return;
+  if (mixer) {
+    try { mixer.stop && mixer.stop(); } catch (e) {}
+  }
+  for (let i = 0; i < poolEntries.length; i++) {
+    const e = poolEntries[i];
+    if (e.obj === mesh) {
+      e.inUse = false;
+      _resetPalHighlight(mesh);
+      mesh.visible = false;
+      mesh.matrixAutoUpdate = false;
+      mesh.position.set(0, POOL_STASH_Y, 0);
+      mesh.rotation.set(0, 0, 0);
+      mesh.scale.setScalar(1);
+      mesh.updateMatrix();
+      return;
+    }
+  }
+  // Not a pool mesh — remove it from the scene normally.
+  if (mesh.parent) scene.remove(mesh);
+}
+
 function _findNearestEnemy(fromPos, maxRange) {
   let best = null;
   let bestDsq = maxRange * maxRange;
@@ -770,34 +911,74 @@ function _loadPalMesh(id) {
   });
 }
 
-function _applyPalHighlight(mesh, weaponColor) {
-  // Subtle emissive lift in the pal's weapon color so it reads as an
-  // ally from across the arena.
-  const tint = new THREE.Color(weaponColor);
+function _applyPalHighlight(mesh, tintColor) {
+  // Subtle emissive lift in the chapter tint so it reads as an ally
+  // from across the arena. We STORE the pre-tint emissive values on a
+  // userData marker so _resetPalHighlight can undo them cleanly when
+  // the mesh returns to the pool.
+  const tint = new THREE.Color(tintColor);
   mesh.traverse(obj => {
     if (obj.isMesh && obj.material) {
       const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
       for (const m of mats) {
         if (m.emissive) {
-          m.emissive = m.emissive.clone().add(tint.clone().multiplyScalar(0.2));
-          m.emissiveIntensity = Math.max(0.25, m.emissiveIntensity || 0.25);
+          if (!m.userData) m.userData = {};
+          if (!m.userData.__palOrigEmissive) {
+            m.userData.__palOrigEmissive = m.emissive.clone();
+            m.userData.__palOrigIntensity = m.emissiveIntensity || 0;
+          }
+          m.emissive = m.userData.__palOrigEmissive.clone()
+            .add(tint.clone().multiplyScalar(0.2));
+          m.emissiveIntensity = Math.max(0.25, m.userData.__palOrigIntensity);
           m.needsUpdate = true;
         }
       }
     }
   });
-  // Aura ring at the feet
+  // Aura ring at the feet. Named so _resetPalHighlight can find and
+  // remove it before the next chapter's summon applies a new color.
   const auraGeo = new THREE.RingGeometry(0.9, 1.3, 24);
   const auraMat = new THREE.MeshBasicMaterial({
-    color: weaponColor,
+    color: tintColor,
     side: THREE.DoubleSide,
     transparent: true,
     opacity: 0.55,
   });
   const aura = new THREE.Mesh(auraGeo, auraMat);
+  aura.name = 'pixlpal-aura';
   aura.rotation.x = -Math.PI / 2;
   aura.position.y = 0.05;
   mesh.add(aura);
+}
+
+/**
+ * Undo whatever _applyPalHighlight did to this mesh. Called right before
+ * a re-used pool mesh gets its new chapter-tint ring applied, so the ring
+ * from its last use doesn't linger.
+ */
+function _resetPalHighlight(mesh) {
+  // Remove any stale aura rings (named children added by _applyPalHighlight).
+  for (let i = mesh.children.length - 1; i >= 0; i--) {
+    const c = mesh.children[i];
+    if (c && c.name === 'pixlpal-aura') {
+      mesh.remove(c);
+      if (c.geometry) c.geometry.dispose();
+      if (c.material) c.material.dispose();
+    }
+  }
+  // Restore original emissive state on every material we touched.
+  mesh.traverse(obj => {
+    if (obj.isMesh && obj.material) {
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const m of mats) {
+        if (m.userData && m.userData.__palOrigEmissive) {
+          m.emissive.copy(m.userData.__palOrigEmissive);
+          m.emissiveIntensity = m.userData.__palOrigIntensity;
+          m.needsUpdate = true;
+        }
+      }
+    }
+  });
 }
 
 function _buildFallbackVoxel(placeholder, weaponColor) {
