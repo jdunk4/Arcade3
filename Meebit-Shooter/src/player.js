@@ -197,31 +197,72 @@ function attachGLB(gltf) {
  *   - the player's skeleton uses VRM-spec bone names (our Mixamo retarget
  *     targets "HipsBone", "LeftUpperLegBone", etc.)
  *
- * Larva-Labs wallet-signed Meebit players use a different skeleton
- * (bones named "thigh_l", "calf_r", etc.). For those, the Mixamo mixer
- * would attach but drive zero bones, while also preventing the existing
- * procedural animation from running -- producing the "walking in place
- * with arms flailing" we saw. Skipping the mixer lets animateGLB's
- * procedural walk take over, which is what was working before.
+ * Two Meebit skeletons share these bone names in this project:
+ *
+ *   A) Meebits.app VRMs (civilians, herds): rest pose is identity T-pose.
+ *      Mixamo rotations apply directly.
+ *
+ *   B) Larva-Labs wallet-signed GLBs (player's own Meebit): rest pose is
+ *      NOT a T-pose. HipsBone is rotated 180° around Y, legs 180° around
+ *      Z/X, shoulders around diagonals. Applying Mixamo rotations here
+ *      without compensation produces the "balled up" look — the character
+ *      folds in on itself because every Mixamo rotation overlays onto a
+ *      pre-rotated bone.
+ *
+ * We detect case (B) by checking whether any of the key limb/hip bones
+ * has a non-identity rest quaternion. If so, we turn on rest-pose
+ * compensation when attaching the mixer; the animation module then
+ * pre-multiplies every rotation keyframe by the target bone's rest
+ * quaternion so the motion plays "on top of" the bind pose.
  */
 function tryAttachPlayerMixer() {
   if (player.mixer) return true;
   if (!player.obj || player.mode !== 'glb') return false;
   if (!animationsReady()) return false;
 
-  // VRM-skeleton detection: look for HipsBone anywhere in the tree.
-  let isVRMRig = false;
+  // VRM-named-skeleton detection: look for HipsBone anywhere in the tree.
+  let hipsBone = null;
+  const keyBones = {};
   player.obj.traverse(o => {
-    if (o.isBone && o.name === 'HipsBone') isVRMRig = true;
+    if (!o.isBone) return;
+    if (o.name === 'HipsBone') hipsBone = o;
+    // Sample a few bones likely to expose a Larva-Labs bind pose.
+    if (o.name === 'HipsBone'          ||
+        o.name === 'LeftUpperLegBone'  ||
+        o.name === 'RightUpperLegBone' ||
+        o.name === 'LeftShoulderBone'  ||
+        o.name === 'RightShoulderBone') {
+      keyBones[o.name] = o;
+    }
   });
-  if (!isVRMRig) {
-    // Non-VRM rig (Larva-Labs Meebit). Leave the procedural animation in
-    // charge. Mark as "tried" so the update tick stops retrying every frame.
+
+  if (!hipsBone) {
+    // Rig uses different bone names entirely (e.g. an Unreal "pelvis/thigh_l"
+    // rig). Mixamo retarget would drive zero bones — fall through to the
+    // procedural animateGLB path.
     player._mixerSkipped = true;
     return false;
   }
 
-  player.mixer = attachMixer(player.obj);
+  // Decide whether we need rest-pose compensation. A true T-pose rig has
+  // all-identity rest quaternions on these bones; the Larva-Labs rig has
+  // components close to ±1.0. We use 0.1 as the "clearly non-identity"
+  // threshold — more than floating-point noise, less than a 15° deviation.
+  let needsCompensation = false;
+  for (const name in keyBones) {
+    const q = keyBones[name].quaternion;
+    if (Math.abs(q.x) > 0.1 || Math.abs(q.y) > 0.1 || Math.abs(q.z) > 0.1 ||
+        Math.abs(1 - q.w) > 0.1) {
+      needsCompensation = true;
+      break;
+    }
+  }
+
+  if (needsCompensation) {
+    console.info('[player] Larva-Labs bind pose detected — enabling rest-pose compensation');
+  }
+
+  player.mixer = attachMixer(player.obj, { restPoseCompensation: needsCompensation });
   player.mixer.playRifleAim();
   return true;
 }
