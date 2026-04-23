@@ -60,6 +60,7 @@ import {
 } from './empLaunch.js';
 import { fireShockwave, clearShockwaves } from './shockwave.js';
 import { startDepotDriveOff } from './ores.js';
+import { LAYOUT } from './waveProps.js';
 import { startHiveRetraction, getLastHiveDeathPos, forceCompleteRetraction } from './spawners.js';
 import {
   startBonusWave, updateBonusWave, endBonusWave, clearBonusWave,
@@ -457,12 +458,16 @@ export function updateWaves(dt) {
     );
     if (complete) {
       // Wave 1 victory beat:
-      //   1. Shockwave ripples from the depot (its "sealing up" pulse)
-      //   2. Depot drives off along the mining-triangle centerline
+      //   1. Shockwave ripples from the SILO — that's where the mega
+      //      ore lands after the depot's catapult launches it. The
+      //      depot's "sealing up" pulse was the old placement; now it
+      //      matches the actual impact site so the shockwave reads as
+      //      the ore's landing detonation.
+      //   2. Depot drives off along the mining-triangle centerline.
       // The shockwave is purely visual; endWave() runs normal cleanup.
+      fireShockwave({ x: LAYOUT.silo.x, y: 0.2, z: LAYOUT.silo.z });
       const d = OresModule.depot;
       if (d) {
-        fireShockwave({ x: d.pos.x, y: 0.2, z: d.pos.z });
         startDepotDriveOff();
       }
       endWave();
