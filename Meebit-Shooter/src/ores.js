@@ -18,6 +18,7 @@ import { S, shake } from './state.js';
 import { Audio } from './audio.js';
 import { UI } from './ui.js';
 import { getTriangleFor } from './triangles.js';
+import { LAYOUT } from './waveProps.js';
 
 export const ores = [];
 export let depot = null;
@@ -391,18 +392,17 @@ function _tickDepotMegaOre(dt, time) {
 
   // Phase machine:
   //   'hover'    — sit on the depot revolving, ~3.5s; shows off the payoff
-  //   'ascend'   — climb quickly, leaving a trail, ~1.0s
-  //   'explode'  — burst at peak, mega-ore meshes disposed same frame
-  //   'done'     — triggers wave-end
+  //   'drive'    — horizontal flight to the silo, ~1.4s; leaves a trail
+  //   'absorb'   — shrink into the silo with a fuel-absorbed burst
+  //   'done'     — signals wave-complete; missile launch takes over
   // Default phase is 'hover'; _formDepotMegaOre sets m.phase = 'hover'.
   const HOVER_SEC = 3.5;
-  const ASCEND_SEC = 1.0;
-  const ASCEND_PEAK_Y = 22;        // world-space apex altitude
+  const DRIVE_SEC = 1.4;
+  const ABSORB_SEC = 0.35;
   const HOVER_Y = 1.5;
 
-  // Follow depot position while still on it (hover). During ascend we
-  // lock to the depot's xz at the moment of liftoff so the explosion
-  // happens above that spot.
+  // Follow depot position while still on it (hover). Once we leave hover
+  // we lock to the liftoff xz for the drive animation's start point.
   const px = depot ? depot.pos.x : m.ore.position.x;
   const pz = depot ? depot.pos.z : m.ore.position.z;
 
@@ -435,10 +435,16 @@ function _tickDepotMegaOre(dt, time) {
     }
 
     if (m.lifeT >= HOVER_SEC) {
-      m.phase = 'ascend';
+      m.phase = 'drive';
       m.phaseT = 0;
       m.liftoffX = px;
       m.liftoffZ = pz;
+      // Lock the drive destination to wherever the silo is at this moment.
+      // LAYOUT.silo is updated per-chapter, so we snapshot here rather
+      // than re-reading each frame (silo doesn't move mid-wave, but this
+      // is still the safer pattern).
+      m.destX = LAYOUT.silo.x;
+      m.destZ = LAYOUT.silo.z;
       // Liftoff cue: screen shake + audio + thrust burst beneath the ore.
       shake(0.35, 0.3);
       try { Audio.bigBoom && Audio.bigBoom(); } catch (e) {}
@@ -446,51 +452,74 @@ function _tickDepotMegaOre(dt, time) {
       hitBurst(new THREE.Vector3(px, 1.0, pz), 0xffd93d, 22);
       hitBurst(new THREE.Vector3(px, 1.0, pz), depot ? depot.tint : 0xff6a1a, 12);
     }
-  } else if (m.phase === 'ascend') {
+  } else if (m.phase === 'drive') {
+    // Drive horizontally from depot to silo at HOVER_Y. The ore is the
+    // "fuel" for the missile — it delivers itself to the launcher and
+    // vanishes into the silo, kicking off the EMP launch cinematic.
     m.phaseT += dt;
-    const f = Math.min(1, m.phaseT / ASCEND_SEC);
-    // Ease-in (quadratic) so the ore starts slow and accelerates upward —
-    // reads as "lifting off" rather than "teleporting up".
-    const e = f * f;
-    const y = HOVER_Y + (ASCEND_PEAK_Y - HOVER_Y) * e;
-    m.ore.position.x = m.liftoffX;
-    m.ore.position.z = m.liftoffZ;
-    m.ore.position.y = y;
-    m.halo.position.x = m.liftoffX;
-    m.halo.position.z = m.liftoffZ;
-    m.halo.position.y = y;
-    // Spin faster as it rises.
-    m.ore.rotation.y += dt * (3 + f * 8);
-    m.ore.rotation.x += dt * (2 + f * 6);
-    // Grow slightly as it rises (reads as "charging up"), then pop at explosion.
-    const growScale = 5.0 + f * 1.2;
-    m.ore.scale.setScalar(growScale);
-    if (m.haloMat) m.haloMat.opacity = 0.3 + f * 0.5;
-    // Trail: spawn gold/white sparks below the ore every frame for a comet tail.
-    hitBurst(
-      new THREE.Vector3(m.liftoffX, y - 0.6, m.liftoffZ),
-      0xffd93d, 2
-    );
-    if (Math.random() < 0.5) {
-      hitBurst(
-        new THREE.Vector3(m.liftoffX, y - 0.8, m.liftoffZ),
-        0xffffff, 1
-      );
+    const f = Math.min(1, m.phaseT / DRIVE_SEC);
+    // Ease-in-out so the ore accelerates out of the depot, cruises,
+    // then decelerates approaching the silo. smoothstep gives the
+    // natural settle-in motion.
+    const e = f * f * (3 - 2 * f);
+    const x = m.liftoffX + (m.destX - m.liftoffX) * e;
+    const z = m.liftoffZ + (m.destZ - m.liftoffZ) * e;
+    // Subtle bob across the drive so it reads as "flying" not "sliding".
+    const y = HOVER_Y + Math.sin(f * Math.PI) * 0.6;
+    m.ore.position.set(x, y, z);
+    m.halo.position.set(x, y, z);
+    // Spin faster during transit for energy.
+    m.ore.rotation.y += dt * (3 + f * 4);
+    m.ore.rotation.x += dt * (2 + f * 3);
+    m.ore.scale.setScalar(5.0);
+    if (m.haloMat) m.haloMat.opacity = 0.3 + Math.sin(f * Math.PI) * 0.3;
+    // Comet trail — gold sparks behind the ore. Density ramps with speed
+    // (peaks mid-flight where the ease is fastest).
+    if (Math.random() < 0.6 + 0.3 * Math.sin(f * Math.PI)) {
+      hitBurst(new THREE.Vector3(x, y - 0.4, z), 0xffd93d, 2);
+    }
+    if (Math.random() < 0.3) {
+      hitBurst(new THREE.Vector3(x, y - 0.6, z), 0xffffff, 1);
     }
 
     if (f >= 1) {
-      // Apex — explosion.
-      const origin = new THREE.Vector3(m.liftoffX, ASCEND_PEAK_Y, m.liftoffZ);
-      hitBurst(origin, 0xffffff, 42);
-      hitBurst(origin, 0xffd93d, 36);
-      setTimeout(() => hitBurst(origin, 0xffd93d, 24), 60);
-      setTimeout(() => hitBurst(origin, depot ? depot.tint : 0xff6a1a, 20), 140);
-      setTimeout(() => hitBurst(origin, 0xffffff, 14), 220);
-      shake(0.75, 0.55);
+      m.phase = 'absorb';
+      m.phaseT = 0;
+    }
+  } else if (m.phase === 'absorb') {
+    // Shrink and sink into the silo. Silo is at (destX, destZ); we
+    // collapse the ore to zero scale and drop it from HOVER_Y down to
+    // silo base. The missile-launch sequence will take over once we
+    // return true below.
+    m.phaseT += dt;
+    const f = Math.min(1, m.phaseT / ABSORB_SEC);
+    const scaleRemaining = 5.0 * (1 - f);
+    m.ore.scale.setScalar(Math.max(0.01, scaleRemaining));
+    m.ore.position.y = HOVER_Y - f * 1.3;   // sink into the silo tube
+    m.ore.position.x = m.destX;
+    m.ore.position.z = m.destZ;
+    m.halo.position.copy(m.ore.position);
+    if (m.haloMat) m.haloMat.opacity = Math.max(0, 0.6 * (1 - f));
+    // Extra spin at absorption.
+    m.ore.rotation.y += dt * 12;
+    m.ore.rotation.x += dt * 8;
+    // Cued fuel-absorbed burst at the silo mouth a frame after start,
+    // and a second impact at the base once fully absorbed.
+    if (m.phaseT - dt <= 0) {
+      const mouth = new THREE.Vector3(m.destX, HOVER_Y + 0.2, m.destZ);
+      hitBurst(mouth, 0xffd93d, 26);
+      hitBurst(mouth, 0xffffff, 14);
+      hitBurst(mouth, depot ? depot.tint : 0xff6a1a, 18);
       try { Audio.bigBoom && Audio.bigBoom(); } catch (e) {}
-      // Immediate disposal — the burst particles cover the pop.
+      shake(0.45, 0.3);
+    }
+    if (f >= 1) {
+      // Final burst at absorption and dispose.
+      const impact = new THREE.Vector3(m.destX, 0.6, m.destZ);
+      hitBurst(impact, 0xffffff, 20);
+      hitBurst(impact, depot ? depot.tint : 0xff6a1a, 14);
       _disposeDepotMegaOre();
-      return true;    // signal: wave complete
+      return true;    // signal: wave complete → missile launches
     }
   }
 
