@@ -121,7 +121,6 @@ function tryLoadGLB(url, onProgress, onDone, onError, isSigned = true) {
 function attachGLB(gltf) {
   const meebit = gltf.scene;
   meebit.scale.setScalar(PLAYER.scale);
-  meebit.position.copy(player.pos);
 
   let skeleton = null;
   const skinnedMeshes = [];
@@ -144,6 +143,20 @@ function attachGLB(gltf) {
   if (!skeleton) {
     throw new Error('No skeleton in GLB');
   }
+
+  // Wrap in an outer Group + pre-rotate the VRM 180° on Y. Same pattern as
+  // meebitsPublicApi.js / herdVrmLoader.js — VRMs authored for Meebits.app
+  // face -Z in their bind pose, but Mixamo walk clips drive motion in +Z,
+  // and the game sets `player.obj.rotation.y = atan2(dx,dz)` expecting +Z
+  // forward. Without this wrap the player visibly faces (and fires) backward
+  // relative to movement direction. The outer Group is what the game
+  // rotates; the inner VRM's pre-rotation aligns its animation-forward
+  // with the outer Group's forward. Animation mixer still binds to the
+  // inner scene's bones so nothing else has to change.
+  const wrapper = new THREE.Group();
+  meebit.rotation.y = Math.PI;
+  wrapper.add(meebit);
+  wrapper.position.copy(player.pos);
 
   // Cache rest pose for procedural animation
   player.bones = {};
@@ -182,8 +195,12 @@ function attachGLB(gltf) {
   gun.add(muzzle);
   muzzle.position.set(0, 0, 0.3);
 
-  scene.add(meebit);
-  player.obj = meebit;
+  scene.add(wrapper);
+  // player.obj is the WRAPPER (outer group that the game rotates).
+  // player._innerMesh is the actual VRM scene — needed by tryAttachPlayerMixer
+  // so the animation mixer binds to the real skeleton, not the empty wrapper.
+  player.obj = wrapper;
+  player._innerMesh = meebit;
   player.gun = gun;
   player.gunMat = gunMat;
   player.muzzle = muzzle;
@@ -225,10 +242,16 @@ function tryAttachPlayerMixer() {
   if (!player.obj || player.mode !== 'glb') return false;
   if (!animationsReady()) return false;
 
+  // Traverse the INNER mesh (the actual VRM scene), not the outer wrapper
+  // Group. The wrapper exists only to absorb the game's rotation.y setter
+  // so bone lookups find nothing on it. player._innerMesh is set in
+  // attachGLB before this is called.
+  const meshForBones = player._innerMesh || player.obj;
+
   // VRM-named-skeleton detection: look for HipsBone anywhere in the tree.
   let hipsBone = null;
   const keyBones = {};
-  player.obj.traverse(o => {
+  meshForBones.traverse(o => {
     if (!o.isBone) return;
     if (o.name === 'HipsBone') hipsBone = o;
     // Sample a few bones likely to expose a Larva-Labs bind pose.
@@ -275,7 +298,11 @@ function tryAttachPlayerMixer() {
   // clip (gun-hold pose takes over each frame), and the idle clips
   // additionally exclude hip/spine/chest because the Mixamo Standing
   // Idles bake in a 60°+ hip cock that tips Meebit VRMs sideways.
-  player.mixer = attachMixer(player.obj, {
+  //
+  // Mixer binds to the INNER mesh because that's where the SkinnedMesh
+  // and Skeleton live — the wrapper Group has nothing for the mixer to
+  // animate.
+  player.mixer = attachMixer(meshForBones, {
     restPoseCompensation: needsCompensation,
     excludeBones: {
       default: GUN_HOLD_EXCLUDE_BONES,
@@ -459,8 +486,10 @@ export function animatePlayer(dt, moving, timeElapsed) {
       player.mixer.update(dt);
 
       // Static shooter pose on the arm bones — the mixer excluded them so
-      // the walk/idle cycle doesn't fight this write.
-      applyGunHoldPose(player.obj);
+      // the walk/idle cycle doesn't fight this write. Target the inner
+      // mesh where the actual bones live (player.obj is the outer
+      // wrapper Group that carries no bones).
+      applyGunHoldPose(player._innerMesh || player.obj);
     } else {
       // Larva-Labs rig (or anims not yet loaded): use procedural walk.
       animateGLB(dt, moving, timeElapsed);
