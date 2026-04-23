@@ -158,7 +158,9 @@ function attachGLB(gltf) {
   player.skeleton = skeleton;
   player.skinnedMeshes = skinnedMeshes;
 
-  // Attach a gun to the right hand bone if present
+  // Attach a gun to the right hand bone if present. Try every naming
+  // convention we support: Mixamo/Unreal-style (hand_r), Meebits VRM
+  // (RightHandBone), and generic humanoid (RightHand / right_hand).
   const gunGeo = new THREE.BoxGeometry(0.1, 0.1, 0.4);
   const gunMat = new THREE.MeshStandardMaterial({
     color: 0x111111, emissive: 0x4ff7ff, emissiveIntensity: 0.6,
@@ -166,7 +168,10 @@ function attachGLB(gltf) {
   const gun = new THREE.Mesh(gunGeo, gunMat);
   gun.position.set(0, -0.05, 0.2);
   gun.castShadow = true;
-  const handBone = player.bones['hand_r'] || player.bones['RightHand'] || player.bones['right_hand'];
+  const handBone = player.bones['hand_r']
+               || player.bones['RightHandBone']
+               || player.bones['RightHand']
+               || player.bones['right_hand'];
   if (handBone) {
     handBone.add(gun);
   } else {
