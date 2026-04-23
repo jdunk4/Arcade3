@@ -45,7 +45,7 @@ import { Audio } from './audio.js';
 import { hitBurst } from './effects.js';
 import { enemies } from './enemies.js';
 import { getHerdMeshByFilename, getHerdFilenamesSync } from './herdVrmLoader.js';
-import { attachMixer, animationsReady, applyGunHoldPose, GUN_HOLD_EXCLUDE_BONES } from './animation.js';
+import { attachMixer, animationsReady, applyGunHoldPose, GUN_HOLD_EXCLUDE_BONES, IDLE_HIP_EXCLUDE_BONES } from './animation.js';
 
 // Re-usable scratch
 const _v = new THREE.Vector3();
@@ -201,13 +201,22 @@ async function _spawnFollower(chapterIdx) {
 
       // Attach the shared walk mixer. Arm bones are excluded so our per-
       // frame gun-hold pose (applied in _updateFollowers after the mixer
-      // update) drives them into a shooter stance. Only works on VRM-
+      // update) drives them into a shooter stance. Idle clips additionally
+      // exclude hip/spine — the Mixamo Standing Idles have a 60°+ hip
+      // cock baked in that tips Meebit VRMs sideways. Only works on VRM-
       // rigged meshes (HipsBone / LeftUpperLegBone / etc.) — the herd
       // VRMs satisfy that. Silently skipped if animations haven't finished
       // preloading yet.
       if (animationsReady()) {
         try {
-          fol.mixer = attachMixer(mesh, { excludeBones: GUN_HOLD_EXCLUDE_BONES });
+          fol.mixer = attachMixer(mesh, {
+            excludeBones: {
+              default: GUN_HOLD_EXCLUDE_BONES,
+              idle2:   IDLE_HIP_EXCLUDE_BONES,
+              idle3:   IDLE_HIP_EXCLUDE_BONES,
+              idle4:   IDLE_HIP_EXCLUDE_BONES,
+            },
+          });
           fol.mixer.playIdle(2);   // start still; update loop flips to walk when moving
         } catch (e) {
           console.warn('[Follower] attachMixer failed', e);
