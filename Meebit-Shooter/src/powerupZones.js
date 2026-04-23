@@ -745,7 +745,10 @@ function _tickChargingFeedback(z, dt, isCharging, time) {
   }
 }
 
-
+// ---------------------------------------------------------------------------
+// LAUNCH ZONE PAYOFF TICK
+// ---------------------------------------------------------------------------
+function _tickLaunchPayoff(z, dt, frac, pulse, time) {
   // 1. Energy column — grow y-scale with frac (0..14 units tall), ramp opacity
   //    and a flicker from the pulse.
   if (z.energyColumn) {
