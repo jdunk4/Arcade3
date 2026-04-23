@@ -37,7 +37,7 @@ import { enemies } from './enemies.js';
 import { Audio } from './audio.js';
 import { S, shake } from './state.js';
 import { UI } from './ui.js';
-import { attachMixer, animationsReady, applyGunHoldPose, GUN_HOLD_EXCLUDE_BONES } from './animation.js';
+import { attachMixer, animationsReady, applyGunHoldPose, GUN_HOLD_EXCLUDE_BONES, IDLE_HIP_EXCLUDE_BONES } from './animation.js';
 
 // -----------------------------------------------------------------------------
 // ASSETS / CONSTANTS
@@ -214,10 +214,18 @@ export function trySummonPixlPal(playerPos) {
     // below keeps the mesh visually alive while tracks don't match.
     //
     // applyGunHoldPose() is also a no-op on Unreal-rigged pals (bone
-    // names don't match), so safe to call unconditionally.
+    // names don't match), so safe to call unconditionally. The per-clip
+    // excludeBones maps carry zero cost when tracks don't match anyway.
     if (animationsReady()) {
       try {
-        pal.mixer = attachMixer(mesh, { excludeBones: GUN_HOLD_EXCLUDE_BONES });
+        pal.mixer = attachMixer(mesh, {
+          excludeBones: {
+            default: GUN_HOLD_EXCLUDE_BONES,
+            idle2:   IDLE_HIP_EXCLUDE_BONES,
+            idle3:   IDLE_HIP_EXCLUDE_BONES,
+            idle4:   IDLE_HIP_EXCLUDE_BONES,
+          },
+        });
         pal.mixer.playIdle(2);
       } catch (e) {
         console.warn('[PixlPal] attachMixer failed', e);
