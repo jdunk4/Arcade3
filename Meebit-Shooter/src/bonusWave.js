@@ -33,7 +33,7 @@ import {
   prewarmHerd,
 } from './herdVrmLoader.js';
 import { hitBurst } from './effects.js';
-import { attachMixer, animationsReady } from './animation.js';
+import { attachMixer, animationsReady, IDLE_HIP_EXCLUDE_BONES } from './animation.js';
 import { Audio } from './audio.js';
 
 // -- Module state --
@@ -1072,7 +1072,18 @@ async function _spawnOne(slotIdx, filename) {
     h.animRefs = mesh.userData.animRefs;
   } else if (animationsReady()) {
     try {
-      h.mixer = attachMixer(mesh);
+      // Strip hip/spine from idle clips — Mixamo's Standing Idles bake in
+      // a 60°+ hip cock that tips Meebit VRMs sideways. Walk/run are
+      // unaffected. Note we're NOT excluding arm bones here: bonus-wave
+      // pigs aren't holding weapons, so their arms should swing normally
+      // during walk and stay visible during idle.
+      h.mixer = attachMixer(mesh, {
+        excludeBones: {
+          idle2: IDLE_HIP_EXCLUDE_BONES,
+          idle3: IDLE_HIP_EXCLUDE_BONES,
+          idle4: IDLE_HIP_EXCLUDE_BONES,
+        },
+      });
       h.mixer.playWalk();
     } catch (err) {
       h.mixer = null;
