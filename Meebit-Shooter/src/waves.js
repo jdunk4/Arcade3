@@ -344,6 +344,12 @@ export function startWave(waveNum) {
     S.cannonLoadActive = true;
     S.chargesCarried = 0;
     S.chargesLoaded = 0;
+    // Pandemonium ramp — wave 2 spawn rate escalates from 14 to 30
+    // over the wave duration. Tracks wall-clock seconds since the
+    // wave began. The cannon-load tick reads S.cannonLoadWaveT and
+    // overrides waveDef.spawnRate per-frame so the spawn loop sees
+    // the ramped value.
+    S.cannonLoadWaveT = 0;
     // Activate all 3 defensive turrets ringed around the cannon. They
     // auto-fire at any enemy in range, helping the player survive the
     // 60-second barrage. Without them the cannon area is undefended
@@ -639,7 +645,9 @@ export function updateWaves(dt) {
     const density = CH_DENSITY[S.chapter % CH_DENSITY.length] ?? 1.0;
     const maxOnScreen = waveDef.type === 'boss'
       ? 10
-      : Math.max(10, Math.floor((40 + S.wave * 2) * density));
+      : (waveDef.type === 'cannon-load'
+          ? 60               // pandemonium ramp — let it fill
+          : Math.max(10, Math.floor((40 + S.wave * 2) * density)));
     if (spawnCooldown <= 0 && liveNonBosses < maxOnScreen && !S.hyperdriveActive) {
       // Cooldown between spawn batches — lower density stretches this out.
       // Gated by S.hyperdriveActive so that during the 8s ATTACK-THE-AI
@@ -647,7 +655,14 @@ export function updateWaves(dt) {
       // empty arena while the rain overlay plays.
       const effRate = waveDef.spawnRate * density;
       spawnCooldown = Math.max(0.15, 0.9 / effRate);
-      const baseCount = Math.min(3, 1 + Math.floor(S.wave / 3));
+      let baseCount = Math.min(3, 1 + Math.floor(S.wave / 3));
+      // Cannon-load pandemonium — each spawn batch drops a small
+      // platoon (3-6) so the rate ramp 14→30 actually fills the arena
+      // despite the 0.15s cooldown floor on individual batches.
+      if (waveDef.type === 'cannon-load') {
+        const t = Math.min(1, (S.cannonLoadWaveT || 0) / 60);
+        baseCount = Math.round(3 + t * 3);
+      }
       const count = Math.max(1, Math.round(baseCount * density));
       for (let i = 0; i < count; i++) spawnFromMix(waveDef.enemies);
     }
@@ -997,6 +1012,17 @@ export function updateWaves(dt) {
   //   C) Cannon armed. Auto-fires every 15s. Each shot pops one
   //      queen shield dome. Wave ends when 4th dome pops.
   if (waveDef.type === 'cannon-load' && S.cannonLoadActive) {
+    // PANDEMONIUM RAMP — escalate spawn rate from 14 to 30 over the
+    // wave duration. The wave duration is roughly 60s (cannon fires
+    // 4 shots at 15s intervals). We override waveDef.spawnRate in
+    // place so the standard spawn loop above picks it up next frame.
+    S.cannonLoadWaveT = (S.cannonLoadWaveT || 0) + dt;
+    const RAMP_DURATION = 60;        // seconds
+    const RATE_START = 14;
+    const RATE_END = 30;
+    const t = Math.min(1, S.cannonLoadWaveT / RAMP_DURATION);
+    waveDef.spawnRate = RATE_START + (RATE_END - RATE_START) * t;
+
     const queen = getQueen();
     // Cannon proximity uses the cannon's FOOT (silo position) — the
     // muzzle returned by getCannonOrigin is elevated + yaw-rotated and
