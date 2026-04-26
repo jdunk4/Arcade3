@@ -165,12 +165,13 @@ import { initGamepad, updateGamepad, setTitleMode, rumble } from './gamepad.js';
 //                     tiles. Ghost-touch is INSTANT KILL.
 //   4-6: Not yet implemented — falls back to Tetris as safe default
 function _pickHazardStyleForChapter(chapterIdx) {
-  if (chapterIdx === 1) return galagaStyle;
+  // Galaga style for the escort/datacenter/twinhive reflow chapters.
+  // idx 1 = CRIMSON (chapter 2), idx 4 = ARCTIC (chapter 5).
+  if (chapterIdx === 1 || chapterIdx === 4) return galagaStyle;
   if (chapterIdx === 2) return minesweeperStyle;
   // chapterIdx === 3 (Toxic) — was pac-man, now uses tetris to match
   // its egg/cannon/queen reflow (mirrors chapter 0 which is also tetris).
   if (chapterIdx === 3) return tetrisStyle;
-  if (chapterIdx === 4) return pongStyle;       // ARCTIC — pong/ice tiles
   if (chapterIdx === 5) return donkeyKongStyle; // PARADISE — DK barrels + fires
   return tetrisStyle;
 }
@@ -179,8 +180,9 @@ function _pickHazardStyleForChapter(chapterIdx) {
 // has one). Called whenever style is applied — keeps the ally in sync
 // with the chapter even after retries / chapter resets.
 function _applyChapterAlly(chapterIdx, playerPos) {
-  if (chapterIdx === 1) {
-    // Galaga ship — spawn at player position if not already spawned.
+  // Galaga ship — spawned for the escort/datacenter/twinhive reflow
+  // chapters: idx 1 (CRIMSON / chapter 2) and idx 4 (ARCTIC / chapter 5).
+  if (chapterIdx === 1 || chapterIdx === 4) {
     if (!isGalagaShipActive()) {
       const px = (playerPos && playerPos.x) || 0;
       const pz = (playerPos && playerPos.z) || 0;
@@ -2339,7 +2341,9 @@ function animate() {
       // when the mascot isn't there is a no-op.
       const localWave = ((S.wave - 1) % WAVES_PER_CHAPTER) + 1;
       if (localWave === 4) {
-        if (S.chapter === 1 && isGalagaShipActive()) {
+        // Galaga ship retires for chapters 2 + 5 (idx 1 + 4) — both
+        // use the escort/datacenter/twinhive reflow.
+        if ((S.chapter === 1 || S.chapter === 4) && isGalagaShipActive()) {
           flyAwayGalagaShip();
         }
         if (S.chapter === 3 && isPacmanActive()) {
@@ -2351,12 +2355,8 @@ function animate() {
         // (paddles+ball, ladders+barrels+fires) despawn but the tile
         // pattern they painted remains so the floor still has
         // gameplay impact through wave 4 (bonus) and wave 5 (boss).
-        if (S.chapter === 4) {       // ARCTIC — pong
-          if (typeof pongStyle.despawnActive === 'function') {
-            pongStyle.despawnActive();
-            console.log('[chapter-5] pong active hazards retired at wave 3 end');
-          }
-        }
+        // Chapter 4 (idx 4) used to be pong; now it's the galaga
+        // reflow so no pong despawn needed.
         if (S.chapter === 5) {       // PARADISE — donkey kong
           if (typeof donkeyKongStyle.despawnActive === 'function') {
             donkeyKongStyle.despawnActive();
@@ -2398,7 +2398,7 @@ function animate() {
         setHazardStyle(style);
         _applyChapterAlly(S.chapter, player.pos);
         // Confirm the ally was applied (or wasn't because chapter doesn't have one).
-        if (S.chapter === 1) console.log(`[chapter-change] galaga ship active=${isGalagaShipActive()}`);
+        if (S.chapter === 1 || S.chapter === 4) console.log(`[chapter-change] galaga ship active=${isGalagaShipActive()}`);
         if (S.chapter === 3) console.log(`[chapter-change] pacman active=${isPacmanActive()}`);
 
         // -------- CHAPTER 7 ENTRY (PARADISE FALLEN) --------

@@ -243,13 +243,12 @@ export function prepareChapter(chapterIdx) {
   //     power-up zones below sit INSIDE this compound.
   buildCentralCompound(chapterIdx);
 
-  // CHAPTER 2 REFLOW — replace silo with server warehouse + hide the
-  // rest of the compound props. Silo mesh hidden (warehouse takes its
-  // place at LAYOUT.silo). Powerplant + radio tower also hidden +
-  // collision-disabled — chapter 2's visual is the warehouse and the
-  // truck route, not the standard compound. Turrets stay (wave 2 uses
-  // them for the onslaught defense).
-  if (chapterIdx === 1) {
+  // CHAPTER 2 + CHAPTER 5 REFLOW — replace silo with server warehouse
+  // + hide the rest of the compound props. Silo mesh hidden, powerplant
+  // + radio tower also hidden + collision-disabled — these chapters'
+  // visual is the warehouse and the truck route, not the standard
+  // compound. Turrets stay (wave 2 uses them for onslaught defense).
+  if (chapterIdx === 1 || chapterIdx === 4) {
     const compound = getCompound();
     if (compound) {
       if (compound.silo && compound.silo.obj) {

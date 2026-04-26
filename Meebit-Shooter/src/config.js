@@ -411,12 +411,12 @@ export function getWaveDef(wave) {
         localWave, chapterIdx,
       };
     }
-    if (chapterIdx === 1) {
-      // CHAPTER 2 ESCORT — replaces standard mining. Player escorts a
-      // truck with a power generator from the depot wedge to the silo
-      // position. No ore mining; no depot deposits. Truck moves while
-      // player stays in radius AND no enemies are in front of it.
-      // Wave ends when truck arrives at silo with a decompression hiss.
+    if (chapterIdx === 1 || chapterIdx === 4) {
+      // CHAPTER 2 + CHAPTER 5 ESCORT — replaces standard mining. Player
+      // escorts a truck with a power generator from the depot wedge to
+      // the silo position. No ore mining; no depot deposits. Truck
+      // moves while player stays in radius AND no enemies are in front
+      // of it. Wave ends when truck arrives at silo with a decompression hiss.
       return {
         type: 'mining',
         isEscortWave: true,      // signals waves.js to use escort flow
@@ -459,9 +459,10 @@ export function getWaveDef(wave) {
         localWave, chapterIdx,
       };
     }
-    if (chapterIdx === 1) {
-      // CHAPTER 2 REFLOW — datacenter onslaught. Player charges the
-      // server warehouse → 30s defense → laser fires + safety pod.
+    if (chapterIdx === 1 || chapterIdx === 4) {
+      // CHAPTER 2 + CHAPTER 5 REFLOW — datacenter onslaught. Player
+      // charges the server warehouse → pod descends → charges pod →
+      // hive lasers fire + finale arena laser.
       return {
         type: 'datacenter',
         enemies: waveEnemyMix(wave, chapterIdx),
@@ -505,12 +506,12 @@ export function getWaveDef(wave) {
         localWave, chapterIdx,
       };
     }
-    if (chapterIdx === 1) {
-      // CHAPTER 2 REFLOW — twin hives on a giant cockroach. 4 hives
-      // arranged as 2 wing-clusters on the back of a roach silhouette
-      // rendered as a floor decal. Hives unshielded from start (laser
-      // fried them). Slightly less swarm pressure than chapter 1
-      // because chapter 2 enemies are tougher.
+    if (chapterIdx === 1 || chapterIdx === 4) {
+      // CHAPTER 2 + CHAPTER 5 REFLOW — twin hives. 4 hives unshielded
+      // (the wave 2 laser fried them). Player shoots them while galaga
+      // bugs swarm in overdrive ("walls closing in"). Slightly less
+      // swarm pressure than chapter 1's queen-cleanup because galaga
+      // hazard is doing more of the work here.
       return {
         type: 'twinhive',
         enemies: waveEnemyMix(wave, chapterIdx),

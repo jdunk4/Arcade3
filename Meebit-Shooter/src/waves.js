@@ -76,7 +76,7 @@ import {
 } from './civilians.js';
 import { clearAllOres, updateOres, updateDepot, depotStatus, setDepotActive, setDepotRequired, setSuppressMegaOre, setOnAllOresConvergedHook } from './ores.js';
 import * as OresModule from './ores.js';
-import { spawnHazardsForWave, clearHazards, setHazardSpawningEnabled, tickHazardSpawning } from './hazards.js';
+import { spawnHazardsForWave, clearHazards, setHazardSpawningEnabled, tickHazardSpawning, setHazardRushMode } from './hazards.js';
 import { setGalagaTargetCount, resetGalagaTargetCount, setGalagaOverdrive } from './hazardsGalaga.js';
 import { recolorCrowd } from './crowd.js';
 import {
@@ -100,8 +100,8 @@ import {
   getSiloLaunchOrigin, setCh1Wave2PropsRemoved,
 } from './waveProps.js';
 import {
-  buildWires, clearWires, setWiresLit, resetWireAnimations,
-  startWireRetraction,
+  buildWires, clearWires, setWiresLit, setWireCharge, setWireComplete,
+  resetWireAnimations, startWireRetraction,
 } from './empWires.js';
 import { addFlingerCharge } from './flingers.js';
 import {
@@ -493,6 +493,7 @@ export function startWave(waveNum) {
     S._dcPodDescentTriggered = false;
     S._dcPodOpenTriggered = false;
     S._dcHiveLasersSpawned = false;
+    S._dcPlayerInPod = false;     // Turn 9: lock-in flag — set on entry, cleared on done
     // Ensure system online is at 0 so the grid starts dark
     setSystemOnline(0);
     // Reveal the warehouse charging zone disc
@@ -550,6 +551,9 @@ export function startWave(waveNum) {
     // (95% bias instead of 70%, tighter spread). Combined with the
     // count bump, hazard tiles "close in around the player."
     setGalagaOverdrive(true);
+    // Activate hazard rush mode — 4x drop rate + active ring
+    // auto-shrinks inward over time. "The walls are closing in."
+    setHazardRushMode(true);
     S.spawnerWaveActive = true;
     S.hiveWaveActive = true;
     // Count live spawners (the existing chapter-2 hives)
@@ -647,6 +651,16 @@ export function updateWaves(dt) {
       ];
     } else {
       zonePositions = [];
+    }
+    // Chapter 2 + Chapter 5 wave 2 reflow — also protect the charging
+    // zone + pod landing position. Hazards never spawn on these so the
+    // player can always reach the active gameplay zone. Also covers
+    // the active/landed pod during the lock-in phase.
+    if ((S.chapter === 1 || S.chapter === 4) && waveDef && waveDef.type === 'datacenter') {
+      const cz = getChargingZonePos();
+      if (cz) zonePositions.push({ x: cz.x, z: cz.z });
+      const pp = getPodPos();
+      if (pp) zonePositions.push({ x: pp.x, z: pp.z });
     }
     tickHazardSpawning(dt, S.chapter, player.pos, zonePositions);
   }
@@ -1464,12 +1478,23 @@ export function updateWaves(dt) {
           setChargeZoneProgress(S.dcChargeT / CHARGE_DURATION);
         }
       }
-      // Charge complete? → call the pod
+      // Drive wires from warehouse → each turret + silo. Charge fraction
+      // climbs as the player powers up the datacenter — visual story:
+      // "you're feeding power down the wires to the turrets."
+      const chargeFrac = (S.dcChargeT || 0) / CHARGE_DURATION;
+      for (let ti = 0; ti < 3; ti++) {
+        setWireCharge(ti, chargeFrac);
+      }
+      // Charge complete? → call the pod + lock wires bright
       if (S.dcChargeT >= CHARGE_DURATION) {
         S.dcPhase = 'pod-descending';
         S.dcPhaseT = 0;
-        // Hide the warehouse charging zone disc — done with that phase
         setChargeZoneVisible(false);
+        // Lock wires bright — turrets are now powered for the rest of
+        // wave 2. setWiresLit handles the silo wire; setWireComplete
+        // locks each turret wire individually.
+        setWiresLit(true);
+        for (let ti = 0; ti < 3; ti++) setWireComplete(ti);
         // Activate turrets, summon flinger, trigger pod descent
         activateTurretsUpTo(waveDef.turretCount || 3);
         try {
@@ -1531,6 +1556,13 @@ export function updateWaves(dt) {
         const dx = player.pos.x - podPos.x;
         const dz = player.pos.z - podPos.z;
         const inPod = (dx * dx + dz * dz) < (2.0 * 2.0);
+        // Once player enters pod for the first time, set lock-in flag.
+        // Player can't leave the pod until lasers complete (see main.js
+        // for the clamp). Tells the player decisively: "you're committed."
+        if (inPod && !S._dcPlayerInPod) {
+          S._dcPlayerInPod = true;
+          UI.toast('LOCKED IN — DEPLOYING LASERS', '#a8ff8c', 2000);
+        }
         if (inPod) {
           S.dcPodChargeT = Math.min(POD_CHARGE_DURATION, (S.dcPodChargeT || 0) + dt);
           // Charging tick SFX (climbing pitch)
@@ -1647,6 +1679,18 @@ export function updateWaves(dt) {
       triggerServerSink();
       // Clear safety pod — wave 3 doesn't need it
       clearSafetyPod();
+      // Turn 9: clear pod lock-in flag — player free to move again
+      S._dcPlayerInPod = false;
+      // Turn 9: retract wires + reset wire animations so the lit wires
+      // don't linger into wave 3 (player ran into "wires left over"
+      // after wave 2). startWireRetraction triggers a brief retract
+      // animation; resetWireAnimations clears any locked state.
+      try { startWireRetraction(); } catch (e) {}
+      // Turn 9: hard-clear chapter 1 wave 2 props flag, mirroring the
+      // ch1 cleanup. Without this, residual collision logic against
+      // the (hidden) silo + radio + powerplant LAYOUT positions can
+      // leave ghost obstacles for the player after wave 2.
+      setCh1Wave2PropsRemoved(true);
       UI.toast('GRID FRIED — HIVES EXPOSED', '#ff3cac', 2400);
       endWave();
       return;
