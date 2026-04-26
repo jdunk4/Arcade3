@@ -358,7 +358,8 @@ function _collectTargets(S, waveDef, playerPos) {
       break;
     }
     case 'hive':
-    case 'spawners': {
+    case 'spawners':
+    case 'twinhive': {
       for (const s of spawners) {
         if (s.destroyed) continue;
         _targets.push({

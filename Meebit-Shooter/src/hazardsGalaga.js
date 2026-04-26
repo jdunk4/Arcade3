@@ -52,6 +52,8 @@ const CELL_SIZE = 2.5;
 // Tuning knobs.
 let GALAGA_TARGET_COUNT = 5;         // keep this many bugs active (stage 3: bumped from 3 to 5)
 const GALAGA_BASE_TARGET_COUNT = 5;
+let _overdrive = false;              // wave 3 overdrive mode (bugs target near player aggressively)
+
 /** Bump or restore the active-bug target count. Used by chapter 2
  *  wave 3 to make galaga "fill in around the player" more densely. */
 export function setGalagaTargetCount(n) {
@@ -59,6 +61,13 @@ export function setGalagaTargetCount(n) {
 }
 export function resetGalagaTargetCount() {
   GALAGA_TARGET_COUNT = GALAGA_BASE_TARGET_COUNT;
+}
+
+/** Toggle overdrive mode — bugs target much more aggressively near
+ *  player (95% bias instead of 70%), tighter spread around player.
+ *  Used in chapter 2 wave 3. */
+export function setGalagaOverdrive(v) {
+  _overdrive = !!v;
 }
 const RESPAWN_DELAY = 0.6;             // seconds between completions and new spawns
 const SWOOP_DURATION = 1.5;
@@ -309,7 +318,11 @@ function _chooseTargetCell(ctx) {
   // gets covered too.
   const px = ctx.playerPos ? ctx.playerPos.x : 0;
   const pz = ctx.playerPos ? ctx.playerPos.z : 0;
-  const biasNearPlayer = Math.random() < 0.70;
+  // Overdrive mode (chapter 2 wave 3): aggressively target near player
+  // (95% bias, tighter spread). Otherwise: 70% bias, looser spread.
+  const biasChance = _overdrive ? 0.95 : 0.70;
+  const playerSpread = _overdrive ? 8 : 20;       // ±half this around player along-axis
+  const biasNearPlayer = Math.random() < biasChance;
   const cheb = ringInner + Math.random() * (ringOuter - ringInner);
   let edge;
   if (biasNearPlayer && (Math.abs(px) > 1 || Math.abs(pz) > 1)) {

@@ -238,16 +238,19 @@ export function resetGame() {
   // Chapter 1 reflow state
   S.isEggWave = false;
   S.isEscortWave = false;       // chapter 2 wave 1
-  // Chapter 2 wave 2 datacenter state
+  // Chapter 2 wave 2 datacenter state (Turn 7 reflow — 6 phases)
   S.dcActive = false;
-  S.dcPhase = 'charging';
-  S.dcChargeT = 0;
-  S.dcOnslaughtT = 0;
+  S.dcPhase = 'warehouse-charging';   // 'warehouse-charging' | 'pod-descending' | 'pod-charging' | 'hive-lasers' | 'finale-laser' | 'done'
+  S.dcChargeT = 0;              // warehouse charge progress (5s)
+  S.dcPodChargeT = 0;           // pod charge progress (5s)
+  S.dcPhaseT = 0;               // generic phase timer for pod-descending + hive-lasers
+  S.dcOnslaughtT = 0;           // legacy — kept for any leftover refs
   S.dcSystemOnline = 0;
   S.dcLaserTriggered = false;
   S.dcShieldsDropped = false;
   S._dcPodDescentTriggered = false;
   S._dcPodOpenTriggered = false;
+  S._dcHiveLasersSpawned = false;
   S.cannonLoadActive = false;
   S.cannonLoadStubT = 0;
   S.cannonLoadStubMax = 0;

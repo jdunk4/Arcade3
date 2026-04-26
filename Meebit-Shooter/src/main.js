@@ -65,6 +65,7 @@ import { updateChargeCubes, clearChargeCubes } from './chargeCubes.js';
 import { clearEscortTruck, getTruckPos, getTruckCollisionCircles, updateEscortTruck } from './escortTruck.js';
 import { updateServerWarehouse, clearServerWarehouse, getServerCollisionCircles } from './serverWarehouse.js';
 import { updateSafetyPod, clearSafetyPod, getPodCollisionCircles } from './safetyPod.js';
+import { updateHiveLasers, clearHiveLasers } from './hiveLasers.js';
 import { updateCockroach, clearCockroachBoss } from './cockroachBoss.js';
 import { initFogRing, updateFogRing, clearFogRing } from './fogRing.js';
 import { spawners, damageSpawner, updateSpawners } from './spawners.js';
@@ -2321,6 +2322,7 @@ function animate() {
     updateEscortTruck(dt, null, null);
     updateServerWarehouse(dt);
     updateSafetyPod(dt);
+    updateHiveLasers(dt);
     updateCockroach(dt);
     updateFogRing(player.pos);
     updateBossCubes(dt);
