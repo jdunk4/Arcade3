@@ -380,8 +380,25 @@ export function spawnServerWarehouse(chapterIdx) {
     chargeZoneGroup, czRingMat, czFillMat, czFill, czBeacon,
     chargeZoneT: 0,              // pulse timer
     pulseT: 0,
+    // Sink animation state — triggered at wave 2 end via triggerServerSink
+    sinking: false,
+    sinkT: 0,
+    sinkStartY: 0,
+    sinkTargetY: -14,
+    sinkDuration: 1.6,
   };
   return _warehouse;
+}
+
+/** Sink the server warehouse into the ground. Called at wave 2 end so
+ *  the warehouse visually retreats from the arena before wave 3 begins.
+ *  Lerps group Y → -14 over 1.6s. Idempotent. */
+export function triggerServerSink() {
+  if (!_warehouse) return;
+  if (_warehouse.sinking) return;
+  _warehouse.sinking = true;
+  _warehouse.sinkT = 0;
+  _warehouse.sinkStartY = _warehouse.group.position.y;
 }
 
 /** Show/hide the charging zone visual disc. */
@@ -460,6 +477,8 @@ export function getChargingZonePos() {
  *  to put the circles at world positions matching the body. */
 export function getServerCollisionCircles() {
   if (!_warehouse) return [];
+  // Skip collision if sinking — meshes are mid-descent or already buried.
+  if (_warehouse.sinking) return [];
   const yaw = _warehouse.group.rotation.y;
   const cx = _warehouse.group.position.x;
   const cz = _warehouse.group.position.z;
@@ -492,6 +511,14 @@ export function updateServerWarehouse(dt) {
   if (!_warehouse) return;
   _warehouse.pulseT += dt * 2.0;
   _warehouse.chargeZoneT = (_warehouse.chargeZoneT || 0) + dt * 3.0;
+
+  // Sink animation — runs at wave-2 end. Lerps Y → -14 over 1.6s.
+  if (_warehouse.sinking) {
+    _warehouse.sinkT += dt;
+    const f = Math.min(1, _warehouse.sinkT / _warehouse.sinkDuration);
+    const eased = f * f;
+    _warehouse.group.position.y = _warehouse.sinkStartY + (_warehouse.sinkTargetY - _warehouse.sinkStartY) * eased;
+  }
 
   // Animate charging zone — pulse the ring + bob the beacon
   if (_warehouse.chargeZoneGroup && _warehouse.chargeZoneGroup.visible) {

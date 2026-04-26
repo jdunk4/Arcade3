@@ -299,7 +299,7 @@ function _collectTargets(S, waveDef, playerPos) {
     case 'datacenter': {
       // Chapter 2 wave 2 — phase-aware arrow.
       //   charging → point at charging zone
-      //   onslaught → no arrow (player just defends; turrets help)
+      //   onslaught → arrow flips to pod once it's descending (last 10s)
       //   telegraph/blast → point at safety pod (RUN!)
       const phase = S.dcPhase || 'charging';
       if (phase === 'charging') {
@@ -308,6 +308,17 @@ function _collectTargets(S, waveDef, playerPos) {
           _targets.push({
             x: cz.x, z: cz.z,
             label: 'CHARGE', panic: false,
+          });
+        }
+      } else if (phase === 'onslaught' && S._dcPodDescentTriggered) {
+        // Pod has started descending — point at it so player can find it.
+        // Panic mode kicks in once it actually opens (last 5s).
+        const pp = getPodPos();
+        if (pp) {
+          _targets.push({
+            x: pp.x, z: pp.z,
+            label: S._dcPodOpenTriggered ? 'POD' : 'INCOMING',
+            panic: !!S._dcPodOpenTriggered,
           });
         }
       } else if (phase === 'telegraph' || phase === 'blast') {

@@ -36,11 +36,13 @@ import {
 import {
   spawnEscortTruck, updateEscortTruck, getTruckPos, isTruckArrived,
   isTruckBlocked, isPlayerInEscortRadius, hasTruck, clearEscortTruck,
+  triggerTruckSink,
 } from './escortTruck.js';
 import {
   spawnServerWarehouse, setSystemOnline, triggerLaserBlast,
   isLaserBlasting, isLaserActive, getChargingZonePos,
   setChargeZoneVisible, setChargeZoneProgress,
+  triggerServerSink,
   hasServerWarehouse, clearServerWarehouse,
 } from './serverWarehouse.js';
 import {
@@ -68,6 +70,7 @@ import {
 import { clearAllOres, updateOres, updateDepot, depotStatus, setDepotActive, setDepotRequired, setSuppressMegaOre, setOnAllOresConvergedHook } from './ores.js';
 import * as OresModule from './ores.js';
 import { spawnHazardsForWave, clearHazards, setHazardSpawningEnabled, tickHazardSpawning } from './hazards.js';
+import { setGalagaTargetCount, resetGalagaTargetCount } from './hazardsGalaga.js';
 import { recolorCrowd } from './crowd.js';
 import {
   prepareChapter, teardownChapter, isChapterPrepared,
@@ -478,16 +481,24 @@ export function startWave(waveNum) {
     // side. Player must actively run for it during the telegraph.
     const wp = getChargingZonePos();
     if (wp) {
-      // Pod offset: perpendicular to (warehouse → origin) by ~9u
+      // Pod placement: along the warehouse → origin axis, pulled toward
+      // origin (so it's NOT on top of the warehouse), then offset
+      // perpendicular by ~7u to a turret-free side. Lands in clear
+      // floor between the warehouse and the arena center.
       const wx = LAYOUT.silo.x;
       const wz = LAYOUT.silo.z;
       const len = Math.sqrt(wx * wx + wz * wz) || 1;
+      // Forward unit vector — from warehouse toward origin (negate the silo direction)
+      const fx = -wx / len;
+      const fz = -wz / len;
       // Perpendicular unit vector (rotate 90° CCW)
       const px = -wz / len;
       const pz =  wx / len;
-      const podOffset = 9.0;
-      const podX = wx + px * podOffset;
-      const podZ = wz + pz * podOffset;
+      // Pull 8u toward origin from the warehouse front, then 7u perpendicular
+      const FORWARD_OFFSET = 8.0;
+      const SIDE_OFFSET = 7.0;
+      const podX = wx + fx * FORWARD_OFFSET + px * SIDE_OFFSET;
+      const podZ = wz + fz * FORWARD_OFFSET + pz * SIDE_OFFSET;
       spawnSafetyPod(S.chapter || 0, podX, podZ);
     }
     UI.showObjective(
@@ -515,30 +526,31 @@ export function startWave(waveNum) {
     );
     UI.toast('QUEEN EXPOSED', '#ff3cac', 2500);
   } else if (waveDef.type === 'twinhive') {
-    // CHAPTER 2 WAVE 3 — dual cockroaches with twin hives. Each roach
-    // carries 2 of the EXISTING chapter-2 hives (not new spawns). Hives
-    // are unshielded from wave 2's laser. Roaches stationary while
-    // their 2 hives are alive; per-roach short-crawl + fade after both
-    // its hives die.
+    // CHAPTER 2 WAVE 3 — twin hives. The 4 chapter-2 hives are now
+    // unshielded from wave 2's laser. Player shoots them until clear.
+    // No cockroaches — they were too busy visually. Standard hive-clear
+    // logic handles wave end via livePortalCount() === 0.
     deactivateAllTurrets();
-    // Defensive: ensure all hive shields are down (wave 2 laser drops
-    // them but cover any debug-skip path).
-    for (const s of spawners) {
-      if (s) s.shielded = false;
-    }
+    // Defensive: ensure all hive shields are down — also destroys the
+    // dome meshes via removeHiveShields (cover any debug-skip path
+    // where wave 2's laser didn't fire).
+    removeHiveShields();
+    // Bump galaga active-bug count so the chapter 2 hazard "fills in"
+    // around the player during wave 3. 5 → 12 active bugs — many more
+    // hazard tiles being painted around the player at once.
+    setGalagaTargetCount(12);
     S.spawnerWaveActive = true;
     S.hiveWaveActive = true;
-    spawnCockroachBoss(S.chapter || 0);
-    // Count live spawners (the existing chapter-2 hives, now on roach backs)
+    // Count live spawners (the existing chapter-2 hives)
     S.spawnersLive = 0;
     for (const s of spawners) {
       if (!s.destroyed) S.spawnersLive++;
     }
     UI.showObjective(
       'DESTROY THE TWIN HIVES',
-      'Two roaches surfaced from the laser strike. Take their hives out.'
+      '4 hives exposed by the laser strike. Take them out.'
     );
-    UI.toast('ROACHES SURFACED', '#ff8826', 2500);
+    UI.toast('HIVES EXPOSED', '#ff8826', 2500);
   }
 
   UI.showWaveStart(waveNum);
@@ -763,19 +775,6 @@ export function updateWaves(dt) {
       }
     }
     if (livePortalCount() === 0) {
-      // CHAPTER 2 WAVE 3 — twin hives on cockroach. Don't trigger
-      // standard hive retraction (those animate the sunken hives,
-      // unrelated to roach hives). Cockroach update drives the
-      // post-death crawl + fade animation; we wait until it finishes
-      // before calling endWave.
-      if (waveDef.type === 'twinhive') {
-        if (isCockroachDeadAndDone()) {
-          endWave();
-          return;
-        }
-        // Cockroach still in crawl/fade phase — skip standard wave-end
-        return;
-      }
       // Wave 3 victory beat:
       //   All hives sink into the ground before wave 4 begins. The
       //   enemies that were spawned from them still need to die for
@@ -875,6 +874,9 @@ export function updateWaves(dt) {
         // Arrival beat — decompression hiss + chapter-tinted bursts
         // already emitted by updateEscortTruck on this frame.
         try { Audio.truckDecompression && Audio.truckDecompression(); } catch (e) {}
+        // Sink the truck into the ground — wave 1 ends, truck retreats
+        // before wave 2 begins (mirrors crusher/cannon sink pattern).
+        triggerTruckSink();
         UI.toast('GENERATOR DOCKED', '#a8ff8c', 2400);
         endWave();
         return;
@@ -1496,11 +1498,15 @@ export function updateWaves(dt) {
       if (remaining < 10 && hasSafetyPod() && !S._dcPodDescentTriggered) {
         S._dcPodDescentTriggered = true;
         triggerPodDescent();
+        UI.toast('PROTECTION INBOUND', '#ffd93d', 2200);
       }
       // Pod opens at 5s remaining (per spec) — player can now enter
       if (remaining < 5 && hasSafetyPod() && !S._dcPodOpenTriggered) {
         S._dcPodOpenTriggered = true;
         triggerPodOpen();
+        UI.toast('GET TO SAFETY', '#ff3030', 3000);
+        // Big screen shake to amplify urgency
+        shake(1.2, 0.4);
       }
       // Onslaught complete → trigger laser
       if (S.dcOnslaughtT >= waveDef.onslaughtDuration && !S.dcLaserTriggered) {
@@ -1548,12 +1554,13 @@ export function updateWaves(dt) {
         if (!e || e.dead || e.destroyed) continue;
         e.hp = 0;
       }
-      // Drop hive shields
+      // Drop hive shields — also destroys the dome meshes via the
+      // cascade powering-down animation, not just the shielded flag.
+      // Without this, shields drop logically (bullets pass) but the
+      // dome visuals remain on screen during wave 3.
       if (!S.dcShieldsDropped) {
         S.dcShieldsDropped = true;
-        for (const s of spawners) {
-          if (s) s.shielded = false;
-        }
+        removeHiveShields();
       }
       UI.showObjective(
         'LASER FIRING',
@@ -1571,6 +1578,9 @@ export function updateWaves(dt) {
       // Cleanup: deactivate turrets so wave 3 is the player's fight
       deactivateAllTurrets();
       clearAllTurrets();
+      // Sink the server warehouse — wave 2 ends, warehouse retreats
+      // before wave 3 begins (mirrors cannon/crusher sink pattern).
+      triggerServerSink();
       // Clear safety pod — wave 3 doesn't need it
       clearSafetyPod();
       UI.toast('GRID FRIED — HIVES EXPOSED', '#ff3cac', 2400);

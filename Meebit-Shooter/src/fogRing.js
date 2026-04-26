@@ -30,15 +30,15 @@ import { scene } from './scene.js';
 import { CHAPTERS } from './config.js';
 
 // ---- Tunables ----
-const VISIBLE_RADIUS = 22.0;     // clear inside this
-const FALLOFF_RADIUS = 30.0;     // ramps to opaque between visible and falloff
+const VISIBLE_RADIUS = 18.0;     // clear inside this (tightened from 22)
+const FALLOFF_RADIUS = 24.0;     // ramps to opaque between visible and falloff
 const OUTER_BLACK_RADIUS = 100;  // beyond this — pure cover
 
 // Tighten the existing distance fog so distant geometry actually
-// hides. Default is near=30, far=85. We drop far to 35 so anything
-// past ~35u from the camera is heavily fogged. Matches the ring boundary.
-const FOG_NEAR = 12;
-const FOG_FAR  = 38;
+// hides. Default is near=30, far=85. We drop far to ~30 so anything
+// past ~30u from the camera is heavily fogged. Matches the ring boundary.
+const FOG_NEAR = 10;
+const FOG_FAR  = 32;
 
 let _ring = null;
 let _outerCover = null;

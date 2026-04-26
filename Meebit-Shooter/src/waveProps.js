@@ -1784,6 +1784,14 @@ export function registerDepotGetter(fn) { _depotGetter = fn; }
 let _dynamicPropsGetter = null;
 export function registerDynamicPropsGetter(fn) { _dynamicPropsGetter = fn; }
 
+// Enemy-only dynamic-props getter — collision circles that block enemies
+// + enemy bullets BUT NOT the player. Used by safety pod (player must
+// be able to enter, enemies must be pushed out). Returned circles are
+// ONLY consulted when isEnemy=true is passed to resolveCompoundCollision
+// or segmentBlockedByProp.
+let _enemyOnlyDynamicPropsGetter = null;
+export function registerEnemyOnlyDynamicPropsGetter(fn) { _enemyOnlyDynamicPropsGetter = fn; }
+
 // Chapter-1 wave-2 props-removed flag. Set true at wave 2 end (when
 // the cannon sinks and the turrets are cleared). When set:
 //   - Silo collision is disabled (the cannon was using the silo's
@@ -1810,7 +1818,7 @@ export function getCh2WarehouseSwap() { return _ch2WarehouseSwap; }
  * enemy ~0.5u). Mutates `pos` in place. Safe to call unconditionally —
  * no-ops when the compound isn't built or when props have retracted.
  */
-export function resolveCompoundCollision(pos, entityRadius) {
+export function resolveCompoundCollision(pos, entityRadius, isEnemy) {
   if (!_current) return;
 
   // Silo — only solid while its group is at normal y (retraction sinks it).
@@ -1882,6 +1890,17 @@ export function resolveCompoundCollision(pos, entityRadius) {
       }
     }
   }
+  // Enemy-only dynamic props (e.g. safety pod blocks enemies but not
+  // player). Only consulted when isEnemy=true is passed.
+  if (isEnemy && _enemyOnlyDynamicPropsGetter) {
+    const arr = _enemyOnlyDynamicPropsGetter();
+    if (arr && arr.length) {
+      for (const p of arr) {
+        if (!p) continue;
+        _pushOutCircle(pos, entityRadius, p.x, p.z, p.r);
+      }
+    }
+  }
 }
 
 /**
@@ -1893,7 +1912,7 @@ export function resolveCompoundCollision(pos, entityRadius) {
  * the prop's collide radius. If the closest point on the segment is
  * within radius, the segment intersects the circle.
  */
-export function segmentBlockedByProp(ax, az, bx, bz) {
+export function segmentBlockedByProp(ax, az, bx, bz, isEnemy) {
   if (!_current) return false;
   // Build a small per-call list of (cx, cz, r) circles to check. Cheap
   // because the count is small (≤ 1 silo + ≤3 turrets + 1 powerplant +
@@ -1949,6 +1968,16 @@ export function segmentBlockedByProp(ax, az, bx, bz) {
   // Dynamic props (moving collision circles)
   if (_dynamicPropsGetter) {
     const arr = _dynamicPropsGetter();
+    if (arr && arr.length) {
+      for (const p of arr) {
+        if (!p) continue;
+        if (_segCircleHit(p.x, p.z, p.r)) return true;
+      }
+    }
+  }
+  // Enemy-only dynamic props (e.g. safety pod blocks enemy bullets but not player bullets)
+  if (isEnemy && _enemyOnlyDynamicPropsGetter) {
+    const arr = _enemyOnlyDynamicPropsGetter();
     if (arr && arr.length) {
       for (const p of arr) {
         if (!p) continue;

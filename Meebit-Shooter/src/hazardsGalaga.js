@@ -50,7 +50,16 @@ import { Audio } from './audio.js';
 const CELL_SIZE = 2.5;
 
 // Tuning knobs.
-const GALAGA_TARGET_COUNT = 5;         // keep this many bugs active (stage 3: bumped from 3 to 5)
+let GALAGA_TARGET_COUNT = 5;         // keep this many bugs active (stage 3: bumped from 3 to 5)
+const GALAGA_BASE_TARGET_COUNT = 5;
+/** Bump or restore the active-bug target count. Used by chapter 2
+ *  wave 3 to make galaga "fill in around the player" more densely. */
+export function setGalagaTargetCount(n) {
+  GALAGA_TARGET_COUNT = Math.max(1, Math.min(20, n | 0));
+}
+export function resetGalagaTargetCount() {
+  GALAGA_TARGET_COUNT = GALAGA_BASE_TARGET_COUNT;
+}
 const RESPAWN_DELAY = 0.6;             // seconds between completions and new spawns
 const SWOOP_DURATION = 1.5;
 const HOVER_DURATION = 0.8;

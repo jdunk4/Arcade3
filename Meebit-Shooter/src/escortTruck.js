@@ -370,6 +370,15 @@ export function updateEscortTruck(dt, playerPos, enemies) {
     const f = Math.min(1, _truck.arrivalT / 0.6);
     const compress = 1 - 0.04 * Math.sin(f * Math.PI);
     _truck.group.scale.y = compress;
+    // Sink animation — runs after the arrival settle, when triggerTruckSink
+    // has been called externally (at wave 1 end). Lerps Y → -10 over 1.4s
+    // with ease-in. Hides the truck visually for waves 2+.
+    if (_truck.sinking) {
+      _truck.sinkT += dt;
+      const sf = Math.min(1, _truck.sinkT / _truck.sinkDuration);
+      const eased = sf * sf;
+      _truck.group.position.y = _truck.sinkStartY + (_truck.sinkTargetY - _truck.sinkStartY) * eased;
+    }
     return false;
   }
 
@@ -494,6 +503,18 @@ export function getTruckCollisionCircles() {
     z: _truck.group.position.z,
     r: TRUCK_COLLIDE_R,
   }];
+}
+
+/** Sink the truck into the ground. Called at wave 1 end so the truck
+ *  visually retreats from the arena before wave 2 begins. Idempotent. */
+export function triggerTruckSink() {
+  if (!_truck) return;
+  if (_truck.sinking) return;
+  _truck.sinking = true;
+  _truck.sinkT = 0;
+  _truck.sinkStartY = _truck.group.position.y;
+  _truck.sinkTargetY = -10;
+  _truck.sinkDuration = 1.4;
 }
 
 export function clearEscortTruck() {

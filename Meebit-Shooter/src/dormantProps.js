@@ -50,6 +50,7 @@ import { spawnQueenHive, clearQueenHive, getQueen } from './queenHive.js';
 import { spawnServerWarehouse, clearServerWarehouse } from './serverWarehouse.js';
 import { clearCockroachBoss } from './cockroachBoss.js';
 import { setCh2WarehouseSwap } from './waveProps.js';
+import { resetGalagaTargetCount } from './hazardsGalaga.js';
 import { getCompound } from './waveProps.js';
 
 // Which chapter the current dormant-prop set belongs to. -1 means no set
@@ -299,6 +300,9 @@ export function teardownChapter() {
   // Chapter 2 reflow props
   clearServerWarehouse();
   clearCockroachBoss();
+  // Reset galaga active-bug count back to default (chapter 2 wave 3
+  // bumps it; restore for clean state on chapter switch).
+  resetGalagaTargetCount();
   _preparedChapter = -1;
 }
 

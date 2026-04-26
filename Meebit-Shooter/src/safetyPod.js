@@ -219,6 +219,20 @@ export function getPodRadius() {
   return POD_RADIUS;
 }
 
+/** Returns enemy-only collision circles for the pod. Active during
+ *  open phase + landed phase so enemies can't enter while player is
+ *  trying to shelter. Returns empty when pod not built or in
+ *  parked/descending phase (pod isn't down yet so no shield needed). */
+export function getPodCollisionCircles() {
+  if (!_pod) return [];
+  if (_pod.phase !== 'open' && _pod.phase !== 'landed') return [];
+  return [{
+    x: _pod.x,
+    z: _pod.z,
+    r: POD_RADIUS,
+  }];
+}
+
 export function hasSafetyPod() {
   return !!_pod;
 }

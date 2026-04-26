@@ -64,7 +64,7 @@ import { updateCrusher, clearCrusher } from './crusher.js';
 import { updateChargeCubes, clearChargeCubes } from './chargeCubes.js';
 import { clearEscortTruck, getTruckPos, getTruckCollisionCircles } from './escortTruck.js';
 import { updateServerWarehouse, clearServerWarehouse, getServerCollisionCircles } from './serverWarehouse.js';
-import { updateSafetyPod, clearSafetyPod } from './safetyPod.js';
+import { updateSafetyPod, clearSafetyPod, getPodCollisionCircles } from './safetyPod.js';
 import { updateCockroach, clearCockroachBoss } from './cockroachBoss.js';
 import { initFogRing, updateFogRing, clearFogRing } from './fogRing.js';
 import { spawners, damageSpawner, updateSpawners } from './spawners.js';
@@ -122,7 +122,7 @@ import {
   chainLightningOnKill, clearAllPowerups, registerPowerupKillHandler,
   getEnemySpeedMult,
 } from './powerups.js';
-import { updateCompound, resolveCompoundCollision, segmentBlockedByProp, registerDepotGetter, registerDynamicPropsGetter } from './waveProps.js';
+import { updateCompound, resolveCompoundCollision, segmentBlockedByProp, registerDepotGetter, registerDynamicPropsGetter, registerEnemyOnlyDynamicPropsGetter } from './waveProps.js';
 // Wire the depot live-binding into waveProps via a getter (avoids
 // a circular import by deferring the read to call time). Once
 // registered, resolveCompoundCollision + segmentBlockedByProp will
@@ -140,6 +140,9 @@ registerDynamicPropsGetter(() => {
   }
   return out;
 });
+// Enemy-only dynamic props — safety pod blocks enemies + enemy bullets
+// when open, but lets the player walk in freely.
+registerEnemyOnlyDynamicPropsGetter(() => getPodCollisionCircles());
 import { updateWires } from './empWires.js';
 import { updateLaunch } from './empLaunch.js';
 import { updateShockwaves } from './shockwave.js';
@@ -3585,7 +3588,7 @@ function updateEnemies(dt) {
       resolveCollision(e.pos, 0.5);
       // Enemies also can't walk through the silo or turrets. Bosses skip
       // this — they have their own scripted movement / patterns.
-      resolveCompoundCollision(e.pos, 0.5);
+      resolveCompoundCollision(e.pos, 0.5, /*isEnemy*/ true);
     }
     // Push the enemy out of any floor-hazard it overlaps. Bosses are
     // too big to path around them, so they take the lava (narratively
@@ -4264,7 +4267,7 @@ function updateEnemyProjectiles(dt) {
     }
 
     if (segmentBlocked(prevX, prevZ, p.position.x, p.position.z)
-        || segmentBlockedByProp(prevX, prevZ, p.position.x, p.position.z)) {
+        || segmentBlockedByProp(prevX, prevZ, p.position.x, p.position.z, /*isEnemy*/ true)) {
       hitBurst(p.position, p.userData.color || 0x00ff66, 4);
       scene.remove(p); enemyProjectiles.splice(i, 1); continue;
     }
