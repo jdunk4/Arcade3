@@ -30,15 +30,22 @@ import { scene } from './scene.js';
 import { CHAPTERS } from './config.js';
 
 // ---- Tunables ----
-const VISIBLE_RADIUS = 15.0;     // clear inside this (tightened from 18)
-const FALLOFF_RADIUS = 21.0;     // ramps to opaque between visible and falloff
+const VISIBLE_RADIUS = 17.0;     // clear inside this (user spec'd 17)
+const FALLOFF_RADIUS = 23.0;     // ramps to opaque between visible and falloff
 const OUTER_BLACK_RADIUS = 100;  // beyond this — pure cover
+// Camera at offset (0, 17, 11) means bottom of screen maps to +Z
+// (camera-side). Bias the ring CENTER away from the camera (toward
+// -Z, i.e. forward of the player) so the +Z side of the ring is
+// closer to the player and the lower screen corners get covered by
+// fog. Effective fog reach: ring extends BIAS_Z+VISIBLE forward
+// (~22u) and VISIBLE-BIAS_Z back (~12u). Player still feels centered
+// in their bubble visually due to the camera angle.
+const FOG_BIAS_Z = -5.0;
 
 // Tighten the existing distance fog so distant geometry actually
-// hides. Default is near=30, far=85. Drop to match the ring boundary
-// so anything past ~28u from the camera is heavily fogged into black.
+// hides. Default is near=30, far=85. Drop to match the ring boundary.
 const FOG_NEAR = 8;
-const FOG_FAR  = 28;
+const FOG_FAR  = 30;
 
 let _ring = null;
 let _outerCover = null;
@@ -166,11 +173,13 @@ export function initFogRing() {
  *  precedence. */
 export function updateFogRing(playerPos) {
   if (!_ring || !playerPos) return;
+  // Bias ring center forward (toward -Z, away from camera) so lower
+  // screen corners (which map to +Z) get covered by the fog gradient.
   _ring.position.x = playerPos.x;
-  _ring.position.z = playerPos.z;
+  _ring.position.z = playerPos.z + FOG_BIAS_Z;
   if (_outerCover) {
     _outerCover.position.x = playerPos.x;
-    _outerCover.position.z = playerPos.z;
+    _outerCover.position.z = playerPos.z + FOG_BIAS_Z;
   }
   // Re-assert fog params each frame — overrides theme transitions
   if (scene.fog) {

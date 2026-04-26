@@ -30,10 +30,11 @@ const HALO_GEO  = new THREE.RingGeometry(0.4, 0.7, 16);
 
 // ---- Tunables ----
 const CUBE_HEIGHT = 1.6;            // hover Y above floor
-const PICKUP_RADIUS = 3.0;          // enter this radius → magnet all
+const PICKUP_RADIUS = 3.0;          // enter this radius → start charging collection
 const MAGNET_RADIUS = 6.0;          // start drifting toward player
 const MAGNET_SPEED = 14.0;          // u/s when fully magnetized (faster — collect-all feel)
 const COLLECT_RADIUS = 0.9;         // actually picked up at this distance
+const COLLECT_CHARGE_DURATION = 1.0; // seconds player must stand in ring before cubes magnet
 
 // ---- Module state ----
 let _cubes = [];
@@ -44,6 +45,7 @@ let _basePos = null;           // { x, z } cluster center
 let _slots = [];               // 2×2 spawn slot offsets (4 entries — fill as cubes spawn)
 let _chapterTint = 0xffffff;
 let _allCollectionTriggered = false;   // once player enters PICKUP_RADIUS, magnet ALL
+let _collectChargeT = 0;               // 0..COLLECT_CHARGE_DURATION — fills while in ring
 
 const RING_GEO = new THREE.RingGeometry(PICKUP_RADIUS - 0.25, PICKUP_RADIUS, 48);
 
@@ -75,6 +77,7 @@ export function spawnChargeCubeCluster(chapterIdx, basePosX, basePosZ) {
   _chapterTint = CHAPTERS[chapterIdx % CHAPTERS.length].full.grid1;
   _basePos = { x: basePosX, z: basePosZ };
   _allCollectionTriggered = false;
+  _collectChargeT = 0;
   // 2x2 grid offsets — cubes spawn into these slots in order
   _slots = [
     { x: -0.55, z: -0.55, filled: false },
@@ -150,18 +153,38 @@ export function updateChargeCubes(dt, playerPos) {
     const bdz = playerPos.z - _basePos.z;
     const bdist = Math.sqrt(bdx * bdx + bdz * bdz);
     playerInPickupRadius = bdist < PICKUP_RADIUS;
-    // Once player enters pickup radius, trigger magnet-all flag.
-    // It stays on after entry (cubes finish their flight even if
-    // player walks back out — feels good).
-    if (playerInPickupRadius) _allCollectionTriggered = true;
+    // Charge a 1s collection timer while in radius. Drains slowly off
+    // ring so a brief detour doesn't reset progress. At 100% the
+    // collection-all flag fires and stays on (cubes fly even if player
+    // walks back out — feels good).
+    if (!_allCollectionTriggered) {
+      if (playerInPickupRadius) {
+        _collectChargeT = Math.min(COLLECT_CHARGE_DURATION, _collectChargeT + dt);
+        if (_collectChargeT >= COLLECT_CHARGE_DURATION) {
+          _allCollectionTriggered = true;
+        }
+      } else {
+        _collectChargeT = Math.max(0, _collectChargeT - dt * 0.5);
+      }
+    }
   }
-  // Drive the cluster ring: brighter pulse when player in range
+  // Drive the cluster ring: opacity scales with charge progress, plus
+  // a base pulse. Once collection triggered, lock to bright + heavy pulse.
   if (_ringMesh && _ringMat) {
     const ringPulse = 0.5 + 0.5 * Math.sin(_ringPulseT);
-    if (playerInPickupRadius) {
-      _ringMat.opacity = 0.65 + ringPulse * 0.30;
+    if (_allCollectionTriggered) {
+      // Triggered — keep ring bright, fade out as cubes get collected
+      const remainingFrac = _cubes.length > 0
+        ? (_cubes.filter(c => !c.collected).length / 4)
+        : 0;
+      _ringMat.opacity = (0.50 + ringPulse * 0.30) * Math.max(0.3, remainingFrac);
+    } else if (playerInPickupRadius) {
+      // Charging — opacity climbs with progress
+      const f = _collectChargeT / COLLECT_CHARGE_DURATION;
+      _ringMat.opacity = 0.40 + f * 0.40 + ringPulse * 0.20;
     } else {
-      _ringMat.opacity = 0.40 + ringPulse * 0.20;
+      // Idle — soft visible pulse
+      _ringMat.opacity = 0.35 + ringPulse * 0.15;
     }
   }
 
@@ -269,5 +292,6 @@ export function clearChargeCubes() {
   _basePos = null;
   _slots = [];
   _allCollectionTriggered = false;
+  _collectChargeT = 0;
   _ringPulseT = 0;
 }

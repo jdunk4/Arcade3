@@ -24,7 +24,7 @@ import { spawnBlock, clearAllBlocks, blocks } from './blocks.js';
 import { spawnEggsInDepotWedge, clearAllEggs } from './eggs.js';
 import {
   hasCannon, getCannonOrigin, getCannonCooldown,
-  loadChargeSlot, armCannon, aimCannonAt, tryFireCannon, setCannonChargeProgress,
+  loadChargeSlot, armCannon, aimCannonAt, tryFireCannon, forceFireCannon, setCannonChargeProgress,
   setCannonChargeZoneVisible,
   setActiveCannonCorner, setCannonCornerProgress, consumeCannonCorner, getCannonCornerPos,
   triggerCannonSink,
@@ -974,6 +974,13 @@ export function updateWaves(dt) {
       // Sink the crusher into the ground — wave 1 victory beat,
       // mirrors how the depot drives off in chapters 2-7.
       triggerCrusherSink();
+      // Clear the cube cluster ring + clear the depot (decals + collider)
+      // so wave 2 doesn't have leftover ring on the floor or ghost
+      // collision where the crusher used to sit.
+      clearChargeCubes();
+      try {
+        OresModule.clearDepot && OresModule.clearDepot();
+      } catch (e) {}
       UI.toast('CHARGES SECURED', '#a8ff8c', 1800);
       endWave();
       return;
@@ -1281,7 +1288,7 @@ export function updateWaves(dt) {
     //                    triggers via the existing shields-down branch.
 
     const CORNER_CHARGE_DURATION = 4.0;
-    const RELOAD_DURATION = 1.5;
+    const RELOAD_DURATION = 0.6;     // brief gap before next corner activates
 
     // Pandemonium spawn rate: ramp up once the FIRST corner activates
     // (player has reached the cannon, narrative is "going hot now").
@@ -1345,16 +1352,20 @@ export function updateWaves(dt) {
         }
         setCannonCornerProgress(S.cannonCornerChargeT / CORNER_CHARGE_DURATION);
 
-        // Charge complete — FIRE THIS SHOT
+        // Charge complete — FIRE THIS SHOT IMMEDIATELY
         if (S.cannonCornerChargeT >= CORNER_CHARGE_DURATION) {
           if (queen && queen.pos) {
-            const fired = tryFireCannon(queen.pos);
-            if (fired) {
-              const muzzlePos = getCannonOrigin();
-              const domePos = getNextDomePos();
-              if (muzzlePos && domePos) spawnCannonBeam(muzzlePos, domePos);
-              popQueenShield();
-            }
+            // forceFireCannon bypasses the 15s SHOT_INTERVAL cooldown
+            // that tryFireCannon enforces — corner charging IS the
+            // cooldown now. Each charge completion fires immediately.
+            const fired = forceFireCannon(queen.pos);
+            const muzzlePos = getCannonOrigin();
+            const domePos = getNextDomePos();
+            if (muzzlePos && domePos) spawnCannonBeam(muzzlePos, domePos);
+            // Always pop a shield even if forceFireCannon returned
+            // false (defensive — never leave the player stuck after
+            // a successful corner charge).
+            popQueenShield();
           }
           // Consume this corner + start reload
           consumeCannonCorner(idx);

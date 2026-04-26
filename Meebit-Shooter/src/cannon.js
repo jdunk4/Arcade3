@@ -421,6 +421,39 @@ export function tryFireCannon(targetPos) {
   return true;
 }
 
+/** Force-fire the cannon, ignoring the SHOT_INTERVAL cooldown. Used by
+ *  the Turn 6 4-corner charging mechanic where the player completes a
+ *  corner charge → shot fires immediately (no delay between charge
+ *  completion and the actual shot). Returns true if shot fired. */
+export function forceFireCannon(targetPos) {
+  if (!_cannon) return false;
+  if (_cannon.state !== 'ARMED' && _cannon.state !== 'FIRING') return false;
+  if (_cannon.shotsFired >= 4) return false;
+
+  _cannon.shotsFired++;
+  _cannon.fireFlash = 1.0;
+  _cannon.hum = 0;
+  _cannon.fireCooldown = 0;     // no cooldown — corner charging IS the cooldown
+  _cannon.state = 'FIRING';
+
+  const slotIdx = _cannon.shotsFired - 1;
+  if (_cannon.slotMeshes[slotIdx]) {
+    _cannon.slotMeshes[slotIdx].material = _slotDimMat();
+  }
+
+  const muzzle = _muzzleWorldPos();
+  hitBurst(muzzle, 0xffffff, 20);
+  hitBurst(muzzle, _cannon.tint, 35);
+  hitBurst(muzzle, 0xff8800, 14);
+  shake(0.7, 0.4);
+  try { Audio.cannonFire && Audio.cannonFire(); } catch (e) {}
+
+  if (_cannon.shotsFired >= 4) {
+    _cannon.state = 'SPENT';
+  }
+  return true;
+}
+
 /** Rotate the cannon's turret + barrel to aim at a target XZ position.
  *  The barrel's natural facing (when yaw=0) is along +Z. We compute
  *  atan2(dx, dz) so the +Z direction rotates onto the target vector.
