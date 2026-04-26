@@ -1774,6 +1774,13 @@ const _RADIO_COLLIDE_R = 1.8;   // radio tower base footprint
 let _depotGetter = null;
 export function registerDepotGetter(fn) { _depotGetter = fn; }
 
+// Dynamic props — moving collision circles registered by other
+// modules (escortTruck, future moving boss bodies, etc). Each frame
+// the registered fn returns an array of {x, z, r} entries that get
+// added to both push-out and bullet-segment collision passes.
+let _dynamicPropsGetter = null;
+export function registerDynamicPropsGetter(fn) { _dynamicPropsGetter = fn; }
+
 // Chapter-1 wave-2 props-removed flag. Set true at wave 2 end (when
 // the cannon sinks and the turrets are cleared). When set:
 //   - Silo collision is disabled (the cannon was using the silo's
@@ -1853,6 +1860,17 @@ export function resolveCompoundCollision(pos, entityRadius) {
       _pushOutCircle(pos, entityRadius, d.pos.x, d.pos.z, _DEPOT_COLLIDE_R);
     }
   }
+  // Dynamic props (moving collision circles registered by other
+  // modules — escort truck, etc).
+  if (_dynamicPropsGetter) {
+    const arr = _dynamicPropsGetter();
+    if (arr && arr.length) {
+      for (const p of arr) {
+        if (!p) continue;
+        _pushOutCircle(pos, entityRadius, p.x, p.z, p.r);
+      }
+    }
+  }
 }
 
 /**
@@ -1915,6 +1933,16 @@ export function segmentBlockedByProp(ax, az, bx, bz) {
     const d = _depotGetter();
     if (d && d.pos) {
       if (_segCircleHit(d.pos.x, d.pos.z, _DEPOT_COLLIDE_R)) return true;
+    }
+  }
+  // Dynamic props (moving collision circles)
+  if (_dynamicPropsGetter) {
+    const arr = _dynamicPropsGetter();
+    if (arr && arr.length) {
+      for (const p of arr) {
+        if (!p) continue;
+        if (_segCircleHit(p.x, p.z, p.r)) return true;
+      }
     }
   }
   return false;

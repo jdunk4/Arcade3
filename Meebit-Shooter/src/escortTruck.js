@@ -30,11 +30,12 @@ import { hitBurst } from './effects.js';
 import { shake } from './state.js';
 
 // ---- Tunables ----
-const ESCORT_RADIUS = 8.5;          // player must stay within this (u)
+const ESCORT_RADIUS = 12.0;         // player must stay within this (u) — bumped from 8.5
 const FRONT_BUMPER_RADIUS = 4.0;    // any enemy within this in front blocks
 const TRUCK_SPEED = 1.4;            // u/s base
-const ARRIVAL_RADIUS = 2.0;
+const ARRIVAL_RADIUS = 4.0;         // bumped from 2.0 — auto-completes when "close enough"
 const BEACON_SPIN_SPEED = 4.5;      // rad/s
+const TRUCK_COLLIDE_R = 2.4;        // bullet/walking collision radius around truck center
 
 // ---- Geometry ----
 const CHASSIS_GEO     = new THREE.BoxGeometry(3.0, 0.45, 6.5);
@@ -244,6 +245,39 @@ export function spawnEscortTruck(chapterIdx, fromPos, toPos) {
     group.add(w);
   }
 
+  // --- ESCORT RADIUS RING (green, on the floor, parented to truck) ---
+  // Always visible; opacity bumps when player is INSIDE radius (active).
+  // Player sees "green ring on floor → stay inside it."
+  const ringGeo = new THREE.RingGeometry(ESCORT_RADIUS - 0.25, ESCORT_RADIUS, 64);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0x55ff7c,                       // bright green
+    transparent: true, opacity: 0.55,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const escortRing = new THREE.Mesh(ringGeo, ringMat);
+  escortRing.rotation.x = -Math.PI / 2;
+  escortRing.position.y = 0.04;            // just above floor
+  group.add(escortRing);
+
+  // --- BUMPER WARNING ZONE (red disc in front of truck, blocked state) ---
+  // Hidden by default; visible when an enemy is in the front bumper zone.
+  // Sits at the bumper position (3.5u in front of truck center).
+  const bumperGeo = new THREE.CircleGeometry(FRONT_BUMPER_RADIUS, 32);
+  const bumperMat = new THREE.MeshBasicMaterial({
+    color: 0xff3030,                       // bright red
+    transparent: true, opacity: 0.45,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const bumperZone = new THREE.Mesh(bumperGeo, bumperMat);
+  bumperZone.rotation.x = -Math.PI / 2;
+  bumperZone.position.set(0, 0.05, 3.5);   // local +Z = forward
+  bumperZone.visible = false;
+  group.add(bumperZone);
+
   // Compute path direction + initial yaw
   const dx = toPos.x - fromPos.x;
   const dz = toPos.z - fromPos.z;
@@ -264,6 +298,8 @@ export function spawnEscortTruck(chapterIdx, fromPos, toPos) {
     cab, chassis, bed,
     genGroup, genBody, genTop, genGlow,
     beaconGroup, beaconLight,
+    escortRing, ringMat,
+    bumperZone, bumperMat,
     tint,
     fromPos: { x: fromPos.x, z: fromPos.z },
     toPos: { x: toPos.x, z: toPos.z },
@@ -276,7 +312,9 @@ export function spawnEscortTruck(chapterIdx, fromPos, toPos) {
     beaconSpin: 0,
     enemiesBlocking: false,      // set externally each frame
     moving: false,               // for outside callers / HUD
+    playerInRadius: false,
     speed: TRUCK_SPEED,
+    ringPulseT: 0,
   };
   return _truck;
 }
@@ -343,6 +381,7 @@ export function updateEscortTruck(dt, playerPos, enemies) {
   const dxp = px - tx;
   const dzp = pz - tz;
   const playerInRadius = (dxp * dxp + dzp * dzp) < (ESCORT_RADIUS * ESCORT_RADIUS);
+  _truck.playerInRadius = playerInRadius;
 
   // Test enemies in front
   const enemyBlocking = _isAnyEnemyInFront(enemies);
@@ -350,6 +389,28 @@ export function updateEscortTruck(dt, playerPos, enemies) {
 
   const canMove = playerInRadius && !enemyBlocking;
   _truck.moving = canMove;
+
+  // --- DRIVE RING + BUMPER-ZONE VISUALS ---
+  _truck.ringPulseT += dt * 2.5;
+  const ringPulse = 0.5 + 0.5 * Math.sin(_truck.ringPulseT);
+  if (_truck.ringMat) {
+    if (playerInRadius) {
+      // Player in range — bright pulsing green (active state)
+      _truck.ringMat.color.setHex(0x55ff7c);
+      _truck.ringMat.opacity = 0.55 + ringPulse * 0.30;
+    } else {
+      // Player out of range — dim red ring (warning: get back in!)
+      _truck.ringMat.color.setHex(0xff5555);
+      _truck.ringMat.opacity = 0.40 + ringPulse * 0.20;
+    }
+  }
+  if (_truck.bumperZone && _truck.bumperMat) {
+    _truck.bumperZone.visible = !!enemyBlocking;
+    if (enemyBlocking) {
+      // Pulse the red zone for urgency
+      _truck.bumperMat.opacity = 0.45 + ringPulse * 0.30;
+    }
+  }
 
   if (canMove) {
     const step = _truck.speed * dt;
@@ -420,6 +481,19 @@ export function isPlayerInEscortRadius(playerPos) {
 /** Returns true if the truck is currently blocked by enemies in front. */
 export function isTruckBlocked() {
   return _truck ? !!_truck.enemiesBlocking : false;
+}
+
+/** Returns the truck's collision circles for the dynamic-props pass.
+ *  Used by waveProps to block bullets + walking against the truck body
+ *  while it's on the field. Skipped post-arrival so the player can walk
+ *  freely once the wave-end animation begins. */
+export function getTruckCollisionCircles() {
+  if (!_truck || _truck.arrived) return [];
+  return [{
+    x: _truck.group.position.x,
+    z: _truck.group.position.z,
+    r: TRUCK_COLLIDE_R,
+  }];
 }
 
 export function clearEscortTruck() {

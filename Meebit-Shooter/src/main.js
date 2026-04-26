@@ -62,7 +62,7 @@ import { updateCannon, clearCannon } from './cannon.js';
 import { updateQueenHive, clearQueenHive, tickQueenShieldCollision, tryHitQueenShield } from './queenHive.js';
 import { updateCrusher, clearCrusher } from './crusher.js';
 import { updateChargeCubes, clearChargeCubes } from './chargeCubes.js';
-import { clearEscortTruck, getTruckPos } from './escortTruck.js';
+import { clearEscortTruck, getTruckPos, getTruckCollisionCircles } from './escortTruck.js';
 import { updateServerWarehouse, clearServerWarehouse } from './serverWarehouse.js';
 import { updateSafetyPod, clearSafetyPod } from './safetyPod.js';
 import { updateCockroach, clearCockroachBoss } from './cockroachBoss.js';
@@ -122,13 +122,16 @@ import {
   chainLightningOnKill, clearAllPowerups, registerPowerupKillHandler,
   getEnemySpeedMult,
 } from './powerups.js';
-import { updateCompound, resolveCompoundCollision, segmentBlockedByProp, registerDepotGetter } from './waveProps.js';
+import { updateCompound, resolveCompoundCollision, segmentBlockedByProp, registerDepotGetter, registerDynamicPropsGetter } from './waveProps.js';
 // Wire the depot live-binding into waveProps via a getter (avoids
 // a circular import by deferring the read to call time). Once
 // registered, resolveCompoundCollision + segmentBlockedByProp will
 // include the depot circle in their checks.
 import * as _oresMod from './ores.js';
 registerDepotGetter(() => _oresMod.depot);
+// Dynamic props — currently just the moving escort truck. Other future
+// moving collision sources (boss bodies, drones) can extend this.
+registerDynamicPropsGetter(() => getTruckCollisionCircles());
 import { updateWires } from './empWires.js';
 import { updateLaunch } from './empLaunch.js';
 import { updateShockwaves } from './shockwave.js';
