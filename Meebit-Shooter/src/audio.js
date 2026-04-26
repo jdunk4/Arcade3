@@ -11,22 +11,27 @@
 // localStorage.
 //
 // Tracks on disk (Meebit-Shooter/assets/):
-//   Arena I.mp3, Arena II.mp3, Arena III.mp3, Arena IV.mp3, ASCENT.mp3
+//   AwakenArena.mp3 — opening track (intro / first wave start)
+//   Arena I.mp3, Arena II.mp3, Arena III.mp3, Arena IV.mp3 — core arena loop
+//   XIAN.mp3, YOMI.mp3, ZION.mp3 — boss faction tracks
+//   Underworld.mp3 — closing track (chapter 7 / late-game)
 //   PHONE RINGS.mp3
 //   C-drone.mp3   (ambient drone layered UNDER the phone ring during the
 //                  matrix-dive so the ring doesn't feel naked)
+//
+// Playlist order (loops indefinitely):
+//   AwakenArena → Arena I → II → III → IV → XIAN → YOMI → ZION → Underworld → AwakenArena → ...
 
 const SOUNDTRACK_FILES = [
+  'assets/AwakenArena.mp3',
   'assets/Arena I.mp3',
   'assets/Arena II.mp3',
   'assets/Arena III.mp3',
   'assets/Arena IV.mp3',
-  // ASCENT plays after Arena IV as the fifth track in the continuous
-  // playlist loop. Music starts ONCE at game start (on "ATTACK THE AI")
-  // with Arena I and advances track-by-track via each track's 'ended'
-  // handler — waves do not swap tracks. So the soundtrack cycles:
-  //   Arena I → II → III → IV → ASCENT → Arena I → ...
-  'assets/ASCENT.mp3',
+  'assets/XIAN.mp3',
+  'assets/YOMI.mp3',
+  'assets/ZION.mp3',
+  'assets/Underworld.mp3',
 ];
 // The phone-ring asset has shipped under several names in this project.
 // We try them in order until one loads; whichever works becomes the source.
@@ -229,9 +234,11 @@ class AudioEngine {
 
   /**
    * Start the soundtrack in playlist mode. Tracks advance automatically:
-   * Arena I -> II -> III -> IV -> I -> ... indefinitely.
+   *   AwakenArena → Arena I → II → III → IV → XIAN → YOMI → ZION → Underworld
+   *   → AwakenArena → ... (loops indefinitely)
    * The `wave` argument is kept for backward compatibility but no longer
-   * tied to gameplay -- calling with no args (or wave=1) starts from Arena I.
+   * tied to gameplay -- calling with no args (or wave=1) starts from
+   * AwakenArena (the opening track).
    */
   startMusic(wave) {
     if (!this.ctx) this.init();
@@ -283,7 +290,7 @@ class AudioEngine {
     return !el.paused;
   }
 
-  /** Explicitly switch to a track by index (0..3), cycling. */
+  /** Explicitly switch to a track by index (0..8), cycling. */
   setTrack(idx) {
     if (!this._trackEls.length) return;
     const n = ((idx % this._trackEls.length) + this._trackEls.length) % this._trackEls.length;
