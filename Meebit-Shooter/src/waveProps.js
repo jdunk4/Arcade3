@@ -1307,6 +1307,9 @@ export function clearCentralCompound() {
     if (part && part.obj && part.obj.parent) scene.remove(part.obj);
   }
   _current = null;
+  // Reset chapter-1 wave-2 collision flag so future chapter preps
+  // (chapter 2 → chapter 7) start with normal silo/turret collision.
+  _ch1Wave2PropsRemoved = false;
 }
 
 /** Handle lookup for future stages (3b will light up the powerplant, etc). */
@@ -1771,6 +1774,18 @@ const _RADIO_COLLIDE_R = 1.8;   // radio tower base footprint
 let _depotGetter = null;
 export function registerDepotGetter(fn) { _depotGetter = fn; }
 
+// Chapter-1 wave-2 props-removed flag. Set true at wave 2 end (when
+// the cannon sinks and the turrets are cleared). When set:
+//   - Silo collision is disabled (the cannon was using the silo's
+//     collision radius as its bullet/player block; with the cannon
+//     sunk we don't want invisible silo collision left behind).
+//   - The LAYOUT-fallback turret collision loop is also skipped
+//     (clearAllTurrets emptied the live array, so the fallback
+//     would otherwise reactivate ghost collision blocks).
+let _ch1Wave2PropsRemoved = false;
+export function setCh1Wave2PropsRemoved(v) { _ch1Wave2PropsRemoved = !!v; }
+export function getCh1Wave2PropsRemoved() { return _ch1Wave2PropsRemoved; }
+
 /**
  * Push `pos` out of the silo + turret + depot + powerplant + radio
  * obstacles. `entityRadius` is the caller's own radius (player ~0.8u,
@@ -1786,7 +1801,10 @@ export function resolveCompoundCollision(pos, entityRadius) {
   // silo collision active even when _collideHidden so the cannon still
   // blocks bullets/players. Skipping silo collision would cause bullets
   // to pass through the cannon visually.
-  if (_current.silo && _current.silo.obj && _current.silo.obj.parent) {
+  // EXCEPT: once chapter 1 wave 2 ends and the cannon has sunk, we
+  // explicitly skip silo collision so the player/enemies aren't bumping
+  // into invisible silo geometry where the cannon used to be.
+  if (_current.silo && _current.silo.obj && _current.silo.obj.parent && !_ch1Wave2PropsRemoved) {
     if (_current.silo.obj.position.y > -0.5) {
       _pushOutCircle(pos, entityRadius, LAYOUT.silo.x, LAYOUT.silo.z, _SILO_COLLIDE_R);
     }
@@ -1795,6 +1813,9 @@ export function resolveCompoundCollision(pos, entityRadius) {
   // Turrets. Use live turret objects (from turrets.js) so we respect any
   // retraction their groups perform — but fall back to LAYOUT positions
   // when the getter isn't wired yet (init race).
+  // Skip the LAYOUT fallback once chapter 1 wave 2 ends — turrets are
+  // cleared at that moment and the fallback would otherwise leave
+  // invisible collision blocks at the LAYOUT positions.
   const liveTurrets = _turretsGetter ? _turretsGetter() : null;
   if (liveTurrets && liveTurrets.length) {
     for (const t of liveTurrets) {
@@ -1802,7 +1823,7 @@ export function resolveCompoundCollision(pos, entityRadius) {
       if (t.obj.position.y < -0.5) continue;   // already sunk
       _pushOutCircle(pos, entityRadius, t.pos.x, t.pos.z, _TURRET_COLLIDE_R);
     }
-  } else {
+  } else if (!_ch1Wave2PropsRemoved) {
     for (const tp of LAYOUT.turrets) {
       _pushOutCircle(pos, entityRadius, tp.x, tp.z, _TURRET_COLLIDE_R);
     }
@@ -1865,8 +1886,9 @@ export function segmentBlockedByProp(ax, az, bx, bz) {
 
   // Silo — kept active for chapter 1 since the cannon sits at the silo
   // position and uses this collision radius as its bullet-block.
+  // Skipped once chapter 1 wave 2 ends and the cannon has sunk.
   if (_current.silo && _current.silo.obj && _current.silo.obj.parent
-      && _current.silo.obj.position.y > -0.5) {
+      && _current.silo.obj.position.y > -0.5 && !_ch1Wave2PropsRemoved) {
     if (_segCircleHit(LAYOUT.silo.x, LAYOUT.silo.z, _SILO_COLLIDE_R)) return true;
   }
   const liveTurrets = _turretsGetter ? _turretsGetter() : null;
@@ -1876,7 +1898,7 @@ export function segmentBlockedByProp(ax, az, bx, bz) {
       if (t.obj.position.y < -0.5) continue;
       if (_segCircleHit(t.pos.x, t.pos.z, _TURRET_COLLIDE_R)) return true;
     }
-  } else {
+  } else if (!_ch1Wave2PropsRemoved) {
     for (const tp of LAYOUT.turrets) {
       if (_segCircleHit(tp.x, tp.z, _TURRET_COLLIDE_R)) return true;
     }

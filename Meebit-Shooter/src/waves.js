@@ -69,7 +69,7 @@ import {
   setPowerplantLit, openSiloAndRaiseMissile, resetCompoundAnimations,
   registerLaunchHandler, triggerLaunch, startCompoundRetraction,
   openSiloHatchOnly, setMissileRaiseDirect, setLaunchSequenceActive,
-  getSiloLaunchOrigin,
+  getSiloLaunchOrigin, setCh1Wave2PropsRemoved,
 } from './waveProps.js';
 import {
   buildWires, clearWires, setWiresLit, resetWireAnimations,
@@ -1204,6 +1204,11 @@ export function updateWaves(dt) {
       // chapter-1 props cluttering the floor.
       clearAllTurrets();
       triggerCannonSink();
+      // Mark chapter-1 wave-2 props removed so the prop-collision
+      // system stops blocking against the (now-invisible) silo and
+      // turret LAYOUT positions. Without this the player runs into
+      // ghost cylinders where the cannon and turrets used to be.
+      setCh1Wave2PropsRemoved(true);
       UI.toast('SHIELDS DOWN — QUEEN EXPOSED', '#ff3cac', 2200);
       endWave();
       return;
