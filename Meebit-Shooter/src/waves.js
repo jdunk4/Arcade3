@@ -515,24 +515,30 @@ export function startWave(waveNum) {
     );
     UI.toast('QUEEN EXPOSED', '#ff3cac', 2500);
   } else if (waveDef.type === 'twinhive') {
-    // CHAPTER 2 WAVE 3 — twin hives on giant cockroach. 4 hives
-    // unshielded (laser fried them). Roach is a floor decal — no
-    // collision, no damage to player. Roach moves only after all
-    // 4 hives die.
+    // CHAPTER 2 WAVE 3 — dual cockroaches with twin hives. Each roach
+    // carries 2 of the EXISTING chapter-2 hives (not new spawns). Hives
+    // are unshielded from wave 2's laser. Roaches stationary while
+    // their 2 hives are alive; per-roach short-crawl + fade after both
+    // its hives die.
     deactivateAllTurrets();
+    // Defensive: ensure all hive shields are down (wave 2 laser drops
+    // them but cover any debug-skip path).
+    for (const s of spawners) {
+      if (s) s.shielded = false;
+    }
     S.spawnerWaveActive = true;
     S.hiveWaveActive = true;
     spawnCockroachBoss(S.chapter || 0);
-    // Count live spawners (the 4 newly-spawned roach hives)
+    // Count live spawners (the existing chapter-2 hives, now on roach backs)
     S.spawnersLive = 0;
     for (const s of spawners) {
       if (!s.destroyed) S.spawnersLive++;
     }
     UI.showObjective(
       'DESTROY THE TWIN HIVES',
-      '4 hives on the roach. Shields down. Take them out.'
+      'Two roaches surfaced from the laser strike. Take their hives out.'
     );
-    UI.toast('ROACH SIGHTED', '#ff8826', 2500);
+    UI.toast('ROACHES SURFACED', '#ff8826', 2500);
   }
 
   UI.showWaveStart(waveNum);
