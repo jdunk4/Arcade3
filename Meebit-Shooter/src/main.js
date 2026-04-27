@@ -118,6 +118,7 @@ import { spawnGalagaShip, despawnGalagaShip, updateGalagaShip, isGalagaShipActiv
 import { spawnPacman, despawnPacman, updatePacman, isPacmanActive, runAwayPacman } from './pacmanCharacter.js';
 import { spawnPellets, despawnPellets, updatePellets } from './pacmanPellets.js';
 import { buildCrowd, updateCrowd, recolorCrowd } from './crowd.js';
+import { spawnGravestones, recolorGravestones, clearGravestones } from './gravestones.js';
 import { prefetchMeebits, pickRandomMeebitId } from './meebitsPublicApi.js';
 import {
   spawnPickup, updatePickups as updateNewPickups, clearAllPickups,
@@ -2024,6 +2025,11 @@ function startGame() {
   // then tint it to chapter 0.
   buildCrowd();
   recolorCrowd(CHAPTERS[0].full.grid1);
+  // Spawn perimeter gravestones (X/O carvings, chapter-tinted). Cleared
+  // first to handle restart from a previous session — otherwise stones
+  // accumulate across runs.
+  clearGravestones();
+  spawnGravestones(14, CHAPTERS[0].full.grid1);
   // Prewarm every shader permutation (enemies, bosses, projectiles, pickups,
   // weapons) before the first frame of real gameplay. Runs once; no-op on
   // subsequent calls. This eliminates the wave-6 hitch (new red-chapter
@@ -3087,6 +3093,12 @@ function animate() {
         console.log(`[chapter-change] ${prevChapter} → ${S.chapter}, style=${styleName}, managesOwnSpawns=${!!style.managesOwnSpawns}`);
         setHazardStyle(style);
         _applyChapterAlly(S.chapter, player.pos);
+        // Retint perimeter gravestones to the new chapter. Cheap —
+        // 14 material color writes. Without this the X/O carvings
+        // would stay locked to chapter-1 orange forever.
+        try {
+          recolorGravestones(CHAPTERS[S.chapter % CHAPTERS.length].full.grid1);
+        } catch (e) { console.warn('[gravestones] recolor', e); }
         // Confirm the ally was applied (or wasn't because chapter doesn't have one).
         if (S.chapter === 1) console.log(`[chapter-change] galaga ship active=${isGalagaShipActive()}`);
         if (S.chapter === 3) console.log(`[chapter-change] pacman active=${isPacmanActive()}`);
