@@ -130,6 +130,41 @@ export function getTutorialFloorColorAt(worldX, worldZ) {
   return ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff);
 }
 
+// Snap a world (x, z) point to the rainbow texture's grid cell and
+// return that cell's center world position, world-space size, and
+// color. Used by the tutorial floor-glow to highlight the SPECIFIC
+// tile the player is standing on (rather than a circular spotlight).
+//
+// Cell layout: 20×20 cells inside the texture's inner area, which
+// occupies texture pixels [BORDER_PX..(TEX_W-BORDER_PX)] on each axis.
+// The texture maps 1:1 onto the floor mesh (PlaneGeometry(2*ARENA),
+// so 100×100 worldspace), which means the rainbow zone in world
+// coords runs from -ARENA + (BORDER_PX/TEX_W)*2*ARENA on the low end
+// to +ARENA - (BORDER_PX/TEX_W)*2*ARENA on the high end. Cells are
+// uniform within that zone.
+//
+// Returns null when (x, z) falls outside the rainbow zone (player
+// standing on the black border rails).
+export function getTutorialCellInfo(worldX, worldZ) {
+  const innerHalf = ARENA - (BORDER_PX / TEX_W) * (2 * ARENA);
+  if (worldX < -innerHalf || worldX > innerHalf) return null;
+  if (worldZ < -innerHalf || worldZ > innerHalf) return null;
+  const cellSize = (2 * innerHalf) / GRID_COLS;
+  // 0..GRID_COLS-1 indices.
+  const col = Math.min(GRID_COLS - 1, Math.max(0, Math.floor((worldX + innerHalf) / cellSize)));
+  const row = Math.min(GRID_ROWS - 1, Math.max(0, Math.floor((worldZ + innerHalf) / cellSize)));
+  // Cell center in world coords.
+  const cx = -innerHalf + (col + 0.5) * cellSize;
+  const cz = -innerHalf + (row + 0.5) * cellSize;
+  return {
+    x: cx,
+    z: cz,
+    size: cellSize,
+    color: getTutorialFloorColorAt(cx, cz),
+    col, row,
+  };
+}
+
 // Push a color toward white by amount t in [0..1]. Used for the
 // pastel mid-band.
 function tintWhite(rgb, t) {

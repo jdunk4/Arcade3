@@ -33,6 +33,7 @@ import { enemies, makeEnemy } from './enemies.js';
 import { WEAPONS, ARENA, CHAPTERS } from './config.js';
 import { hitBurst, makePickup } from './effects.js';
 import { scene } from './scene.js';
+import { Audio } from './audio.js';
 import { tutorialEnemyColor } from './tutorial.js';
 
 // Real game systems — tutorial lessons drive these directly so the
@@ -52,7 +53,7 @@ import {
   spawnEscortTruck, clearEscortTruck, getTruckPos,
   isTruckArrived, hasTruck, isPlayerInEscortRadius,
 } from './escortTruck.js';
-import { spawnBlock } from './blocks.js';
+import { spawnBlock, blocks } from './blocks.js';
 import { updateOres, clearAllOres } from './ores.js';
 
 // ---------------------------------------------------------------------
@@ -74,6 +75,13 @@ let _dashCountAtActivate = 0;
 let _weaponsTried = new Set();     // weapon keys fired during the weapons lesson
 let _hazardHits = 0;
 let _hazardHitsAtActivate = 0;
+// Tracks INSTA-KILL hazard contacts only (Minesweeper bombs +
+// Pacman ghosts). Lesson 11 (DODGE THE DEADLY) requires the player
+// to actually trigger the death/respawn cycle, not just take chip
+// damage. Driven by notifyDeadlyHazardHit() from main.js, which
+// fires only when a hit drops HP from positive to <=0.
+let _deadlyHazardHits = 0;
+let _deadlyHazardHitsAtActivate = 0;
 let _potionsConsumed = 0;
 let _potionsConsumedAtActivate = 0;
 
@@ -99,6 +107,7 @@ export function startTutorialController(opts) {
   _dashCount = 0;
   _weaponsTried.clear();
   _hazardHits = 0;
+  _deadlyHazardHits = 0;
   _potionsConsumed = 0;
   _activeProps.length = 0;
   _activeEnemies.clear();
@@ -132,6 +141,13 @@ export function notifyDashed() {
 }
 export function notifyHazardHit() {
   _hazardHits++;
+}
+// Fires only when a hazard contact drops the player's HP from
+// positive to ≤0 (insta-kill bombs / ghosts). Driven from main.js's
+// hazard-tick path. Used by the DODGE THE DEADLY lesson which only
+// completes on actual death+respawn events.
+export function notifyDeadlyHazardHit() {
+  _deadlyHazardHits++;
 }
 export function notifyPotionConsumed() {
   _potionsConsumed++;
@@ -177,6 +193,11 @@ export function tickTutorialController(dt) {
   if (done) {
     try { lesson.onComplete && lesson.onComplete(); } catch (e) {}
     _teardownActive();
+    // Two-tone confirmation chime so finishing a task FEELS rewarding
+    // — same audible cue the user described as "payment went through."
+    // Wrapped in try/catch in case Audio isn't initialized for any
+    // reason (it almost always is by tutorial start).
+    try { Audio.taskComplete && Audio.taskComplete(); } catch (e) {}
     _waitingForNext = 1.5;     // pause so the checkmark animation lands
     renderChecklist(true);
   } else {
@@ -205,6 +226,7 @@ function _advance() {
   _walkDistanceAtActivate = _walkDistance;
   _dashCountAtActivate = _dashCount;
   _hazardHitsAtActivate = _hazardHits;
+  _deadlyHazardHitsAtActivate = _deadlyHazardHits;
   _potionsConsumedAtActivate = _potionsConsumed;
   _weaponsTried.clear();
   // Clear any arrows the previous lesson may have left up; the new
@@ -294,40 +316,50 @@ function _isPlayerInZone(zone) {
 function buildLessonList() {
   const list = [];
 
-  // ----- 1. MOVE -----
+  // ----- 1. BASICS — move + dash + shoot, all in one lesson -----
+  // Three sub-objectives gate completion. Each ticks independently
+  // and the lesson finishes when all three are met. Progress label
+  // shows whichever sub-objective hasn't been met yet (or "all done"
+  // briefly before advance).
   list.push({
-    id: 'move',
-    label: 'MOVE',
-    hint: 'Use WASD to walk around the arena.',
-    onActivate: () => {},
-    isComplete: () => (_walkDistance - _walkDistanceAtActivate) >= 12,
-    progress: () => {
-      const d = Math.max(0, _walkDistance - _walkDistanceAtActivate);
-      return Math.min(12, Math.round(d)) + ' / 12 m';
+    id: 'basics',
+    label: 'MOVE · DASH · SHOOT',
+    hint: 'Walk with WASD · dash with SPACE · hold LEFT MOUSE to fire your pistol.',
+    _moveDone: false,
+    _dashDone: false,
+    _shootDone: false,
+    onActivate() {
+      this._moveDone = false;
+      this._dashDone = false;
+      this._shootDone = false;
+    },
+    onUpdate() {
+      // Re-check each sub-objective every frame so the progress label
+      // and the eventual isComplete() agree on a single source of
+      // truth.
+      this._moveDone = (_walkDistance - _walkDistanceAtActivate) >= 12;
+      this._dashDone = (_dashCount - _dashCountAtActivate) >= 1;
+      this._shootDone = (_shotCount - _shotCountAtActivate) >= 5;
+    },
+    isComplete() {
+      return this._moveDone && this._dashDone && this._shootDone;
+    },
+    progress() {
+      // Compose a tiny status line so the player sees which parts
+      // they've already cleared. Checked items get a ✓; pending
+      // ones show their counter.
+      const move = this._moveDone
+        ? '✓ MOVE'
+        : ('MOVE ' + Math.min(12, Math.round(Math.max(0, _walkDistance - _walkDistanceAtActivate))) + '/12');
+      const dash = this._dashDone ? '✓ DASH' : 'DASH';
+      const shoot = this._shootDone
+        ? '✓ SHOOT'
+        : ('SHOOT ' + Math.min(5, Math.max(0, _shotCount - _shotCountAtActivate)) + '/5');
+      return move + ' · ' + dash + ' · ' + shoot;
     },
   });
 
-  // ----- 2. DASH -----
-  list.push({
-    id: 'dash',
-    label: 'DASH',
-    hint: 'Press SPACE to dash forward.',
-    isComplete: () => (_dashCount - _dashCountAtActivate) >= 1,
-  });
-
-  // ----- 3. SHOOT -----
-  list.push({
-    id: 'shoot',
-    label: 'SHOOT',
-    hint: 'Hold the LEFT MOUSE BUTTON to fire your pistol.',
-    isComplete: () => (_shotCount - _shotCountAtActivate) >= 5,
-    progress: () => {
-      const n = Math.max(0, _shotCount - _shotCountAtActivate);
-      return Math.min(5, n) + ' / 5 shots';
-    },
-  });
-
-  // ----- 4. DEFEAT 3 ENEMIES -----
+  // (was 4) ----- 2. DEFEAT 3 ENEMIES -----
   list.push({
     id: 'kill',
     label: 'DEFEAT 3 ENEMIES',
@@ -457,12 +489,18 @@ function buildLessonList() {
       }
       // Tick ores so they animate toward the player (auto-collect).
       try { updateOres(dt, player); } catch (e) {}
-      // Arrow → nearest block. We don't import `blocks` to avoid a
-      // circular-ish dependency; instead we let the arrow code skip
-      // showing if no target. Callers can also point at the depot
-      // beacon if there were one.
-      // Skipping arrow for now — blocks are visually loud enough.
-      S.tutorialArrows = [];
+      // Arrows on every active block — both falling and grounded — so
+      // the player can spot them through the floor texture's busy
+      // colors. blocks is the live array exported from blocks.js;
+      // each entry has .pos (x, z) and .destroyed. We cap at 6 arrows
+      // so the screen doesn't fill if multiple spawn at once.
+      const arrows = [];
+      for (const b of blocks) {
+        if (!b || b.destroyed) continue;
+        arrows.push({ x: b.pos.x, z: b.pos.z, label: 'ORE' });
+        if (arrows.length >= 6) break;
+      }
+      S.tutorialArrows = arrows;
     },
     isComplete() {
       return (S.blocksMined - this._baseline) >= 3;
@@ -759,12 +797,16 @@ function buildLessonList() {
 
   // ----- 11. AVOID DEADLY HAZARDS — Minesweeper + Pacman (insta-kill, no-die respawn) -----
   // These hazards insta-kill in the real game. In tutorial the
-  // gameOver helper respawns the player at center. We tell them
-  // up front so the lesson is "see what these do — they kill you."
+  // gameOver helper respawns the player at center. The lesson only
+  // completes when the player ACTUALLY DIES — chip-damage from a
+  // surviving Tetris/Galaga remnant doesn't count, only a real
+  // bomb-or-ghost contact that snaps HP to 0. The intent is teaching
+  // "these instakill — feel that" so we'd rather force the player
+  // to experience the death+respawn cycle than let them dodge through.
   list.push({
     id: 'hazard_deadly',
     label: 'DODGE THE DEADLY',
-    hint: 'These hazards INSTANTLY KILL you. Touch a Minesweeper bomb or a Pacman ghost — you respawn in tutorial, but in the real game you would not.',
+    hint: 'These hazards INSTANTLY KILL. Walk into a Minesweeper bomb or a Pacman ghost — you respawn in tutorial, but in the real game you would not.',
     onActivate() {
       S.tutorialHazardCycle = 'deadly';
     },
@@ -779,9 +821,15 @@ function buildLessonList() {
       edges.sort((a, b) => a.d - b.d);
       S.tutorialArrows = [{ x: edges[0].x, z: edges[0].z, label: 'EDGE' }];
     },
-    isComplete: () => (_hazardHits - _hazardHitsAtActivate) >= 2,
+    // Counter is only bumped by main.js when HP drops from positive
+    // to ≤0 — i.e., a true insta-kill from a bomb tile or ghost.
+    isComplete: () => (_deadlyHazardHits - _deadlyHazardHitsAtActivate) >= 1,
     onComplete() {
       S.tutorialHazardCycle = false;
+    },
+    progress() {
+      const n = _deadlyHazardHits - _deadlyHazardHitsAtActivate;
+      return n > 0 ? '✓' : 'walk into a bomb or ghost';
     },
   });
 
@@ -803,17 +851,21 @@ function buildLessonList() {
   });
 
   // ----- 13. OVERDRIVE — 25-streak chains trigger overdrive -----
-  // Wave-6 finale. We spawn a near-continuous trickle of low-HP
-  // enemies for the player to chain together. When the killstreak
-  // crosses 25, we set S.tutorialRequestOverdrive — main.js's animate
-  // loop picks that up and calls enterOverdrive() (which normally
-  // gates at 100). Lesson completes once overdrive activates;
-  // tutorial auto-returns to title 2.2s after the checkmark via the
-  // existing onAllDone callback.
+  // Wave-6 finale. We spawn an enemy stream that PROGRESSIVELY
+  // ramps up — early-streak the player gets a few targets at a
+  // calm pace; late-streak the arena fills with enemies so chaining
+  // 25 in a row is achievable. The cap on simultaneous alive
+  // tutorial-spawned enemies grows with progress, and the spawn
+  // timer between drops shrinks. Without the ramp the player
+  // could chain through their starting batch and then have no
+  // targets left while waiting for the slow spawn cadence to
+  // refill — making 25 unreachable. Difficulty curve below is
+  // tuned by streak count, not by elapsed time, so a fast player
+  // gets harder waves faster than a methodical one.
   list.push({
     id: 'overdrive',
     label: 'OVERDRIVE · 25 KILL STREAK',
-    hint: 'Chain 25 kills WITHOUT letting your streak break. Enemies will keep spawning. Hit 25 → OVERDRIVE.',
+    hint: 'Chain 25 kills WITHOUT letting your streak break. Enemies will keep spawning, ramping up as you chain. Hit 25 → OVERDRIVE.',
     _streakAtActivate: 0,
     _spawnTimer: 0,
     onActivate() {
@@ -824,12 +876,42 @@ function buildLessonList() {
       this._spawnTimer = 0;
     },
     onUpdate(dt) {
-      // Drip-feed weak enemies so the streak is achievable but not
-      // trivial. Cap simultaneous live tutorial enemies to 6 so the
-      // player isn't overwhelmed.
+      // Streak progress 0..25.
+      const progress = Math.max(0, (S.killstreak || 0) - this._streakAtActivate);
+      // Difficulty ramp — interpolated by progress.
+      //   progress  0 → maxAlive 2,  spawnInterval 1.4s
+      //   progress  5 → maxAlive 4,  spawnInterval 1.0s
+      //   progress 10 → maxAlive 6,  spawnInterval 0.7s
+      //   progress 15 → maxAlive 9,  spawnInterval 0.5s
+      //   progress 20 → maxAlive 12, spawnInterval 0.4s
+      //   progress 25 → maxAlive 14, spawnInterval 0.35s
+      // Linear lerp between the two anchor points the progress sits
+      // between. Caps at the last anchor so post-25 (rare — overdrive
+      // should fire on 25) doesn't keep climbing forever.
+      const ramp = [
+        { p:  0, max:  2, interval: 1.40 },
+        { p:  5, max:  4, interval: 1.00 },
+        { p: 10, max:  6, interval: 0.70 },
+        { p: 15, max:  9, interval: 0.50 },
+        { p: 20, max: 12, interval: 0.40 },
+        { p: 25, max: 14, interval: 0.35 },
+      ];
+      let maxAlive = ramp[ramp.length - 1].max;
+      let spawnInterval = ramp[ramp.length - 1].interval;
+      for (let i = 0; i < ramp.length - 1; i++) {
+        const a = ramp[i], b = ramp[i + 1];
+        if (progress >= a.p && progress < b.p) {
+          const t = (progress - a.p) / (b.p - a.p);
+          maxAlive = a.max + (b.max - a.max) * t;
+          spawnInterval = a.interval + (b.interval - a.interval) * t;
+          break;
+        }
+      }
+      maxAlive = Math.floor(maxAlive);
+
       this._spawnTimer -= dt;
-      if (this._spawnTimer <= 0 && _alivePlayerSpawnedEnemies() < 6) {
-        this._spawnTimer = 0.7;     // ~1.4 enemies per second
+      if (this._spawnTimer <= 0 && _alivePlayerSpawnedEnemies() < maxAlive) {
+        this._spawnTimer = spawnInterval;
         // Spawn around the player at varying angles + distance so
         // the action is always reachable.
         const ang = Math.random() * Math.PI * 2;
@@ -851,7 +933,7 @@ function buildLessonList() {
       // Streak check — once we cross 25 since activation, fire the
       // overdrive request. main.js consumes the flag in the same
       // frame and clears it.
-      if ((S.killstreak || 0) - this._streakAtActivate >= 25 && !S.overdriveActive) {
+      if (progress >= 25 && !S.overdriveActive) {
         S.tutorialRequestOverdrive = true;
       }
     },

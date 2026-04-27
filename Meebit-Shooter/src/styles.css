@@ -349,9 +349,9 @@ canvas { display: block; cursor: var(--matrix-cursor); }
 }
 .mode-card {
   position: relative;
-  width: 240px;
-  height: 320px;
-  border: 2px solid rgba(120, 140, 200, 0.45);
+  width: 420px;
+  height: 560px;
+  border: 3px solid rgba(120, 140, 200, 0.45);
   background: rgba(8, 4, 18, 0.55);
   cursor: pointer;
   overflow: hidden;
@@ -367,17 +367,17 @@ canvas { display: block; cursor: var(--matrix-cursor); }
 }
 .mode-card-label {
   position: absolute;
-  left: 0; right: 0; bottom: 12px;
+  left: 0; right: 0; bottom: 18px;
   text-align: center;
   font-family: 'Impact', sans-serif;
-  font-size: 22px;
-  letter-spacing: 3px;
+  font-size: 36px;
+  letter-spacing: 5px;
   color: #fff;
-  text-shadow: 0 2px 8px #000, 0 0 12px rgba(0,0,0,0.9);
+  text-shadow: 0 2px 8px #000, 0 0 16px rgba(0,0,0,0.9);
   pointer-events: none;
 }
 .mode-card:hover {
-  transform: translateY(-3px);
+  transform: translateY(-4px);
   border-color: var(--xp-yellow);
 }
 .mode-card:hover .mode-card-img {
@@ -386,30 +386,39 @@ canvas { display: block; cursor: var(--matrix-cursor); }
 .mode-card.selected {
   filter: saturate(1.0) brightness(1.0);
   border-color: var(--xp-yellow);
-  box-shadow: 0 0 30px rgba(255, 217, 61, 0.4),
-              inset 0 0 20px rgba(255, 217, 61, 0.15);
-  transform: translateY(-2px);
+  box-shadow: 0 0 40px rgba(255, 217, 61, 0.5),
+              inset 0 0 28px rgba(255, 217, 61, 0.2);
+  transform: translateY(-3px);
 }
 #mode-picker-hint {
   text-align: center;
-  font-size: 12px;
-  letter-spacing: 4px;
+  font-size: 13px;
+  letter-spacing: 5px;
   color: #888;
-  margin-top: 6px;
+  margin-top: 10px;
 }
 #mode-picker-desc {
   text-align: center;
-  font-size: 13px;
-  letter-spacing: 2px;
+  font-size: 14px;
+  letter-spacing: 2.5px;
   color: var(--xp-yellow);
-  margin-top: 4px;
-  margin-bottom: 8px;
-  min-height: 18px;
+  margin-top: 6px;
+  margin-bottom: 10px;
+  min-height: 20px;
 }
 
-@media (max-width: 600px) {
-  .mode-card { width: 180px; height: 240px; }
-  .mode-card-label { font-size: 18px; }
+/* Step the cards down on shorter / narrower screens.
+   - <= 1100px viewport: shrink toward original size so two cards fit
+   - <= 700px: stack vertically and shrink further
+   The Fortnite-style design works best when both cards are visible
+   side-by-side, so we keep them horizontal as long as possible. */
+@media (max-width: 1100px) {
+  .mode-card { width: 320px; height: 420px; }
+  .mode-card-label { font-size: 28px; letter-spacing: 4px; }
+}
+@media (max-width: 700px) {
+  .mode-card { width: 220px; height: 300px; }
+  .mode-card-label { font-size: 20px; letter-spacing: 3px; bottom: 12px; }
 }
 
 /* ====== WALLET BUTTON ====== */

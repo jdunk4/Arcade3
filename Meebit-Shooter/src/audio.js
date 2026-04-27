@@ -522,6 +522,26 @@ class AudioEngine {
 
   damage() { this._beep({ type: 'square', freqStart: 180, freqEnd: 40, dur: 0.2, gainStart: 0.22 }); }
 
+  // Tutorial task-complete chime. Two ascending sine notes —
+  // first an E5 (659 Hz), then a B5 (988 Hz) layered with a
+  // brighter sine partial an octave up. The intent is the
+  // "payment went through" / Apple Pay confirmation feel —
+  // pleasant, brief, unmistakably positive. Uses sine waves
+  // (not triangle) so the timbre is clean rather than buzzy
+  // against the existing pickup/levelup palette. Total
+  // duration ~280 ms so it lands cleanly between lessons
+  // without dragging the pacing.
+  taskComplete() {
+    // First note — E5
+    this._beep({ type: 'sine', freqStart: 659.25, dur: 0.12, gainStart: 0.18 });
+    // Second note — B5, slightly delayed so the two register as
+    // a deliberate two-step rather than a chord
+    this._beep({ type: 'sine', freqStart: 987.77, dur: 0.18, gainStart: 0.18, delay: 0.10 });
+    // Sparkle layer — a quieter octave above the second note for
+    // brightness, makes it read as a "ding" rather than a "boop"
+    this._beep({ type: 'sine', freqStart: 1975.53, dur: 0.14, gainStart: 0.07, delay: 0.10 });
+  }
+
   // Shield deflect — played every time a bullet or rocket hits an intact
   // hive shield. Three layers:
   //   1. A quick high-to-low sine sweep (the "bwoop" of energy being

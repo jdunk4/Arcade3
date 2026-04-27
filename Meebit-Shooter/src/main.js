@@ -38,7 +38,7 @@ import {
   applyTutorialFloor, restoreNormalFloor,
   disableShadows, restoreShadows,
   disableFog, restoreFog,
-  getTutorialFloorColorAt,
+  getTutorialFloorColorAt, getTutorialCellInfo,
 } from './tutorial.js';
 import {
   startTutorialController, stopTutorialController,
@@ -47,6 +47,7 @@ import {
   notifyShotFired as tutorialOnShotFired,
   notifyDashed as tutorialOnDashed,
   notifyHazardHit as tutorialOnHazardHit,
+  notifyDeadlyHazardHit as tutorialOnDeadlyHazardHit,
   notifyPotionConsumed as tutorialOnPotionConsumed,
 } from './tutorialLessons.js';
 import { updateLifedrainBeams, applyLifedrainTick, fireLifedrainSwarm, updateLifedrainProjectiles, clearLifedrainEffects } from './lifedrainer.js';
@@ -2240,9 +2241,9 @@ function _exitTutorialIfActive() {
   _tutHazIdx = 0;
   _tutHazTimer = 0;
   try { clearHazards(); } catch (e) {}
-  // Hide the under-foot glow disc on exit so it doesn't reappear at
-  // (0,0,0) the next time the player runs a normal game.
-  if (_tutFloorGlowMesh) _tutFloorGlowMesh.visible = false;
+  // Hide the cell-glow highlight on exit so it doesn't reappear at
+  // its last position the next time the player runs a normal game.
+  if (_tutCellMesh) _tutCellMesh.visible = false;
   // If the OVERDRIVE lesson left overdrive mid-flight (8s timer
   // started, tutorial closed before it expired), force-exit it so
   // the player's scale/invuln state doesn't leak into the title
@@ -2254,41 +2255,70 @@ function _exitTutorialIfActive() {
   S.tutorialRequestOverdrive = false;
 }
 
-// Tutorial-only — soft emissive disc under the player's feet that
-// reads the rainbow floor's color at the player's current tile.
-// Lazy-builds the mesh on first call; thereafter just updates
-// position + color. Disc uses additive blending so it brightens
-// the tile rather than overwriting it. Player movement is the
-// only thing that changes the glow (no flicker, no other input).
+// Tutorial-only — highlights the rainbow grid cell the player is
+// CURRENTLY STANDING ON. Implementation is a single PlaneGeometry
+// quad sized to one cell of the texture grid; each frame we read the
+// player's cell from getTutorialCellInfo() and snap the quad's
+// position to that cell's center. Crossing a cell boundary causes
+// the quad to jump to the new cell; we softly fade between colors
+// so the change reads as the new cell "lighting up" rather than a
+// hard pop.
+//
+// Why a square quad and not a circular disc: the user wants the
+// SPECIFIC tile to glow, not a spotlight following the player. The
+// quad is sized 1:1 with the grid cell so it visually IS the tile.
+let _tutCellMesh = null;
+let _tutCellMat = null;
+let _tutCellSize = 0;             // remembered to detect first build
+let _tutCellTargetColor = new THREE.Color(0xffffff);
 function _updateTutorialFloorGlow() {
   if (!player || !player.pos) return;
-  if (!_tutFloorGlowMesh) {
-    const geo = new THREE.CircleGeometry(2.2, 32);
+  const info = getTutorialCellInfo(player.pos.x, player.pos.z);
+  if (!info) {
+    // Player is outside the rainbow zone (on the black border rails).
+    // Hide the highlight rather than pinning it to an edge cell.
+    if (_tutCellMesh) _tutCellMesh.visible = false;
+    return;
+  }
+  if (!_tutCellMesh) {
+    // Use a unit-square plane and scale it to whatever the cell size
+    // works out to. Additive blending so we BRIGHTEN the underlying
+    // tile rather than painting a flat color over it; depthWrite off
+    // so it reads as part of the floor.
+    const geo = new THREE.PlaneGeometry(1, 1);
     const mat = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
-      opacity: 0.65,
+      opacity: 0.55,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
-    // Lifted just above the floor to avoid z-fighting with the
-    // ground plane. 0.04 is enough to read as "on the floor" without
-    // visibly hovering.
+    // Lifted barely above the floor to avoid z-fighting with the
+    // ground plane.
     mesh.position.y = 0.04;
     scene.add(mesh);
-    _tutFloorGlowMesh = mesh;
-    _tutFloorGlowMat = mat;
+    _tutCellMesh = mesh;
+    _tutCellMat = mat;
   }
-  _tutFloorGlowMesh.visible = true;
-  _tutFloorGlowMesh.position.x = player.pos.x;
-  _tutFloorGlowMesh.position.z = player.pos.z;
-  // Sample the floor color at the player's location and apply it to
-  // the disc. Cheap math — no canvas pixel reads.
-  const hex = getTutorialFloorColorAt(player.pos.x, player.pos.z);
-  _tutFloorGlowMat.color.setHex(hex);
+  // Resize quad if the cell size has changed (it shouldn't between
+  // frames, but the first frame after a tutorial restart sets it).
+  if (_tutCellSize !== info.size) {
+    _tutCellSize = info.size;
+    // Slightly smaller than 1.0× so the highlight sits inside the
+    // cell with a thin gap at the edges — reads as "this cell"
+    // instead of bleeding into neighbors.
+    _tutCellMesh.scale.set(info.size * 0.94, info.size * 0.94, 1);
+  }
+  _tutCellMesh.visible = true;
+  _tutCellMesh.position.x = info.x;
+  _tutCellMesh.position.z = info.z;
+  // Smooth color lerp toward the new tile's color so cell crossings
+  // feel like the highlight is gracefully migrating, not snapping.
+  _tutCellTargetColor.setHex(info.color);
+  _tutCellMat.color.lerp(_tutCellTargetColor, 0.18);
 }
 
 document.getElementById('start-btn').addEventListener('click', () => {
@@ -2605,16 +2635,6 @@ const _tutHazNamesByMode = {
   damage: ['TETRIS', 'GALAGA'],
   deadly: ['MINESWEEPER', 'PACMAN'],
 };
-
-// Tutorial-only "tile glow" — a soft emissive disc that follows the
-// player and tints its color from the rainbow floor texel underneath
-// them. Created lazily on first tutorial frame, hidden during normal
-// game. The disc itself doesn't cast light into the scene (would need
-// a real PointLight) — it's a flat additive ring that reads as the
-// floor "lighting up" under the player's feet. Only responds to the
-// player's movement; nothing else.
-let _tutFloorGlowMesh = null;
-let _tutFloorGlowMat = null;
 
 function animate() {
   requestAnimationFrame(animate);
@@ -3133,11 +3153,19 @@ function updatePlayer(dt) {
   // Floor hazards (lava tetrominoes) damage the player continuously while
   // they stand on one. Dash frames' invuln protects them briefly.
   // Tutorial: snapshot HP before the call so we can detect a fresh
-  // hazard hit (HP drop) and notify the lesson controller.
+  // hazard hit (HP drop) and notify the lesson controller. We split
+  // the notification into TWO kinds:
+  //   1. Any HP drop → tutorialOnHazardHit  (lesson 10, "TAKE A HIT")
+  //   2. HP went from positive to ≤0 in one go → tutorialOnDeadlyHazardHit
+  //      (lesson 11, "DODGE THE DEADLY") — only insta-kill bombs and
+  //      ghosts trigger this, since damage tiles tick down gradually.
   const _hpBeforeHazard = S.tutorialMode ? S.hp : 0;
   hurtPlayerIfOnHazard(dt, player.pos, S, UI, Audio, shake);
   if (S.tutorialMode && S.hp < _hpBeforeHazard) {
     tutorialOnHazardHit();
+    if (_hpBeforeHazard > 0 && S.hp <= 0) {
+      tutorialOnDeadlyHazardHit();
+    }
   }
   if (S.hp <= 0) { S.hp = 0; UI.updateHUD(); gameOver(); return; }
 
