@@ -19,7 +19,7 @@
 
 import * as THREE from 'three';
 import { scene } from './scene.js';
-import { CHAPTERS } from './config.js';
+import { CHAPTERS, getCrosswaveTint } from './config.js';
 import { hitBurst } from './effects.js';
 import { S } from './state.js';
 import { Audio } from './audio.js';
@@ -30,11 +30,31 @@ const HALO_GEO  = new THREE.RingGeometry(0.4, 0.7, 16);
 
 // ---- Tunables ----
 const CUBE_HEIGHT = 1.6;            // hover Y above floor
-const PICKUP_RADIUS = 3.0;          // enter this radius → start charging collection
-const MAGNET_RADIUS = 6.0;          // start drifting toward player
-const MAGNET_SPEED = 14.0;          // u/s when fully magnetized (faster — collect-all feel)
+// Pickup radius bumped from 3.0 → 9.0 (3×) per user spec — the
+// previous radius was so tight the player could miss it on a dash-by.
+// The bigger zone gives the cubes a real "presence" that's hard to
+// avoid stumbling into.
+const PICKUP_RADIUS = 9.0;
+// Magnet radius extended in proportion to the pickup zone — cubes
+// start drifting from a wider area so the bigger trigger zone has
+// the same visual telegraph the smaller one used to.
+const MAGNET_RADIUS = 14.0;
+// Magnet speed bumped from 14 → 30 u/s. The base player speed is
+// PLAYER.moveSpeed (~7 u/s) and DASH burst is ~22 u/s for ~0.18s.
+// 30 u/s is faster than sustained movement and faster than any
+// realistic dash chain, so the player physically CAN'T outrun the
+// cubes once they've triggered. The user complained the cubes were
+// outrun-able at 14; this fixes that.
+const MAGNET_SPEED = 30.0;
 const COLLECT_RADIUS = 0.9;         // actually picked up at this distance
-const COLLECT_CHARGE_DURATION = 1.0; // seconds player must stand in ring before cubes magnet
+// Charge duration dropped to 0 — cubes JOLT toward the player the
+// instant they enter the radius, no stand-still delay. Combined
+// with the 3× radius this gives the cubes the "pulled in like a
+// magnet" feel the user wanted: walk through the zone, all 4 cubes
+// snap toward you immediately. The collect-charge loop is left in
+// for compatibility (the ring still pulses) but its threshold of 0
+// triggers on the first frame in the radius.
+const COLLECT_CHARGE_DURATION = 0.0;
 
 // ---- Module state ----
 let _cubes = [];
@@ -74,7 +94,12 @@ function _ringFloorMat(tint) {
  *  spawn yet — call addChargeCube(chapterIdx) once per crusher slam. */
 export function spawnChargeCubeCluster(chapterIdx, basePosX, basePosZ) {
   clearChargeCubes();
-  _chapterTint = CHAPTERS[chapterIdx % CHAPTERS.length].full.grid1;
+  // Use the cross-wave tint helper so chapter 1 cubes appear in
+  // chapter 4's green and chapter 4 cubes in chapter 1's orange.
+  // spawnChargeCubeCluster is called from the wave-1 crusher
+  // finisher (waves.js:350) so the wave-1 path is the only one
+  // that hits this — no explicit waveIdx needed.
+  _chapterTint = getCrosswaveTint(chapterIdx);
   _basePos = { x: basePosX, z: basePosZ };
   _allCollectionTriggered = false;
   _collectChargeT = 0;
@@ -179,8 +204,14 @@ export function updateChargeCubes(dt, playerPos) {
         : 0;
       _ringMat.opacity = (0.50 + ringPulse * 0.30) * Math.max(0.3, remainingFrac);
     } else if (playerInPickupRadius) {
-      // Charging — opacity climbs with progress
-      const f = _collectChargeT / COLLECT_CHARGE_DURATION;
+      // Charging — opacity climbs with progress. With
+      // COLLECT_CHARGE_DURATION = 0 this branch is essentially
+      // unreachable (the trigger fires on the same tick the player
+      // enters the radius), but the divide is guarded against zero
+      // for safety in case the constant ever moves back above zero.
+      const f = COLLECT_CHARGE_DURATION > 0
+        ? _collectChargeT / COLLECT_CHARGE_DURATION
+        : 1;
       _ringMat.opacity = 0.40 + f * 0.40 + ringPulse * 0.20;
     } else {
       // Idle — soft visible pulse

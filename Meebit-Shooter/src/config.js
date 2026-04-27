@@ -74,6 +74,40 @@ export const CHAPTERS = [
 // Chapter index for PARADISE FALLEN — used in a handful of branch checks.
 export const PARADISE_FALLEN_CHAPTER_IDX = 6;
 
+// CROSS-CHAPTER WAVE-1 COLOR SWAP
+// On wave 1 of chapter 1, eggs and charge cubes are tinted with
+// CHAPTER 4's signature green (instead of chapter 1's orange). On
+// wave 1 of chapter 4, they're tinted with CHAPTER 1's signature
+// orange (instead of chapter 4's green). The swap is wave-1 only —
+// later waves of each chapter use the normal palette.
+//
+// Why: gives the very first wave of those two chapters a visual
+// contrast between "the world" (chapter 1's orange grid, chapter 4's
+// green grid) and "the prize" (charge cubes / eggs in the
+// complementary color). It pops more than tinting them in the
+// chapter's own color, where they'd visually blend with the floor
+// and lanterns.
+//
+// Returns the standard tint (CHAPTERS[chapterIdx].full.grid1) for
+// every other chapter and wave. Callers pass either chapterIdx alone
+// (assumed wave 1 — the only wave that calls this in the current
+// codebase) or chapterIdx + waveIdx if they want explicit gating.
+export function getCrosswaveTint(chapterIdx, waveIdx) {
+  const isWave1 = waveIdx === undefined || waveIdx === 0 || waveIdx === 1;
+  const ch = chapterIdx | 0;
+  if (isWave1) {
+    if (ch === 0) {
+      // Chapter 1 → chapter 4's green (0x00ff66)
+      return CHAPTERS[3].full.grid1;
+    }
+    if (ch === 3) {
+      // Chapter 4 → chapter 1's orange (0xff6a1a)
+      return CHAPTERS[0].full.grid1;
+    }
+  }
+  return CHAPTERS[ch % CHAPTERS.length].full.grid1;
+}
+
 // Ch.7 structure: 3 waves, not 5. When we're in chapter 7, waves 1/2/3
 // replace the usual 1..5 structure. We keep WAVES_PER_CHAPTER at 5 for
 // prior chapters but branch in getWaveDef() below for ch.7.

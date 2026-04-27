@@ -120,8 +120,10 @@ export function buildCrowd() {
   // Eight chapter-tinted point lights positioned around the perimeter.
   // Four on the side-midpoints, four on the corners. This gives an
   // even chapter-colored wash across the arena floor edges without
-  // hot spots. Intensity 7 / range 55 is strong enough to visibly
-  // bleed onto the floor tiles.
+  // hot spots. Intensity 11 / range 65 — bumped from 7/55 for a
+  // more dramatic chapter wash. The lights also breathe in
+  // updateCrowd: a slow sine pulse on intensity makes the perimeter
+  // glow visibly alive instead of feeling like a static neon sign.
   sideLights = [];
   const outerDist = ARENA + OUTER_PADDING + 4;
   const sidePositions = [
@@ -136,9 +138,16 @@ export function buildCrowd() {
     [-outerDist * 0.75, FLOAT_HEIGHT + 1,  outerDist * 0.75],
     [ outerDist * 0.75, FLOAT_HEIGHT + 1,  outerDist * 0.75],
   ];
-  for (const [sx, sy, sz] of sidePositions) {
-    const light = new THREE.PointLight(0x4ff7ff, 7.0, 55, 1.3);
+  for (let i = 0; i < sidePositions.length; i++) {
+    const [sx, sy, sz] = sidePositions[i];
+    const light = new THREE.PointLight(0x4ff7ff, 11.0, 65, 1.3);
     light.position.set(sx, sy, sz);
+    // Stash a per-light pulse phase so neighboring lights don't
+    // breathe in lockstep — slight phase shifts between adjacent
+    // perimeter lights look like the chapter mood is sweeping
+    // around the arena rather than blinking on/off as a unit.
+    light.userData.pulsePhase = (i / sidePositions.length) * Math.PI * 2;
+    light.userData.baseIntensity = 11.0;
     scene.add(light);
     sideLights.push(light);
   }
@@ -192,4 +201,18 @@ export function updateCrowd(timeElapsed) {
   }
   bodyMesh.instanceMatrix.needsUpdate = true;
   headMesh.instanceMatrix.needsUpdate = true;
+
+  // Perimeter side-light pulse. Each light has its own phase shift
+  // (set in _generateLayout), so the chapter glow visibly sweeps
+  // around the arena instead of breathing as one big unit. Intensity
+  // oscillates between 0.85× and 1.15× of base — subtle enough not
+  // to feel disco-y, dramatic enough that the user perceives the
+  // arena edges as "alive".
+  if (sideLights) {
+    for (const light of sideLights) {
+      const base = light.userData.baseIntensity || 11.0;
+      const phase = light.userData.pulsePhase || 0;
+      light.intensity = base * (0.85 + 0.30 * Math.sin(timeElapsed * 1.2 + phase));
+    }
+  }
 }

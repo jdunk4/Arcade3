@@ -27,7 +27,7 @@
 
 import * as THREE from 'three';
 import { scene } from './scene.js';
-import { BLOCK_CONFIG, ARENA, CHAPTERS } from './config.js';
+import { BLOCK_CONFIG, ARENA, CHAPTERS, getCrosswaveTint } from './config.js';
 import { hitBurst } from './effects.js';
 import { shake } from './state.js';
 import { blocks } from './blocks.js';
@@ -238,7 +238,12 @@ function _pickEggPositions(count) {
  *  egg objects. */
 export function spawnEggsInDepotWedge(chapterIdx, count = 4) {
   const positions = _pickEggPositions(count);
-  const tint = (CHAPTERS[chapterIdx % CHAPTERS.length].full.grid1) || 0x88ffaa;
+  // Cross-wave tint: chapter 1 wave 1 uses chapter 4's green;
+  // chapter 4 wave 1 uses chapter 1's orange. Other chapters use
+  // their normal grid1 tint. spawnEggsInDepotWedge is only called
+  // on wave 1 (per waves.js's isEggWave gating) so we don't need
+  // to pass an explicit waveIdx here.
+  const tint = getCrosswaveTint(chapterIdx) || 0x88ffaa;
   const spawned = [];
   for (const p of positions) {
     const group = _buildEgg(tint);
