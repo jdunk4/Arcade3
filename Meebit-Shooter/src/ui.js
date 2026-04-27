@@ -760,13 +760,50 @@ export const UI = {
     // the revolver wheel) so this reads as "your equipped weapon is
     // right next to you."
     const ACTIVE_ANGLE = 315;
+
+    // Per-slot continuous angle tracking. CSS rotation transitions
+    // interpolate LINEARLY through numerical angle values — so if a
+    // slot's --revolver-angle jumps from 15° to 315°, CSS animates
+    // 15→100→200→315 (300° the long way), instead of the visually
+    // correct 15→0→315 (60° the short way).
+    //
+    // Fix: each slot tracks its current angle as an unbounded
+    // continuous value. On each switch we compute the SHORT delta
+    // (between -180° and +180°) from the slot's current angle to the
+    // new target, and add that delta to the running angle. The
+    // resulting CSS angle isn't clamped to [0, 360) — could be 720°,
+    // -45°, etc — which is fine because rotate() handles unbounded
+    // values correctly. Browsers happily transition rotate(720deg)
+    // to rotate(780deg) as 60° of clockwise turn.
+    if (!this._revolverSlotAngles) {
+      this._revolverSlotAngles = {};
+    }
+    const angles = this._revolverSlotAngles;
+
     REVOLVER_ORDER.forEach((slotName, i) => {
       const el = document.querySelector('.slot[data-slot="' + slotName + '"]');
       if (!el) return;
-      // Slot's angular distance from the active one, then add ACTIVE_ANGLE
-      // so the active slot lands at top-left.
-      const rel = ((i - lastActive) * SLOT_SPACING + ACTIVE_ANGLE + 360) % 360;
-      el.style.setProperty('--revolver-angle', rel + 'deg');
+      // Target angle this slot should land at, given the new active
+      // index. Range [0, 360) before delta math.
+      const target = (((i - lastActive) * SLOT_SPACING + ACTIVE_ANGLE) % 360 + 360) % 360;
+      // Current accumulated angle (unbounded). First-call init: snap
+      // to target so the very first paint doesn't animate from 0.
+      if (angles[slotName] == null) {
+        angles[slotName] = target;
+        el.style.setProperty('--revolver-angle', target + 'deg');
+        return;
+      }
+      // Compute the short delta. Reduce the current angle modulo 360
+      // for comparison, then pick the direction that takes ≤ 180°.
+      const currentMod = ((angles[slotName] % 360) + 360) % 360;
+      let delta = target - currentMod;
+      if (delta > 180) delta -= 360;
+      else if (delta < -180) delta += 360;
+      // Apply the short delta to the unbounded running angle. The
+      // CSS will transition from old → new linearly across exactly
+      // |delta| degrees in the right direction.
+      angles[slotName] += delta;
+      el.style.setProperty('--revolver-angle', angles[slotName] + 'deg');
     });
   },
 
