@@ -23,6 +23,16 @@ export const S = {
   // the flag's lifecycle (sets true on click, clears false at t=8s).
   hyperdriveActive: false,
 
+  // Tutorial mode — set true when the player picks START TUTORIAL on
+  // the title screen instead of ATTACK THE AI. While true:
+  //   - the floor is replaced with the rainbow numbered-tile texture
+  //   - all enemies spawn black or white regardless of chapter tint
+  //   - spawn rate is clamped to 1..2/sec for a chill practice pace
+  //   - the player owns every weapon from the first frame
+  // Cleared on game-over / restart so a normal run after a tutorial
+  // doesn't inherit the practice settings.
+  tutorialMode: false,
+
   // Chapter 7 (PARADISE FALLEN) intro spawn hold. Set to true when the
   // player enters chapter 7; cleared after a few seconds so the wave
   // can begin properly. While true, both the trickle path and the hive
@@ -323,6 +333,9 @@ export function resetGame() {
   S.lifedrainCharge = 0;
   S.playerPos = null;
   S.bossFightStartTime = null;
+  // Tutorial mode is reset by default. startTutorial() in main.js
+  // re-sets it to true after resetGame() runs.
+  S.tutorialMode = false;
 }
 
 export function getWeapon() {

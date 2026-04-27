@@ -33,6 +33,10 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 })();
 
 import { scene, camera, renderer, CAMERA_OFFSET, applyTheme, Scene, enterChapter7Atmosphere, exitChapter7Atmosphere, updateFlashlight } from './scene.js';
+import {
+  isTutorialActive, setTutorialActive,
+  applyTutorialFloor, restoreNormalFloor,
+} from './tutorial.js';
 import { updateLifedrainBeams, applyLifedrainTick, fireLifedrainSwarm, updateLifedrainProjectiles, clearLifedrainEffects } from './lifedrainer.js';
 import { scatterCorpses, clearCorpses } from './corpses.js';
 import { S, keys, mouse, joyState, resetGame, getWeapon, shake } from './state.js';
@@ -1954,6 +1958,118 @@ function startGame() {
   startWave(1);
 }
 
+// ---------------------------------------------------------------------
+// TUTORIAL ENTRY
+// ---------------------------------------------------------------------
+// Loads the player into the same arena geometry as a normal run, but:
+//   - swaps the floor for the rainbow numbered-tile texture
+//   - unlocks every weapon (plus pickaxe/grenade) so the player can
+//     practice cycling through 1-6 + Q
+//   - flags S.tutorialMode so waves.js forces enemy color to b/w and
+//     clamps the spawn rate to 1..2/sec
+//
+// We deliberately skip the hyperdrive cinematic — the tutorial is
+// supposed to feel like a calm range, not the dramatic ATTACK THE AI
+// dive. Otherwise the path mirrors startGame so the rest of the game's
+// systems boot identically.
+// ---------------------------------------------------------------------
+function startTutorial() {
+  Audio.stopPhoneRing && Audio.stopPhoneRing();
+  Audio.stopCDrone && Audio.stopCDrone();
+
+  initFogRing();
+  setTitleMode(false);
+
+  document.getElementById('gameover').classList.add('hidden');
+
+  // Hide the title screen immediately — no cinematic ramp.
+  const titleEl = document.getElementById('title');
+  if (titleEl) titleEl.classList.add('hidden');
+
+  // Reveal the in-game HUD just like startGame does.
+  document.querySelectorAll('.hidden-ui').forEach(el => el.style.display = '');
+
+  resetGame();
+
+  // Mark tutorial mode AFTER resetGame (which clears the flag).
+  S.tutorialMode = true;
+  setTutorialActive(true);
+
+  // Load player identity (same path as startGame), then unlock the
+  // entire arsenal so the player can cycle 1..6 + Q + G.
+  const rec = Save.load();
+  S.username = rec.username;
+  S.playerMeebitId = rec.playerMeebitId || S.playerMeebitId;
+  S.playerMeebitSource = rec.playerMeebitSource || S.playerMeebitSource;
+  S.walletAddress = rec.walletAddress;
+  S.ownedWeapons = new Set([
+    'pistol', 'shotgun', 'smg', 'rocket', 'raygun', 'flamethrower',
+    'pickaxe',
+  ]);
+  S.currentWeapon = 'pistol';
+  S.previousCombatWeapon = 'pistol';
+
+  resetPlayer();
+  resetWaves();
+  clearBullets();
+  clearRockets();
+  for (const g of _grenades) scene.remove(g);
+  _grenades.length = 0;
+  refillGrenades();
+  clearPickups();
+  clearParticles();
+  clearAllBlocks();
+  clearAllEggs();
+  clearCannon();
+  clearQueenHive();
+  clearCrusher();
+  clearChargeCubes();
+  clearEscortTruck();
+  clearServerWarehouse();
+  clearSafetyPod();
+  clearCockroachBoss();
+  clearGooSplats();
+  clearHazards();
+  clearAllPickups();
+  clearAllPixlPals();
+  clearAllFlingers();
+  despawnGalagaShip();
+  despawnPacman();
+  despawnPellets();
+  clearInfectors();
+  clearAllPowerups();
+  hideMissileArrow();
+
+  // Initialize visuals on chapter 0 so the lighting/sky look right; the
+  // floor swap below replaces just the ground texture.
+  initRain(CHAPTERS[0].full.grid1, 1);
+  ensureBeamMesh();
+  ensureFlameMeshes();
+  applyTheme(0, 1);
+  applyRainTo(CHAPTERS[0].full.grid1, 1);
+  buildCrowd();
+  recolorCrowd(CHAPTERS[0].full.grid1);
+  prewarmShaders(renderer);
+  try { prewarmBossCinematic(); } catch (e) {}
+
+  // Swap the floor to the rainbow tile texture AFTER applyTheme so the
+  // theme's lamp tint doesn't multiply the rainbow colors.
+  applyTutorialFloor();
+
+  Audio.init();
+  Audio.resume();
+  Audio.stopCDrone && Audio.stopCDrone();
+  setTimeout(() => {
+    try { Audio.startMusic(1); } catch (e) {}
+  }, 200);
+
+  UI.updateHUD();
+  UI.updateWeaponSlots();
+  // Show a quick onboarding toast.
+  UI.toast('TUTORIAL ARENA · ALL WEAPONS UNLOCKED', '#ffd93d', 3200);
+  startWave(1);
+}
+
 function gameOver() {
   S.running = false;
   S.phase = 'gameover';
@@ -1971,8 +2087,29 @@ function gameOver() {
   document.getElementById('gameover').classList.remove('hidden');
 }
 
-document.getElementById('start-btn').addEventListener('click', () => { Audio.init(); startGame(); });
-document.getElementById('restart-btn').addEventListener('click', startGame);
+document.getElementById('start-btn').addEventListener('click', () => {
+  // If we somehow got here from a tutorial run, make sure the rainbow
+  // floor is gone before the real game starts.
+  if (isTutorialActive()) {
+    setTutorialActive(false);
+    restoreNormalFloor();
+  }
+  Audio.init();
+  startGame();
+});
+document.getElementById('tutorial-btn').addEventListener('click', () => {
+  Audio.init();
+  startTutorial();
+});
+document.getElementById('restart-btn').addEventListener('click', () => {
+  // Restart always returns to the real game flow — drop the tutorial
+  // floor if it's currently up.
+  if (isTutorialActive()) {
+    setTutorialActive(false);
+    restoreNormalFloor();
+  }
+  startGame();
+});
 
 // ---- PAUSE MENU HANDLERS ----
 // Registered once. The pause menu calls onResume when the user clicks
@@ -1984,6 +2121,12 @@ PauseMenu.setHandlers({
     S.paused = false;
     S.running = false;
     Audio.stopMusic();
+    // If quitting a tutorial run, drop the rainbow floor so the title
+    // screen + any subsequent normal run look right.
+    if (isTutorialActive()) {
+      setTutorialActive(false);
+      restoreNormalFloor();
+    }
     document.querySelectorAll('.hidden-ui').forEach(el => el.style.display = 'none');
     document.getElementById('gameover').classList.add('hidden');
     document.getElementById('title').classList.remove('hidden');

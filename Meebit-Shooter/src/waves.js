@@ -15,6 +15,7 @@ import {
   applyRainTo,
 } from './effects.js';
 import { applyTheme, scene, renderer, camera } from './scene.js';
+import { isTutorialActive, tutorialEnemyColor, tutorialSpawnRateOverride } from './tutorial.js';
 import { player, setPlayerGlowColor } from './player.js';
 import {
   spawnRescueMeebit, updateRescueMeebit, removeRescueMeebit,
@@ -849,13 +850,20 @@ export function updateWaves(dt) {
       // Gated by S.hyperdriveActive so that during the 8s ATTACK-THE-AI
       // prelude, no enemies spawn — the player can move/aim/fire in an
       // empty arena while the rain overlay plays.
-      const effRate = waveDef.spawnRate * density;
+      // Tutorial mode clamps the rate to 1..2/sec so the practice arena
+      // never floods the player.
+      let baseRate = waveDef.spawnRate;
+      if (S.tutorialMode) baseRate = tutorialSpawnRateOverride(baseRate);
+      const effRate = baseRate * density;
       spawnCooldown = Math.max(0.15, 0.9 / effRate);
       let baseCount = Math.min(3, 1 + Math.floor(S.wave / 3));
       // Cannon-load pandemonium — fixed batch of 3 (no ramp anymore).
       if (waveDef.type === 'cannon-load') {
         baseCount = 3;
       }
+      // Tutorial mode also limits the per-batch count so the spawn-rate
+      // clamp isn't undermined by 3-at-a-time bursts.
+      if (S.tutorialMode) baseCount = 1;
       const count = Math.max(1, Math.round(baseCount * density));
       for (let i = 0; i < count; i++) spawnFromMix(waveDef.enemies);
     }
@@ -2080,7 +2088,12 @@ function spawnFromMix(mix) {
   const x = Math.max(-48, Math.min(48, player.pos.x + Math.cos(angle) * dist));
   const z = Math.max(-48, Math.min(48, player.pos.z + Math.sin(angle) * dist));
   const fullTheme = CHAPTERS[S.chapter % CHAPTERS.length].full;
-  makeEnemy(type, fullTheme.enemyTint, new THREE.Vector3(x, 0, z));
+  // Tutorial mode swaps in pure black/white instead of the chapter tint
+  // so the meebits read clearly against the rainbow practice floor.
+  const tint = S.tutorialMode
+    ? tutorialEnemyColor(fullTheme.enemyTint)
+    : fullTheme.enemyTint;
+  makeEnemy(type, tint, new THREE.Vector3(x, 0, z));
 }
 
 function spawnFromPortal(portal, mix) {
