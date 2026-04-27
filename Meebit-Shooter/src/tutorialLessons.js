@@ -327,21 +327,23 @@ function _isPlayerInZone(zone) {
 function buildLessonList() {
   const list = [];
 
-  // ----- 1. BASICS — move + dash + shoot, all in one lesson -----
-  // Three sub-objectives gate completion. Each ticks independently
-  // and the lesson finishes when all three are met. Progress label
+  // ----- 1. BASICS — move + shoot, all in one lesson -----
+  // Two sub-objectives gate completion. Each ticks independently
+  // and the lesson finishes when both are met. Progress label
   // shows whichever sub-objective hasn't been met yet (or "all done"
   // briefly before advance).
+  // Dash was previously a third gated requirement here. Removed —
+  // dash is still a valid game mechanic (SPACE works) but tutorial
+  // progress no longer waits on it, so players who don't naturally
+  // dash can still complete the basics lesson.
   list.push({
     id: 'basics',
-    label: 'MOVE · DASH · SHOOT',
-    hint: 'Walk with WASD · dash with SPACE · hold LEFT MOUSE to fire your pistol.',
+    label: 'MOVE · SHOOT',
+    hint: 'Walk with WASD · hold LEFT MOUSE to fire your pistol.',
     _moveDone: false,
-    _dashDone: false,
     _shootDone: false,
     onActivate() {
       this._moveDone = false;
-      this._dashDone = false;
       this._shootDone = false;
     },
     onUpdate() {
@@ -349,11 +351,10 @@ function buildLessonList() {
       // and the eventual isComplete() agree on a single source of
       // truth.
       this._moveDone = (_walkDistance - _walkDistanceAtActivate) >= 12;
-      this._dashDone = (_dashCount - _dashCountAtActivate) >= 1;
       this._shootDone = (_shotCount - _shotCountAtActivate) >= 5;
     },
     isComplete() {
-      return this._moveDone && this._dashDone && this._shootDone;
+      return this._moveDone && this._shootDone;
     },
     progress() {
       // Compose a tiny status line so the player sees which parts
@@ -362,11 +363,10 @@ function buildLessonList() {
       const move = this._moveDone
         ? '✓ MOVE'
         : ('MOVE ' + Math.min(12, Math.round(Math.max(0, _walkDistance - _walkDistanceAtActivate))) + '/12');
-      const dash = this._dashDone ? '✓ DASH' : 'DASH';
       const shoot = this._shootDone
         ? '✓ SHOOT'
         : ('SHOOT ' + Math.min(5, Math.max(0, _shotCount - _shotCountAtActivate)) + '/5');
-      return move + ' · ' + dash + ' · ' + shoot;
+      return move + ' · ' + shoot;
     },
   });
 
