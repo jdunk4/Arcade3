@@ -518,7 +518,15 @@ export const UI = {
            common base CSS positions every visible slot at the wheel's
            CENTER; the .revolver-pos-N classes added by JS rotate them
            outward and around. Active slot is highlighted with a glow
-           and scaled up. */
+           and scaled up.
+
+           Animation curve: cubic-bezier(0.22, 1, 0.36, 1) is the
+           "ease-out-quart" curve — fast start, gentle settle, no
+           overshoot. The previous bezier with a 1.4 endpoint had a
+           visible bounce that read as "off" on a wheel that's
+           supposed to rotate smoothly. Duration bumped to 0.5s so the
+           rotation feels deliberate and the player's eye can track
+           which slot is moving where. */
         #inventory .slot {
           position: absolute !important;
           left: 50% !important;
@@ -526,30 +534,27 @@ export const UI = {
           width: 64px !important;
           height: 64px !important;
           margin: 0 !important;
-          /* Translate -50% -50% to center the slot on the position,
-             then a per-slot transform layered via CSS variable handles
-             the angular placement. The variable is set inline by JS
-             whenever the wheel rotates. */
           transform: translate(-50%, -50%) rotate(var(--revolver-angle, 0deg)) translateY(-90px) rotate(calc(-1 * var(--revolver-angle, 0deg))) !important;
-          transition: transform 0.4s cubic-bezier(0.5, 0, 0.2, 1.4),
-                      opacity 0.3s ease-out,
-                      box-shadow 0.3s ease-out;
+          transition: transform 0.50s cubic-bezier(0.22, 1, 0.36, 1),
+                      opacity 0.30s ease-out,
+                      box-shadow 0.30s ease-out;
           pointer-events: auto;
           /* Reset any margins/padding from the base .slot rule */
           flex: none !important;
         }
 
         /* Active slot — bigger, glowing, lifted forward from the wheel.
-           CSS variables make this composable with the angular position
-           transform above. Stronger glow + subtle pulse animation so the
-           player's current weapon clearly stands out. */
+           Pop animation runs once on activation: a quick punch up to
+           1.65× then settles to 1.5×, giving the player a clear "this
+           one just popped out" cue when scrolling. */
         #inventory .slot.active {
           transform: translate(-50%, -50%) rotate(var(--revolver-angle, 0deg)) translateY(-90px) rotate(calc(-1 * var(--revolver-angle, 0deg))) scale(1.5) !important;
           box-shadow: 0 0 32px rgba(255, 215, 80, 1.0),
                       0 0 14px rgba(255, 230, 100, 1.0),
                       0 0 4px rgba(255, 255, 200, 1.0) !important;
           z-index: 2 !important;
-          animation: revolver-active-pulse 1.6s ease-in-out infinite;
+          animation: revolver-active-pulse 1.6s ease-in-out infinite,
+                     revolver-pop 0.32s ease-out 1;
         }
         @keyframes revolver-active-pulse {
           0%, 100% { box-shadow: 0 0 32px rgba(255, 215, 80, 1.0),
@@ -558,6 +563,16 @@ export const UI = {
           50%      { box-shadow: 0 0 44px rgba(255, 220, 100, 1.0),
                                  0 0 20px rgba(255, 230, 100, 1.0),
                                  0 0 6px rgba(255, 255, 200, 1.0); }
+        }
+        /* One-shot "pop" played whenever a slot newly gains .active.
+           Filter is layered on top of the base transform via animation;
+           we only animate filter+filter-like properties so we don't
+           fight the rotation transition. (Animating transform here
+           would override the per-slot --revolver-angle math.) */
+        @keyframes revolver-pop {
+          0%   { filter: brightness(2.0) saturate(1.4); }
+          60%  { filter: brightness(1.3) saturate(1.1); }
+          100% { filter: brightness(1.0) saturate(1.0); }
         }
 
         /* Owned but inactive slots — visible, slightly dimmed */

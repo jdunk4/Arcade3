@@ -37,6 +37,8 @@ import {
   isTutorialActive, setTutorialActive,
   applyTutorialFloor, restoreNormalFloor,
   disableShadows, restoreShadows,
+  disableFog, restoreFog,
+  getTutorialFloorColorAt,
 } from './tutorial.js';
 import {
   startTutorialController, stopTutorialController,
@@ -73,7 +75,7 @@ import { preloadAllHerds } from './herdVrmLoader.js';
 import { blocks, updateBlocks, segmentBlocked, resolveCollision, findNearestBlock, damageBlock, damageBlockAt, clearAllBlocks, registerBlockExplosionHandler } from './blocks.js';
 import { clearAllEggs } from './eggs.js';
 import { updateCannon, clearCannon } from './cannon.js';
-import { updateQueenHive, clearQueenHive, tickQueenShieldCollision, tryHitQueenShield } from './queenHive.js';
+import { updateQueenHive, clearQueenHive, tickQueenShieldCollision, tryHitQueenShield, getOutermostDomeInfo, pingQueenShieldAt } from './queenHive.js';
 import { updateCrusher, clearCrusher } from './crusher.js';
 import { updateChargeCubes, clearChargeCubes } from './chargeCubes.js';
 import { clearEscortTruck, getTruckPos, getTruckCollisionCircles, updateEscortTruck } from './escortTruck.js';
@@ -1452,17 +1454,29 @@ window.addEventListener('mouseup', e => { if (e.button === 0) mouse.down = false
 window.addEventListener('contextmenu', e => e.preventDefault());
 
 // Mouse-wheel weapon cycling. Each wheel "click" rotates the revolver
-// by one slot — wheel up = previous weapon, wheel down = next. The 1-6
-// hotkeys still work; this is an alternate control for players who
-// prefer revolving the inventory like a Halo-style weapon wheel.
+// by one slot:
+//   wheel DOWN (deltaY > 0) → NEXT weapon
+//   wheel UP   (deltaY < 0) → PREVIOUS weapon
+// Matches OS scroll convention (scroll down = move forward through
+// content). The 1-6 hotkeys still work; this is an alternate input.
 //
 // Trackpads emit many tiny deltaY events per swipe (each only a few
 // pixels); a naive listener would whip through every weapon in one
 // flick. We accumulate deltaY and only step when |accum| crosses a
 // threshold, which feels like one "click" per intentional gesture on
 // both mice and trackpads.
+//
+// We also rate-limit the actual cycle calls. Without this, rapid
+// scroll input fires multiple _cycleWeapon() calls inside a single
+// CSS transition window, which makes the revolver wheel "judder" as
+// each new transform overrides a still-tweening previous one. The
+// cooldown lets each step's animation land cleanly before the next
+// begins. Tuned to ~half the transition duration (which is 0.5s in
+// ui.js) so a deliberate scroll feels responsive, not blocked.
 let _wheelAccum = 0;
+let _lastCycleAt = 0;                 // wallclock ms of last cycle call
 const _WHEEL_STEP_THRESHOLD = 50;     // tuned for both mice & trackpads
+const _CYCLE_COOLDOWN_MS = 180;       // min time between weapon switches
 window.addEventListener('wheel', e => {
   if (!S.running) return;
   // Don't hijack scroll inside the pause menu, settings panes, etc.
@@ -1470,12 +1484,19 @@ window.addEventListener('wheel', e => {
   // preventDefault so the page doesn't scroll behind the canvas.
   e.preventDefault();
   _wheelAccum += e.deltaY;
-  while (_wheelAccum >= _WHEEL_STEP_THRESHOLD) {
-    _wheelAccum -= _WHEEL_STEP_THRESHOLD;
+  // Drain accumulator into at most ONE cycle per tick — additional
+  // intent is dropped on the floor (we explicitly clamp the accum to
+  // the threshold magnitude) so a flick that crossed the threshold
+  // 5 times in 80ms doesn't queue 5 spins.
+  const now = performance.now();
+  if (now - _lastCycleAt < _CYCLE_COOLDOWN_MS) return;
+  if (_wheelAccum >= _WHEEL_STEP_THRESHOLD) {
+    _wheelAccum = 0;
+    _lastCycleAt = now;
     _cycleWeapon(+1);                 // wheel down = next weapon
-  }
-  while (_wheelAccum <= -_WHEEL_STEP_THRESHOLD) {
-    _wheelAccum += _WHEEL_STEP_THRESHOLD;
+  } else if (_wheelAccum <= -_WHEEL_STEP_THRESHOLD) {
+    _wheelAccum = 0;
+    _lastCycleAt = now;
     _cycleWeapon(-1);                 // wheel up = previous weapon
   }
 }, { passive: false });               // passive:false so preventDefault works
@@ -2114,10 +2135,11 @@ function startTutorial() {
   // theme's lamp tint doesn't multiply the rainbow colors.
   applyTutorialFloor();
 
-  // Tutorial mode is bare-bones: no shadows (flat, calm look) and no
-  // music (silent except for game sfx). Both are restored in
+  // Tutorial mode is bare-bones: no shadows, no fog (flat, calm look)
+  // and our own dedicated music. Both visuals are restored in
   // restoreNormalFloor() / on quit-to-title via the same flow.
   disableShadows(renderer);
+  disableFog();
 
   Audio.init();
   Audio.resume();
@@ -2200,6 +2222,7 @@ function _exitTutorialIfActive() {
   S.tutorialHazardCycle = false;
   restoreNormalFloor();
   restoreShadows(renderer);
+  restoreFog();
   // Stop hazard spawning that the tutorial cycler may have enabled.
   setHazardSpawningEnabled(false);
   // Stop the tutorial soundtrack.
@@ -2217,6 +2240,55 @@ function _exitTutorialIfActive() {
   _tutHazIdx = 0;
   _tutHazTimer = 0;
   try { clearHazards(); } catch (e) {}
+  // Hide the under-foot glow disc on exit so it doesn't reappear at
+  // (0,0,0) the next time the player runs a normal game.
+  if (_tutFloorGlowMesh) _tutFloorGlowMesh.visible = false;
+  // If the OVERDRIVE lesson left overdrive mid-flight (8s timer
+  // started, tutorial closed before it expired), force-exit it so
+  // the player's scale/invuln state doesn't leak into the title
+  // screen. exitOverdrive is idempotent — safe to call when not
+  // active.
+  if (S.overdriveActive) {
+    try { exitOverdrive(); } catch (e) {}
+  }
+  S.tutorialRequestOverdrive = false;
+}
+
+// Tutorial-only — soft emissive disc under the player's feet that
+// reads the rainbow floor's color at the player's current tile.
+// Lazy-builds the mesh on first call; thereafter just updates
+// position + color. Disc uses additive blending so it brightens
+// the tile rather than overwriting it. Player movement is the
+// only thing that changes the glow (no flicker, no other input).
+function _updateTutorialFloorGlow() {
+  if (!player || !player.pos) return;
+  if (!_tutFloorGlowMesh) {
+    const geo = new THREE.CircleGeometry(2.2, 32);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.65,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    // Lifted just above the floor to avoid z-fighting with the
+    // ground plane. 0.04 is enough to read as "on the floor" without
+    // visibly hovering.
+    mesh.position.y = 0.04;
+    scene.add(mesh);
+    _tutFloorGlowMesh = mesh;
+    _tutFloorGlowMat = mat;
+  }
+  _tutFloorGlowMesh.visible = true;
+  _tutFloorGlowMesh.position.x = player.pos.x;
+  _tutFloorGlowMesh.position.z = player.pos.z;
+  // Sample the floor color at the player's location and apply it to
+  // the disc. Cheap math — no canvas pixel reads.
+  const hex = getTutorialFloorColorAt(player.pos.x, player.pos.z);
+  _tutFloorGlowMat.color.setHex(hex);
 }
 
 document.getElementById('start-btn').addEventListener('click', () => {
@@ -2534,6 +2606,16 @@ const _tutHazNamesByMode = {
   deadly: ['MINESWEEPER', 'PACMAN'],
 };
 
+// Tutorial-only "tile glow" — a soft emissive disc that follows the
+// player and tints its color from the rainbow floor texel underneath
+// them. Created lazily on first tutorial frame, hidden during normal
+// game. The disc itself doesn't cast light into the scene (would need
+// a real PointLight) — it's a flat additive ring that reads as the
+// floor "lighting up" under the player's feet. Only responds to the
+// player's movement; nothing else.
+let _tutFloorGlowMesh = null;
+let _tutFloorGlowMat = null;
+
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(0.05, clock.getDelta());
@@ -2638,6 +2720,19 @@ function animate() {
     // is on, so the two systems never fight for game state.
     if (S.tutorialMode) {
       try { tickTutorialController(dt); } catch (e) { console.warn('[tutorial] tick', e); }
+      // Floor glow — soft emissive disc under the player, tinted to
+      // match the rainbow tile underneath. Lazy-built on first tutorial
+      // frame; tracks player.pos every frame; recolors using the
+      // tutorial floor's bilinear sampler.
+      _updateTutorialFloorGlow();
+      // Tutorial overdrive request — the OVERDRIVE lesson sets this
+      // flag the moment the player's streak crosses 25 (vs the usual
+      // 100 in the main game). We honor it once and clear; the lesson
+      // detects S.overdriveActive to mark itself complete.
+      if (S.tutorialRequestOverdrive && !S.overdriveActive) {
+        S.tutorialRequestOverdrive = false;
+        try { enterOverdrive(); } catch (e) {}
+      }
       // Hazard cycle driver — only runs when the active lesson sets
       // S.tutorialHazardCycle to 'damage' or 'deadly'. Cycles through
       // the matching style group every ~5s. updateWaves'
@@ -3210,6 +3305,29 @@ function updateBeam() {
       length = Math.min(length, along);
     }
   }
+  // Queen dome — clamp the beam to the outermost intact dome surface.
+  // Without this the raygun would punch right through the shield and
+  // damage the inner hives. _beamDomeIntersect returns the distance
+  // from origin to the dome's nearest surface intersection along the
+  // beam direction, or null if the beam misses the dome entirely.
+  const domeT = _beamDomeIntersect(origin, dirX, dirZ, length);
+  if (domeT !== null) {
+    length = Math.min(length, domeT);
+    // Ping the dome at the impact point so the player can see the
+    // beam burning into the shield. Only flash a few times per
+    // second to keep particle counts reasonable; we throttle by
+    // timeElapsed.
+    const now = S.timeElapsed || 0;
+    if (!_beamShieldPingT || now - _beamShieldPingT > 0.12) {
+      _beamShieldPingT = now;
+      const impact = new THREE.Vector3(
+        origin.x + dirX * domeT,
+        1.3,
+        origin.z + dirZ * domeT,
+      );
+      pingQueenShieldAt(impact);
+    }
+  }
   // Also clamp to blocked segment
   const endX = origin.x + dirX * length;
   const endZ = origin.z + dirZ * length;
@@ -3237,11 +3355,81 @@ function updateBeam() {
   beamMat.opacity = 0.65 + Math.sin(S.timeElapsed * 30) * 0.15;
 }
 
+// Beam-vs-shield intersection. Returns the smallest positive `t`
+// such that the beam hits any active shield surface (queen outer
+// dome OR per-hive shield bubble), or null if it misses everything
+// within `maxLen`. Covers two shield kinds:
+//   1. Queen outer dome — single big sphere (radius ~13) wrapping the
+//      whole hive cluster while at least one dome layer remains.
+//   2. Per-hive shields — small bubbles (radius SHIELD_RADIUS ≈ 1.9)
+//      around each individual hive when waves 1–2 mark hives as
+//      shielded. After the queen dome is fully popped, these become
+//      the active barrier the beam should respect.
+//
+// Math is the standard line-sphere quadratic: |O + tD - C|² = r².
+// We test every active shield and return the nearest hit so the beam
+// is clamped to whichever barrier is in front.
+let _beamShieldPingT = 0;
+function _beamShieldIntersect(origin, dirX, dirZ, maxLen) {
+  let best = Infinity;
+  // Queen dome
+  const dome = getOutermostDomeInfo();
+  if (dome) {
+    const t = _raySphereT(origin.x, origin.y, origin.z, dirX, 0, dirZ, dome.x, dome.y, dome.z, dome.radius, maxLen);
+    if (t !== null && t < best) best = t;
+  }
+  // Per-hive shields
+  try {
+    for (const [hive, shield] of hiveShieldsIter()) {
+      if (!hive.shielded) continue;
+      if (shield.userData && shield.userData._dropping) continue;
+      // Shield is a sphere centered at (hive.pos.x, SHIELD_CENTER_Y,
+      // hive.pos.z). SHIELD_CENTER_Y is 1.9 in dormantProps.js; the
+      // beam runs at y=1.3 so the dy term matters.
+      const t = _raySphereT(origin.x, origin.y, origin.z, dirX, 0, dirZ, hive.pos.x, 1.9, hive.pos.z, 1.9, maxLen);
+      if (t !== null && t < best) best = t;
+    }
+  } catch (e) {}
+  return best === Infinity ? null : best;
+}
+
+// Standard ray-sphere intersection helper. Returns smallest positive
+// t within maxLen, or null. Origin (ox,oy,oz), unit-ish direction
+// (dx,dy,dz), sphere center (cx,cy,cz), radius r.
+function _raySphereT(ox, oy, oz, dx, dy, dz, cx, cy, cz, r, maxLen) {
+  const lx = ox - cx, ly = oy - cy, lz = oz - cz;
+  const a = dx * dx + dy * dy + dz * dz;
+  const b = 2 * (lx * dx + ly * dy + lz * dz);
+  const c = lx * lx + ly * ly + lz * lz - r * r;
+  const disc = b * b - 4 * a * c;
+  if (disc < 0) return null;
+  const sq = Math.sqrt(disc);
+  const t1 = (-b - sq) / (2 * a);
+  const t2 = (-b + sq) / (2 * a);
+  let t = Infinity;
+  if (t1 > 0 && t1 < t) t = t1;
+  if (t2 > 0 && t2 < t) t = t2;
+  if (t === Infinity || t > maxLen) return null;
+  return t;
+}
+
+// Backward-compat alias (older callers used the dome-only name).
+function _beamDomeIntersect(origin, dirX, dirZ, maxLen) {
+  return _beamShieldIntersect(origin, dirX, dirZ, maxLen);
+}
+
 function applyBeamDamage(w, dmgBoost) {
   const origin = new THREE.Vector3(player.pos.x, 1.3, player.pos.z);
   const dirX = Math.sin(player.facing);
   const dirZ = Math.cos(player.facing);
   const dmg = w.damage * dmgBoost;
+  // Clamp damage range to the dome surface if the beam intersects an
+  // intact outer dome. Enemies past the surface are spared because
+  // the shield is in the way. Same intersection math as the visual
+  // clamp in updateBeam — keep the two in sync.
+  let damageRange = w.beamRange;
+  const domeT = _beamDomeIntersect(origin, dirX, dirZ, damageRange);
+  if (domeT !== null) damageRange = Math.min(damageRange, domeT);
   // Damage every enemy whose projection on the beam is within range AND perp < width
   // (can penetrate multiple enemies -- it's a beam)
   for (let j = enemies.length - 1; j >= 0; j--) {
@@ -3249,7 +3437,7 @@ function applyBeamDamage(w, dmgBoost) {
     const dx = e.pos.x - origin.x;
     const dz = e.pos.z - origin.z;
     const along = dx * dirX + dz * dirZ;
-    if (along < 0 || along > w.beamRange) continue;
+    if (along < 0 || along > damageRange) continue;
     const perp = Math.abs(dx * dirZ - dz * dirX);
     const hitRadius = e.bossHitRadius || (e.isBoss ? 1.6 : 0.9);
     if (perp < hitRadius + w.beamWidth) {
@@ -3402,6 +3590,13 @@ function applyFlameDamage(w, dmgBoost) {
   const cosHalf = Math.cos(w.flameAngle);
   const rangeSq = w.flameRange * w.flameRange;
 
+  // Queen dome guard — any enemy whose position is inside the
+  // outermost intact dome is protected from the flame cone, same as
+  // the bullet/rocket/beam paths. Cached once per call since dome
+  // geometry doesn't change mid-tick.
+  const dome = getOutermostDomeInfo();
+  const domeR2 = dome ? dome.radius * dome.radius : 0;
+
   // Enemies: cone hit test. Does NOT penetrate (multiple enemies can be hit
   // in the same tick because flame engulfs them).
   for (let j = enemies.length - 1; j >= 0; j--) {
@@ -3414,6 +3609,12 @@ function applyFlameDamage(w, dmgBoost) {
     // Dot product of (enemy dir) and (facing dir) — must exceed cosHalf.
     const dot = (dx / d) * dirX + (dz / d) * dirZ;
     if (dot < cosHalf) continue;
+    // Skip enemies that are sheltering inside the queen dome.
+    if (dome) {
+      const eddx = e.pos.x - dome.x;
+      const eddz = e.pos.z - dome.z;
+      if (eddx * eddx + eddz * eddz < domeR2) continue;
+    }
     e.hp -= dmg;
     e.hitFlash = 0.15;
     // Every 3rd pass, spawn a flame lick at the enemy's feet for visual feedback.
@@ -3576,6 +3777,19 @@ function updateRockets(dt) {
     // `shielded` flag and bails — explodeRocket() calls damageSpawner
     // for any hives in radius but they no-op.
     {
+      // Queen outer-dome FIRST: the dome (radius 13) wraps the whole
+      // hive cluster. A rocket flying toward the cluster needs to
+      // detonate on the dome shell, not punch through and explode
+      // inside next to a per-hive 3.8 shield. tryHitQueenShield
+      // returns true once the rocket's position is inside the
+      // outermost intact dome and emits the chapter-tinted ping.
+      if (tryHitQueenShield(r.position)) {
+        Audio.shieldHit();
+        explodeRocket(r);
+        scene.remove(r);
+        rockets.splice(i, 1);
+        continue;
+      }
       const shieldedHive = getShieldedHiveAt(r.position.x, r.position.y, r.position.z);
       if (shieldedHive) {
         shieldHitVisual(shieldedHive, r.position.clone());

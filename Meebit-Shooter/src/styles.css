@@ -328,6 +328,90 @@ canvas { display: block; cursor: var(--matrix-cursor); }
   50% { box-shadow: 0 0 24px rgba(79,247,255,0.9); }
 }
 
+/* ====== MODE PICKER ======
+ * Two-card game-mode selector that lives on the title screen.
+ * Cards desaturate when not selected; the selected card pops to full
+ * color with a chapter-yellow glow + a small lift. Description text
+ * updates beneath the row to match the selected card.
+ *
+ * Layout: row of 2 fixed-aspect cards (3:4 portrait, like Fortnite's
+ * mode tiles). On narrow viewports the cards stack vertically and
+ * shrink — keeps the screen usable on phones.
+ */
+#mode-picker {
+  display: flex;
+  flex-direction: row;
+  gap: 18px;
+  margin-top: 10px;
+  margin-bottom: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.mode-card {
+  position: relative;
+  width: 240px;
+  height: 320px;
+  border: 2px solid rgba(120, 140, 200, 0.45);
+  background: rgba(8, 4, 18, 0.55);
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+  filter: saturate(0.4) brightness(0.7);
+}
+.mode-card-img {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  transition: transform 0.4s ease;
+}
+.mode-card-label {
+  position: absolute;
+  left: 0; right: 0; bottom: 12px;
+  text-align: center;
+  font-family: 'Impact', sans-serif;
+  font-size: 22px;
+  letter-spacing: 3px;
+  color: #fff;
+  text-shadow: 0 2px 8px #000, 0 0 12px rgba(0,0,0,0.9);
+  pointer-events: none;
+}
+.mode-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--xp-yellow);
+}
+.mode-card:hover .mode-card-img {
+  transform: scale(1.05);
+}
+.mode-card.selected {
+  filter: saturate(1.0) brightness(1.0);
+  border-color: var(--xp-yellow);
+  box-shadow: 0 0 30px rgba(255, 217, 61, 0.4),
+              inset 0 0 20px rgba(255, 217, 61, 0.15);
+  transform: translateY(-2px);
+}
+#mode-picker-hint {
+  text-align: center;
+  font-size: 12px;
+  letter-spacing: 4px;
+  color: #888;
+  margin-top: 6px;
+}
+#mode-picker-desc {
+  text-align: center;
+  font-size: 13px;
+  letter-spacing: 2px;
+  color: var(--xp-yellow);
+  margin-top: 4px;
+  margin-bottom: 8px;
+  min-height: 18px;
+}
+
+@media (max-width: 600px) {
+  .mode-card { width: 180px; height: 240px; }
+  .mode-card-label { font-size: 18px; }
+}
+
 /* ====== WALLET BUTTON ====== */
 .wallet-btn {
   margin-top: 14px; padding: 10px 22px;

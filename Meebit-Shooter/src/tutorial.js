@@ -22,7 +22,7 @@
 
 import * as THREE from 'three';
 import { ARENA } from './config.js';
-import { Scene } from './scene.js';
+import { Scene, scene } from './scene.js';
 
 let _active = false;
 let _originalTexture = null;     // saved checker texture so we can restore
@@ -96,6 +96,38 @@ function bilerpRGB(u, v) {
   const b = lerp(lerp(CORNERS.TL.b, CORNERS.TR.b, u),
                  lerp(CORNERS.BL.b, CORNERS.BR.b, u), v);
   return { r, g, b };
+}
+
+// Sample the rainbow floor's color at a world (x, z) coordinate.
+// Returns a hex color number suitable for THREE.Color.setHex().
+// Used by the tutorial under-foot glow to read the tile color the
+// player is currently standing on. ARENA defines the half-extent of
+// the floor (game uses PlaneGeometry(ARENA*2, ARENA*2) = 100×100),
+// so worldX in [-ARENA, ARENA] → u in [0..1]. Same applies to z/v.
+export function getTutorialFloorColorAt(worldX, worldZ) {
+  let u = (worldX + ARENA) / (2 * ARENA);
+  let v = (worldZ + ARENA) / (2 * ARENA);
+  if (u < 0) u = 0; else if (u > 1) u = 1;
+  if (v < 0) v = 0; else if (v > 1) v = 1;
+  // Apply the same saturation curve buildRainbowTexture uses so the
+  // glow matches the floor texel under the player. (Without this the
+  // glow color would be the raw bilinear blend, which reads as muddier
+  // than the saturated tile.)
+  const dx = u - 0.5, dy = v - 0.5;
+  const distToCenter = Math.sqrt(dx * dx + dy * dy);
+  const satAmt = 0.55 - distToCenter * 0.35;
+  let color = bilerpRGB(u, v);
+  // Inline saturate() — duplicated from buildRainbowTexture to avoid
+  // a needless function call in a hot per-frame path.
+  const gray = (color.r + color.g + color.b) / 3;
+  const sat1 = 1 + satAmt;
+  let r = gray + (color.r - gray) * sat1;
+  let g = gray + (color.g - gray) * sat1;
+  let b = gray + (color.b - gray) * sat1;
+  if (r < 0) r = 0; else if (r > 255) r = 255;
+  if (g < 0) g = 0; else if (g > 255) g = 255;
+  if (b < 0) b = 0; else if (b > 255) b = 255;
+  return ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff);
 }
 
 // Push a color toward white by amount t in [0..1]. Used for the
@@ -360,4 +392,46 @@ export function restoreShadows(renderer) {
     Scene.moon.castShadow = _shadowSnapshot.moonCast;
   }
   _shadowSnapshot = null;
+}
+
+// ---------------------------------------------------------------------
+// Fog toggle. Tutorial mode wants a flat, fully-visible arena — the
+// chapter fog (near=30, far=85, dark color) crushes the perimeter
+// into darkness which fights the vibrant rainbow floor and the
+// "polar opposite from the game" tutorial direction. Push fog
+// distances way past the arena diagonal so nothing reaches the
+// falloff zone, then restore the original values on exit.
+//
+// We tweak near/far rather than null-out scene.fog because removing
+// the fog object entirely can trigger Three.js material recompiles
+// — and several modules (rain, hazards, particles) check fog
+// presence at construction time. Keeping the object alive but
+// effectively neutralized avoids that whole class of issue.
+// ---------------------------------------------------------------------
+let _fogSnapshot = null;
+export function disableFog() {
+  if (!scene || !scene.fog) return;
+  if (_fogSnapshot === null) {
+    _fogSnapshot = {
+      near: scene.fog.near,
+      far: scene.fog.far,
+      color: scene.fog.color.getHex(),
+    };
+  }
+  // Effectively kill fog by pushing the falloff well past anything
+  // ever rendered. Arena diagonal is ~141u; 5000 is comfortably out.
+  scene.fog.near = 5000;
+  scene.fog.far = 5001;
+  // Brighten the fog color too — even with near/far pushed, some
+  // edge cases (very tall objects, far skybox) can still pick up
+  // residual fog tint. White means any leak is invisible against
+  // the bright arena.
+  scene.fog.color.setHex(0xffffff);
+}
+export function restoreFog() {
+  if (!scene || !scene.fog || _fogSnapshot === null) return;
+  scene.fog.near = _fogSnapshot.near;
+  scene.fog.far = _fogSnapshot.far;
+  scene.fog.color.setHex(_fogSnapshot.color);
+  _fogSnapshot = null;
 }

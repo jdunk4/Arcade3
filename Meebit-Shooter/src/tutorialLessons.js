@@ -802,6 +802,73 @@ function buildLessonList() {
     isComplete: () => (_potionsConsumed - _potionsConsumedAtActivate) >= 1,
   });
 
+  // ----- 13. OVERDRIVE — 25-streak chains trigger overdrive -----
+  // Wave-6 finale. We spawn a near-continuous trickle of low-HP
+  // enemies for the player to chain together. When the killstreak
+  // crosses 25, we set S.tutorialRequestOverdrive — main.js's animate
+  // loop picks that up and calls enterOverdrive() (which normally
+  // gates at 100). Lesson completes once overdrive activates;
+  // tutorial auto-returns to title 2.2s after the checkmark via the
+  // existing onAllDone callback.
+  list.push({
+    id: 'overdrive',
+    label: 'OVERDRIVE · 25 KILL STREAK',
+    hint: 'Chain 25 kills WITHOUT letting your streak break. Enemies will keep spawning. Hit 25 → OVERDRIVE.',
+    _streakAtActivate: 0,
+    _spawnTimer: 0,
+    onActivate() {
+      // Snapshot streak so existing kills don't pre-fill progress.
+      // (The kill lesson and other earlier lessons may have left a
+      // small streak in flight.)
+      this._streakAtActivate = S.killstreak || 0;
+      this._spawnTimer = 0;
+    },
+    onUpdate(dt) {
+      // Drip-feed weak enemies so the streak is achievable but not
+      // trivial. Cap simultaneous live tutorial enemies to 6 so the
+      // player isn't overwhelmed.
+      this._spawnTimer -= dt;
+      if (this._spawnTimer <= 0 && _alivePlayerSpawnedEnemies() < 6) {
+        this._spawnTimer = 0.7;     // ~1.4 enemies per second
+        // Spawn around the player at varying angles + distance so
+        // the action is always reachable.
+        const ang = Math.random() * Math.PI * 2;
+        const dist = 14 + Math.random() * 4;
+        _spawnTutorialEnemy(ang, dist);
+      }
+      // Arrow → nearest enemy so the player can find prey fast.
+      let nearest = null, bestD2 = Infinity;
+      for (const e of _activeEnemies) {
+        if (!e || e.hp <= 0) continue;
+        const dx = e.pos.x - player.pos.x;
+        const dz = e.pos.z - player.pos.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < bestD2) { bestD2 = d2; nearest = e; }
+      }
+      S.tutorialArrows = nearest
+        ? [{ x: nearest.pos.x, z: nearest.pos.z, label: 'CHAIN' }]
+        : [];
+      // Streak check — once we cross 25 since activation, fire the
+      // overdrive request. main.js consumes the flag in the same
+      // frame and clears it.
+      if ((S.killstreak || 0) - this._streakAtActivate >= 25 && !S.overdriveActive) {
+        S.tutorialRequestOverdrive = true;
+      }
+    },
+    isComplete() {
+      // Lesson completes the moment overdrive engages.
+      return !!S.overdriveActive;
+    },
+    onComplete() {
+      S.tutorialRequestOverdrive = false;
+      S.tutorialArrows = [];
+    },
+    progress() {
+      const n = Math.max(0, (S.killstreak || 0) - this._streakAtActivate);
+      return Math.min(25, n) + ' / 25';
+    },
+  });
+
   return list;
 }
 

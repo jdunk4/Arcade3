@@ -387,6 +387,48 @@ export function tryHitQueenShield(bulletPos) {
 }
 
 /**
+ * Read-only inspection of the outermost intact dome. Used by callers
+ * that need dome geometry for beam/projectile clamping but should NOT
+ * register a hit (e.g. the raygun beam clamping its visible length to
+ * the dome surface every frame). Returns null when no intact domes
+ * remain — meaning shields are fully down.
+ *
+ * Returned object: { x, y, z, radius } in world coordinates.
+ */
+export function getOutermostDomeInfo() {
+  let outerIntact = null;
+  for (const d of _domes) {
+    if (d.intact && !d.popping) {
+      outerIntact = d;
+      break;
+    }
+  }
+  if (!outerIntact) return null;
+  const radius = DOME_RADII[outerIntact.layerIdx] || DOME_RADII[0];
+  return { x: _clusterX, y: 4.0, z: _clusterZ, radius };
+}
+
+/**
+ * Flash the outermost dome and emit hit sparks at the given world
+ * point. Used by callers that detected their own shield collision
+ * (e.g. raygun beam intersection math) and want the same visual
+ * feedback as tryHitQueenShield but at a chosen impact point.
+ * Returns true if a flash was applied.
+ */
+export function pingQueenShieldAt(impactPos) {
+  if (!impactPos) return false;
+  let outerIntact = null;
+  for (const d of _domes) {
+    if (d.intact && !d.popping) { outerIntact = d; break; }
+  }
+  if (!outerIntact) return false;
+  hitBurst(impactPos, 0xffffff, 4);
+  hitBurst(impactPos, _tint, 8);
+  outerIntact._hitFlashT = 0.15;
+  return true;
+}
+
+/**
  * Push the player out of the outermost intact dome. Called once per
  * frame from main with the current player position. Mutates playerPos
  * directly so the player is shoved back along the dome surface normal
