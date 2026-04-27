@@ -2261,9 +2261,11 @@ function _exitTutorialIfActive() {
   _tutHazIdx = 0;
   _tutHazTimer = 0;
   try { clearHazards(); } catch (e) {}
-  // Hide the cell-glow highlight on exit so it doesn't reappear at
-  // its last position the next time the player runs a normal game.
+  // Hide all three cell-glow components on exit so they don't reappear
+  // at their last position the next time the player runs a normal game.
   if (_tutCellMesh) _tutCellMesh.visible = false;
+  if (_tutBeamMesh) _tutBeamMesh.visible = false;
+  if (_tutMeebitLight) _tutMeebitLight.visible = false;
   // If the OVERDRIVE lesson left overdrive mid-flight (8s timer
   // started, tutorial closed before it expired), force-exit it so
   // the player's scale/invuln state doesn't leak into the title
@@ -2276,19 +2278,34 @@ function _exitTutorialIfActive() {
 }
 
 // Tutorial-only — highlights the rainbow grid cell the player is
-// CURRENTLY STANDING ON. Implementation is a single PlaneGeometry
-// quad sized to one cell of the texture grid; each frame we read the
-// player's cell from getTutorialCellInfo() and snap the quad's
-// position to that cell's center. Crossing a cell boundary causes
-// the quad to jump to the new cell; we softly fade between colors
-// so the change reads as the new cell "lighting up" rather than a
-// hard pop.
+// CURRENTLY STANDING ON, with three layered effects that together
+// read as "color shooting up from the floor":
 //
-// Why a square quad and not a circular disc: the user wants the
-// SPECIFIC tile to glow, not a spotlight following the player. The
-// quad is sized 1:1 with the grid cell so it visually IS the tile.
+//   1. _tutCellMesh — flat additive square laid on the floor, sized
+//      1:1 with the grid cell. Anchors the highlight to the tile.
+//      This is the "the floor is glowing" base.
+//
+//   2. _tutBeamMesh — tapered cylinder rising from the tile, additive
+//      blend. Reads as a beam of light shooting up from the cell.
+//      Wider at the bottom (radiusBottom = cell/2) and narrower at
+//      the top (radiusTop = cell/8) so it visually converges upward.
+//      Height ~6u so it's clearly visible from the overhead camera
+//      without dominating the screen.
+//
+//   3. _tutMeebitLight — a real PointLight parented to the player.
+//      Color matches the tile so the meebit itself catches the
+//      tile's hue. Modest range (~6u) so it casts onto the meebit
+//      and the immediate ring around them but doesn't wash out
+//      neighbouring cells.
+//
+// All three lerp their color toward the tile color smoothly so cell
+// crossings read as the new cell "lighting up" rather than a hard
+// pop.
 let _tutCellMesh = null;
 let _tutCellMat = null;
+let _tutBeamMesh = null;
+let _tutBeamMat = null;
+let _tutMeebitLight = null;
 let _tutCellSize = 0;             // remembered to detect first build
 let _tutCellTargetColor = new THREE.Color(0xffffff);
 function _updateTutorialFloorGlow() {
@@ -2296,49 +2313,108 @@ function _updateTutorialFloorGlow() {
   const info = getTutorialCellInfo(player.pos.x, player.pos.z);
   if (!info) {
     // Player is outside the rainbow zone (on the black border rails).
-    // Hide the highlight rather than pinning it to an edge cell.
+    // Hide all highlight layers.
     if (_tutCellMesh) _tutCellMesh.visible = false;
+    if (_tutBeamMesh) _tutBeamMesh.visible = false;
+    if (_tutMeebitLight) _tutMeebitLight.visible = false;
     return;
   }
+
+  // Lazy-build the three components on first call. Done once and
+  // reused; visibility flag handles tutorial-on/off transitions.
   if (!_tutCellMesh) {
-    // Use a unit-square plane and scale it to whatever the cell size
-    // works out to. Additive blending so we BRIGHTEN the underlying
-    // tile rather than painting a flat color over it; depthWrite off
-    // so it reads as part of the floor.
+    // Floor quad — sits flush with the floor, brightens the tile.
     const geo = new THREE.PlaneGeometry(1, 1);
     const mat = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.85,                // bumped from 0.55 — much more present
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
-    // Lifted barely above the floor to avoid z-fighting with the
-    // ground plane.
-    mesh.position.y = 0.04;
+    mesh.position.y = 0.04;         // just above floor to avoid z-fight
     scene.add(mesh);
     _tutCellMesh = mesh;
     _tutCellMat = mat;
   }
-  // Resize quad if the cell size has changed (it shouldn't between
-  // frames, but the first frame after a tutorial restart sets it).
+  if (!_tutBeamMesh) {
+    // Tapered cylinder rising from the tile. Geometry is built at
+    // unit-radius and rescaled per-cell (info.size) below. Height
+    // 6u, openEnded so the top isn't a visible disc. Additive
+    // blending so colors stack with the floor quad and any
+    // neighbouring beams gracefully. Lower opacity than the floor
+    // quad on purpose — the beam fades into the night sky as it
+    // rises rather than punching through the camera.
+    const geo = new THREE.CylinderGeometry(
+      0.13,        // radiusTop  — narrow point at the top (1/4 of base)
+      0.50,        // radiusBottom — fits inside one cell at scale × cellSize
+      6.0,         // height
+      24,          // radial segments
+      1,           // height segments
+      true,        // openEnded — no caps
+    );
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.32,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,       // visible from inside (player walks under it)
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    // Cylinder centers at its midpoint; we want the BASE on the
+    // floor, so lift by half the height.
+    mesh.position.y = 6.0 / 2;
+    scene.add(mesh);
+    _tutBeamMesh = mesh;
+    _tutBeamMat = mat;
+  }
+  if (!_tutMeebitLight) {
+    // Point light parented to the player object so it tracks
+    // automatically — set once, no per-frame position copy needed.
+    // Distance 6 keeps the falloff tight to the meebit + nearby
+    // floor; intensity 1.4 for chapter-bright readout.
+    const light = new THREE.PointLight(0xffffff, 1.4, 6.0, 1.6);
+    light.position.set(0, 1.0, 0);  // local offset — chest height on meebit
+    if (player.obj) player.obj.add(light);
+    else scene.add(light);          // fallback
+    _tutMeebitLight = light;
+  }
+
+  // Resize beam + floor quad if the cell size has changed (it
+  // shouldn't between frames, but the first frame after a tutorial
+  // restart sets it).
   if (_tutCellSize !== info.size) {
     _tutCellSize = info.size;
-    // Slightly smaller than 1.0× so the highlight sits inside the
-    // cell with a thin gap at the edges — reads as "this cell"
-    // instead of bleeding into neighbors.
+    // Quad slightly smaller than 1.0× so it sits inside the cell
+    // with a thin gap at the edges — reads as "this cell" rather
+    // than bleeding into neighbours.
     _tutCellMesh.scale.set(info.size * 0.94, info.size * 0.94, 1);
+    // Beam scaled in X and Z so the BASE matches the cell width
+    // (radiusBottom 0.50 × cellSize × 0.9 = ~45% of the cell on
+    // each side, which leaves the corners of the floor quad
+    // visible behind the beam). Y stays 1.0 so the 6u height is
+    // unaffected.
+    _tutBeamMesh.scale.set(info.size * 0.9, 1, info.size * 0.9);
   }
   _tutCellMesh.visible = true;
   _tutCellMesh.position.x = info.x;
   _tutCellMesh.position.z = info.z;
+  _tutBeamMesh.visible = true;
+  _tutBeamMesh.position.x = info.x;
+  _tutBeamMesh.position.z = info.z;
+  if (_tutMeebitLight) _tutMeebitLight.visible = true;
+
   // Smooth color lerp toward the new tile's color so cell crossings
-  // feel like the highlight is gracefully migrating, not snapping.
+  // feel like a graceful migration, not a snap. All three layers
+  // share the same target colour so they stay visually coherent.
   _tutCellTargetColor.setHex(info.color);
   _tutCellMat.color.lerp(_tutCellTargetColor, 0.18);
+  _tutBeamMat.color.lerp(_tutCellTargetColor, 0.18);
+  if (_tutMeebitLight) _tutMeebitLight.color.lerp(_tutCellTargetColor, 0.18);
 }
 
 document.getElementById('start-btn').addEventListener('click', () => {
