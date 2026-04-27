@@ -84,7 +84,7 @@ import { updateServerWarehouse, clearServerWarehouse, getServerCollisionCircles 
 import { updateSafetyPod, clearSafetyPod, getPodCollisionCircles, getPodPos, getPodRadius } from './safetyPod.js';
 import { updateHiveLasers, clearHiveLasers } from './hiveLasers.js';
 import { updateCockroach, clearCockroachBoss } from './cockroachBoss.js';
-import { initFogRing, updateFogRing, clearFogRing } from './fogRing.js';
+import { initFogRing, updateFogRing, clearFogRing, setFogVisible } from './fogRing.js';
 import { spawners, damageSpawner, updateSpawners } from './spawners.js';
 import { getShieldedHiveAt, shieldHitVisual, hiveShieldsIter } from './dormantProps.js';
 import { Save } from './save.js';
@@ -2159,8 +2159,15 @@ function startTutorial() {
   // Tutorial mode is bare-bones: no shadows, no fog (flat, calm look)
   // and our own dedicated music. Both visuals are restored in
   // restoreNormalFloor() / on quit-to-title via the same flow.
+  // Three coordinated steps disable fog completely:
+  //   1. disableFog() pushes scene.fog distances far out
+  //   2. setFogVisible(false) hides the radial fog-ring meshes
+  //   3. The animate loop skips updateFogRing while tutorial is active
+  //      (otherwise it would aggressively re-assert fog every frame
+  //      and undo step 1)
   disableShadows(renderer);
   disableFog();
+  try { setFogVisible(false); } catch (e) {}
 
   Audio.init();
   Audio.resume();
@@ -2244,6 +2251,10 @@ function _exitTutorialIfActive() {
   restoreNormalFloor();
   restoreShadows(renderer);
   restoreFog();
+  // Re-show the fog ring meshes; the animate loop will resume calling
+  // updateFogRing on the next non-tutorial frame which will re-assert
+  // proper fog params for the active chapter.
+  try { setFogVisible(true); } catch (e) {}
   // Stop hazard spawning that the tutorial cycler may have enabled.
   setHazardSpawningEnabled(false);
   // Stop the tutorial soundtrack.
@@ -2261,10 +2272,9 @@ function _exitTutorialIfActive() {
   _tutHazIdx = 0;
   _tutHazTimer = 0;
   try { clearHazards(); } catch (e) {}
-  // Hide all three cell-glow components on exit so they don't reappear
-  // at their last position the next time the player runs a normal game.
+  // Hide cell-glow + meebit light on exit so they don't reappear at
+  // their last position the next time the player runs a normal game.
   if (_tutCellMesh) _tutCellMesh.visible = false;
-  if (_tutBeamMesh) _tutBeamMesh.visible = false;
   if (_tutMeebitLight) _tutMeebitLight.visible = false;
   // If the OVERDRIVE lesson left overdrive mid-flight (8s timer
   // started, tutorial closed before it expired), force-exit it so
@@ -2278,33 +2288,33 @@ function _exitTutorialIfActive() {
 }
 
 // Tutorial-only — highlights the rainbow grid cell the player is
-// CURRENTLY STANDING ON, with three layered effects that together
-// read as "color shooting up from the floor":
+// CURRENTLY STANDING ON. Two layers:
 //
-//   1. _tutCellMesh — flat additive square laid on the floor, sized
-//      1:1 with the grid cell. Anchors the highlight to the tile.
-//      This is the "the floor is glowing" base.
+//   1. _tutCellMesh — opaque-ish quad laid on the floor, sized 1:1
+//      with the grid cell. Uses NormalBlending (NOT additive) so it
+//      paints the cell with the saturated tile color directly,
+//      rather than additively averaging toward white. Additive
+//      blending was tried earlier and read as "soft / washed out"
+//      because at high opacity it just brightens everything toward
+//      a uniform glow. Normal-blend with high opacity keeps the
+//      pure tile hue.
 //
-//   2. _tutBeamMesh — tapered cylinder rising from the tile, additive
-//      blend. Reads as a beam of light shooting up from the cell.
-//      Wider at the bottom (radiusBottom = cell/2) and narrower at
-//      the top (radiusTop = cell/8) so it visually converges upward.
-//      Height ~6u so it's clearly visible from the overhead camera
-//      without dominating the screen.
+//      The colour is also pushed THROUGH a hard saturation boost
+//      (sat × 2.0) before being applied — the floor texture itself
+//      stays at gentler saturation for the base look, but the
+//      "active cell" indicator is meant to POP, so it gets the
+//      extra punch.
 //
-//   3. _tutMeebitLight — a real PointLight parented to the player.
-//      Color matches the tile so the meebit itself catches the
-//      tile's hue. Modest range (~6u) so it casts onto the meebit
-//      and the immediate ring around them but doesn't wash out
-//      neighbouring cells.
+//   2. _tutMeebitLight — a real PointLight parented to the player.
+//      Color matches the tile so the meebit picks up the rainbow
+//      hue too. Distance ~6u so falloff is tight.
 //
-// All three lerp their color toward the tile color smoothly so cell
-// crossings read as the new cell "lighting up" rather than a hard
-// pop.
+// Earlier iteration also added an upward beam cylinder; the user
+// said "the lights going up just isn't working" so it's been
+// removed. The layered approach now is cell-paint + meebit-light,
+// nothing else.
 let _tutCellMesh = null;
 let _tutCellMat = null;
-let _tutBeamMesh = null;
-let _tutBeamMat = null;
 let _tutMeebitLight = null;
 let _tutCellSize = 0;             // remembered to detect first build
 let _tutCellTargetColor = new THREE.Color(0xffffff);
@@ -2313,108 +2323,69 @@ function _updateTutorialFloorGlow() {
   const info = getTutorialCellInfo(player.pos.x, player.pos.z);
   if (!info) {
     // Player is outside the rainbow zone (on the black border rails).
-    // Hide all highlight layers.
     if (_tutCellMesh) _tutCellMesh.visible = false;
-    if (_tutBeamMesh) _tutBeamMesh.visible = false;
     if (_tutMeebitLight) _tutMeebitLight.visible = false;
     return;
   }
 
-  // Lazy-build the three components on first call. Done once and
-  // reused; visibility flag handles tutorial-on/off transitions.
   if (!_tutCellMesh) {
-    // Floor quad — sits flush with the floor, brightens the tile.
     const geo = new THREE.PlaneGeometry(1, 1);
     const mat = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
-      opacity: 0.85,                // bumped from 0.55 — much more present
-      blending: THREE.AdditiveBlending,
+      // Fully opaque — the saturated highlight color completely
+      // replaces the floor texture in the active cell, so there's
+      // no underlying texel noise muddying the hue. The cells look
+      // like solid blocks of pure colour, not slightly-brighter
+      // versions of the rainbow texture.
+      opacity: 1.0,
+      // NormalBlending so the colour is painted directly. Additive
+      // blending was tried earlier and read as "soft / washed out"
+      // because at high opacity it brightens everything toward a
+      // uniform glow.
+      blending: THREE.NormalBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
-    mesh.position.y = 0.04;         // just above floor to avoid z-fight
+    // Lifted slightly higher off the floor so the highlight fully
+    // overrides the texture beneath rather than peeking through any
+    // tiny z-fight. 0.06 is enough to be reliably on top.
+    mesh.position.y = 0.06;
     scene.add(mesh);
     _tutCellMesh = mesh;
     _tutCellMat = mat;
   }
-  if (!_tutBeamMesh) {
-    // Tapered cylinder rising from the tile. Geometry is built at
-    // unit-radius and rescaled per-cell (info.size) below. Height
-    // 6u, openEnded so the top isn't a visible disc. Additive
-    // blending so colors stack with the floor quad and any
-    // neighbouring beams gracefully. Lower opacity than the floor
-    // quad on purpose — the beam fades into the night sky as it
-    // rises rather than punching through the camera.
-    const geo = new THREE.CylinderGeometry(
-      0.13,        // radiusTop  — narrow point at the top (1/4 of base)
-      0.50,        // radiusBottom — fits inside one cell at scale × cellSize
-      6.0,         // height
-      24,          // radial segments
-      1,           // height segments
-      true,        // openEnded — no caps
-    );
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.32,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      side: THREE.DoubleSide,       // visible from inside (player walks under it)
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    // Cylinder centers at its midpoint; we want the BASE on the
-    // floor, so lift by half the height.
-    mesh.position.y = 6.0 / 2;
-    scene.add(mesh);
-    _tutBeamMesh = mesh;
-    _tutBeamMat = mat;
-  }
   if (!_tutMeebitLight) {
-    // Point light parented to the player object so it tracks
-    // automatically — set once, no per-frame position copy needed.
-    // Distance 6 keeps the falloff tight to the meebit + nearby
-    // floor; intensity 1.4 for chapter-bright readout.
-    const light = new THREE.PointLight(0xffffff, 1.4, 6.0, 1.6);
-    light.position.set(0, 1.0, 0);  // local offset — chest height on meebit
+    // Bright point light parented to the meebit so it tracks
+    // automatically. Intensity 3.0 and slightly extended range
+    // (8u) so the meebit visibly takes on the tile colour even
+    // with the brighter cell highlight underneath stealing visual
+    // attention.
+    const light = new THREE.PointLight(0xffffff, 3.0, 8.0, 1.6);
+    light.position.set(0, 1.0, 0);    // local offset — chest height
     if (player.obj) player.obj.add(light);
-    else scene.add(light);          // fallback
+    else scene.add(light);
     _tutMeebitLight = light;
   }
 
-  // Resize beam + floor quad if the cell size has changed (it
-  // shouldn't between frames, but the first frame after a tutorial
-  // restart sets it).
   if (_tutCellSize !== info.size) {
     _tutCellSize = info.size;
-    // Quad slightly smaller than 1.0× so it sits inside the cell
-    // with a thin gap at the edges — reads as "this cell" rather
-    // than bleeding into neighbours.
     _tutCellMesh.scale.set(info.size * 0.94, info.size * 0.94, 1);
-    // Beam scaled in X and Z so the BASE matches the cell width
-    // (radiusBottom 0.50 × cellSize × 0.9 = ~45% of the cell on
-    // each side, which leaves the corners of the floor quad
-    // visible behind the beam). Y stays 1.0 so the 6u height is
-    // unaffected.
-    _tutBeamMesh.scale.set(info.size * 0.9, 1, info.size * 0.9);
   }
   _tutCellMesh.visible = true;
   _tutCellMesh.position.x = info.x;
   _tutCellMesh.position.z = info.z;
-  _tutBeamMesh.visible = true;
-  _tutBeamMesh.position.x = info.x;
-  _tutBeamMesh.position.z = info.z;
   if (_tutMeebitLight) _tutMeebitLight.visible = true;
 
-  // Smooth color lerp toward the new tile's color so cell crossings
-  // feel like a graceful migration, not a snap. All three layers
-  // share the same target colour so they stay visually coherent.
+  // info.color is already at max saturation + high lightness
+  // (getTutorialGlowColorAt does the HSL pump to s=1.0, l=0.55).
+  // Just lerp toward it — no need for a second saturation pass.
   _tutCellTargetColor.setHex(info.color);
-  _tutCellMat.color.lerp(_tutCellTargetColor, 0.18);
-  _tutBeamMat.color.lerp(_tutCellTargetColor, 0.18);
-  if (_tutMeebitLight) _tutMeebitLight.color.lerp(_tutCellTargetColor, 0.18);
+  // Smooth lerp for cell crossings — graceful migration, not pop.
+  _tutCellMat.color.lerp(_tutCellTargetColor, 0.25);
+  if (_tutMeebitLight) _tutMeebitLight.color.lerp(_tutCellTargetColor, 0.25);
 }
 
 document.getElementById('start-btn').addEventListener('click', () => {
@@ -2828,7 +2799,12 @@ function animate() {
     updateSafetyPod(dt);
     updateHiveLasers(dt);
     updateCockroach(dt);
-    updateFogRing(player.pos);
+    // Skip the fog-ring update in tutorial mode. updateFogRing()
+    // re-writes scene.fog.near/far/color every frame to override
+    // theme transitions; without this guard it would clobber the
+    // disableFog() snapshot and the perimeter darkness would
+    // come back. Tutorial gets bare-bones lighting on purpose.
+    if (!S.tutorialMode) updateFogRing(player.pos);
     updateBossCubes(dt);
     updateCivilians(dt, enemies, player, onCivilianKilled, onCivilianRescued);
     // In tutorial mode the lesson controller drives spawns and props

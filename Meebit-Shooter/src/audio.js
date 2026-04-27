@@ -670,19 +670,6 @@ class AudioEngine {
     this._beep({ type: 'square', freqStart: 1100, freqEnd: 700, dur: 0.10, gainStart: 0.08, delay: 0.04 });
   }
 
-  // Cannon fire — chunky barrage shot. Bigger than a rocket, smaller
-  // than bigBoom. Each chapter-1 wave-2 shot at the queen.
-  cannonFire() {
-    // Initial crack — short bright noise to read as "muzzle"
-    this._noise(0.08, 1200, 0.30);
-    // Body — sawtooth descending hit
-    this._beep({ type: 'sawtooth', freqStart: 180, freqEnd: 50, dur: 0.35, gainStart: 0.35 });
-    // Low tail — rolling thunder
-    this._beep({ type: 'sawtooth', freqStart: 100, freqEnd: 30, dur: 0.45, gainStart: 0.22, delay: 0.04 });
-    // Mid-range punch
-    this._beep({ type: 'square', freqStart: 380, freqEnd: 120, dur: 0.18, gainStart: 0.14, delay: 0.02 });
-  }
-
   // Cannon charging tick — short ascending hum, played periodically
   // (every ~0.4s) by waves.js while the cannon charge is climbing.
   // Pitch ramps with progress so the player audibly hears the charge
@@ -695,18 +682,120 @@ class AudioEngine {
     this._beep({ type: 'triangle', freqStart: f0 * 2, freqEnd: f1 * 2, dur: 0.10, gainStart: 0.05, delay: 0.04 });
   }
 
+  // Truck startup — engine ignition cranking on. Played once when
+  // the escort truck spawns, before the player has moved into
+  // escort radius. Reads as "diesel turning over": a brief mid-
+  // pitch crank followed by an idle settling.
+  truckStart() {
+    // Crank — short rasp of low-mid noise
+    this._noise(0.20, 800, 0.22);
+    // Ignition catch — descending sawtooth
+    this._beep({ type: 'sawtooth', freqStart: 160, freqEnd: 90, dur: 0.30, gainStart: 0.22, delay: 0.10 });
+    // Idle settling — low rumble
+    this._beep({ type: 'sawtooth', freqStart: 80, freqEnd: 65, dur: 0.40, gainStart: 0.16, delay: 0.30 });
+  }
+
+  // Truck engine rumble — recurring purr while the escort is rolling
+  // or idling. Called every ~0.5s by escortTruck.js's update tick;
+  // keeps the player audibly aware that an active escort is in
+  // progress. `moving` argument: true while the truck is rolling
+  // (slightly louder, broader low-end), false while idling (subtle
+  // huff). Both are quiet enough to sit under gunfire.
+  truckEngine(moving = true) {
+    if (moving) {
+      // Rolling rumble — fundamental low + mid-pitch growl. Bumped
+      // from gainStart 0.13 / 0.05 to 0.22 / 0.10 so it actually
+      // registers during gameplay; the previous levels were getting
+      // buried under combat sfx and the user reported not hearing
+      // the truck at all.
+      this._beep({ type: 'sawtooth', freqStart: 70, freqEnd: 65, dur: 0.40, gainStart: 0.22 });
+      this._beep({ type: 'square',   freqStart: 140, freqEnd: 130, dur: 0.32, gainStart: 0.10, delay: 0.05 });
+    } else {
+      // Idle huff — quieter, simpler
+      this._beep({ type: 'sawtooth', freqStart: 75, freqEnd: 70, dur: 0.30, gainStart: 0.13 });
+    }
+  }
+
   // Truck decompression — pneumatic hiss + heavy settle thud, played
   // when the chapter 2 escort truck arrives at the silo. Reads as
   // "industrial vehicle docking + air brakes releasing."
   truckDecompression() {
-    // Long airy hiss (pneumatic release)
-    this._noise(0.55, 4200, 0.30);
+    // ESCORT COMPLETE cue — combines the original mechanical
+    // decompression sound with a new short fanfare so the moment
+    // of truck arrival reads as a player accomplishment, not just
+    // a hiss-and-thud. Three layers:
+    //   1. Pneumatic hiss + chassis settle (mechanical realism)
+    //   2. Three-note ascending fanfare (G5 → C6 → E6) — short,
+    //      celebratory, reads as "objective complete"
+    //   3. Heavy thud at the end — physical landing
+    //
+    // Volume bumped notably from the earlier mix so the cue
+    // actually punches through combat audio. Without this the
+    // arrival was easy to miss in the chaos of late-wave fights.
+
+    // Pneumatic hiss
+    this._noise(0.55, 4200, 0.42);
     // Mid-pitch settle whine descending
-    this._beep({ type: 'sawtooth', freqStart: 220, freqEnd: 80, dur: 0.50, gainStart: 0.18 });
+    this._beep({ type: 'sawtooth', freqStart: 220, freqEnd: 80, dur: 0.50, gainStart: 0.26 });
     // Heavy chassis thud landing
-    this._beep({ type: 'sawtooth', freqStart: 70, freqEnd: 30, dur: 0.40, gainStart: 0.30, delay: 0.10 });
-    // Secondary metallic clank — the dock connector seating
-    this._beep({ type: 'square', freqStart: 1400, freqEnd: 800, dur: 0.08, gainStart: 0.12, delay: 0.20 });
+    this._beep({ type: 'sawtooth', freqStart: 70, freqEnd: 28, dur: 0.55, gainStart: 0.42, delay: 0.10 });
+    // Metallic clank — dock connector seating
+    this._beep({ type: 'square', freqStart: 1400, freqEnd: 800, dur: 0.10, gainStart: 0.18, delay: 0.20 });
+
+    // Fanfare — three rising notes, sine + triangle for warmth.
+    // Tuned to G5 (783.99 Hz) → C6 (1046.50) → E6 (1318.51), a
+    // major triad ascending. Each note 0.18s with overlapping
+    // attacks so they read as one quick celebratory bloom.
+    this._beep({ type: 'sine',     freqStart: 783.99,  dur: 0.20, gainStart: 0.22, delay: 0.30 });
+    this._beep({ type: 'triangle', freqStart: 1567.98, dur: 0.20, gainStart: 0.10, delay: 0.30 });
+    this._beep({ type: 'sine',     freqStart: 1046.50, dur: 0.22, gainStart: 0.22, delay: 0.42 });
+    this._beep({ type: 'triangle', freqStart: 2093.00, dur: 0.22, gainStart: 0.10, delay: 0.42 });
+    this._beep({ type: 'sine',     freqStart: 1318.51, dur: 0.30, gainStart: 0.24, delay: 0.54 });
+    this._beep({ type: 'triangle', freqStart: 2637.02, dur: 0.30, gainStart: 0.12, delay: 0.54 });
+  }
+
+  // Truck rolling start — a one-shot cue played when the escort
+  // truck transitions from idling/blocked to actively moving forward.
+  // Sells the moment the player gets the truck unstuck and it starts
+  // crawling toward its destination. Reads as "engine engaging,
+  // wheels turning" — a quick gear-shift + rolling chunk.
+  truckRollStart() {
+    // Brief gear-shift click
+    this._beep({ type: 'square', freqStart: 220, freqEnd: 110, dur: 0.10, gainStart: 0.18 });
+    // Low engine engage — sawtooth pitch swelling up
+    this._beep({ type: 'sawtooth', freqStart: 50, freqEnd: 95, dur: 0.55, gainStart: 0.22, delay: 0.04 });
+    // Rumbly mid for body weight rolling forward
+    this._beep({ type: 'square', freqStart: 110, freqEnd: 145, dur: 0.42, gainStart: 0.10, delay: 0.10 });
+  }
+
+  // Cannon firing — the big chapter 2 wave 3 cannon's discharge.
+  // Reads as a heavy energy weapon: low boom, mid-frequency punch,
+  // high zap on top, all layered into one chunky shot. Loud enough
+  // to register over combat sfx without dominating; the cannon is
+  // a once-per-corner-charge event so we can afford something big.
+  cannonFire() {
+    // Big cannon shot — ENERGY-BEAM punch with heavy sub, mid bite,
+    // and high-end sizzle. Volume bumped this pass: the cannon is a
+    // once-per-corner-charge event so it can afford to be loud
+    // without fatiguing the mix. Without the bump the shot was
+    // landing under combat audio and reading as "did it fire?".
+    //
+    // Layered structure:
+    //   - Sub-bass thump (sawtooth 110→25 Hz) — body of the shot
+    //   - Mid-range punch (square 320→70 Hz) — gives it teeth
+    //   - High zap (sawtooth 2200→500 Hz) — sells "energy weapon"
+    //   - Front noise burst — explosive transient
+    //   - Tail decay (triangle 480→160 Hz) — short zap fading out
+    //   - Late thunder layer — extends the boom so the shot has
+    //     real PRESENCE in the moment, not just a transient
+    this._beep({ type: 'sawtooth', freqStart: 110, freqEnd: 25,  dur: 0.70, gainStart: 0.62 });
+    this._beep({ type: 'square',   freqStart: 320, freqEnd: 70,  dur: 0.50, gainStart: 0.32 });
+    this._beep({ type: 'sawtooth', freqStart: 2200, freqEnd: 500, dur: 0.22, gainStart: 0.28 });
+    this._noise(0.20, 2400, 0.45);
+    this._beep({ type: 'triangle', freqStart: 480, freqEnd: 160, dur: 0.40, gainStart: 0.18, delay: 0.14 });
+    // Late thunder — a slow rumble layered under the tail to give
+    // the shot a "rolling" feel rather than a sharp punch alone.
+    this._beep({ type: 'sawtooth', freqStart: 80,  freqEnd: 28,  dur: 0.85, gainStart: 0.30, delay: 0.18 });
   }
 
   // Server online — cluster of soft beeps as system squares light up.

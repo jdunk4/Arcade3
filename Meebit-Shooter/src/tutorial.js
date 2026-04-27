@@ -130,6 +130,35 @@ export function getTutorialFloorColorAt(worldX, worldZ) {
   return ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff);
 }
 
+// MAXIMUM-SATURATION glow color sampler. Returns the tile's hue at
+// full saturation and high lightness — the "vivid" version of the
+// floor color that reads as a properly saturated highlight, not a
+// washed-out bright patch.
+//
+// Why a separate function: getTutorialFloorColorAt above samples the
+// FLOOR's actual painted color (matched to the texel pattern). For
+// the cell highlight overlay we want something MORE vivid — pump
+// saturation to 100% and lightness to ~55% via HSL conversion.
+// Result: even pastel-ish or near-gray cells get a bold tinted
+// highlight when the player walks over them, instead of looking
+// like a brighter version of the same washy tile.
+export function getTutorialGlowColorAt(worldX, worldZ) {
+  // Start from the floor color (same hue, smooth blending across cells).
+  const baseHex = getTutorialFloorColorAt(worldX, worldZ);
+  // Convert to HSL via THREE.Color — handles the math correctly and
+  // avoids reimplementing the conversion. Pump saturation to 1.0 and
+  // lightness to 0.55 (the visual sweet spot — high enough to be
+  // bright, low enough to keep hue identity instead of washing white).
+  const c = _glowTmp.setHex(baseHex);
+  c.getHSL(_glowHsl);
+  c.setHSL(_glowHsl.h, 1.0, 0.55);
+  return c.getHex();
+}
+// Reusable scratch objects to avoid per-frame allocation in the hot
+// glow update path.
+const _glowTmp = new THREE.Color();
+const _glowHsl = { h: 0, s: 0, l: 0 };
+
 // Snap a world (x, z) point to the rainbow texture's grid cell and
 // return that cell's center world position, world-space size, and
 // color. Used by the tutorial floor-glow to highlight the SPECIFIC
@@ -160,7 +189,7 @@ export function getTutorialCellInfo(worldX, worldZ) {
     x: cx,
     z: cz,
     size: cellSize,
-    color: getTutorialFloorColorAt(cx, cz),
+    color: getTutorialGlowColorAt(cx, cz),
     col, row,
   };
 }
@@ -445,28 +474,46 @@ export function restoreShadows(renderer) {
 // ---------------------------------------------------------------------
 let _fogSnapshot = null;
 export function disableFog() {
-  if (!scene || !scene.fog) return;
+  if (!scene) return;
   if (_fogSnapshot === null) {
     _fogSnapshot = {
-      near: scene.fog.near,
-      far: scene.fog.far,
-      color: scene.fog.color.getHex(),
+      near: scene.fog ? scene.fog.near : null,
+      far: scene.fog ? scene.fog.far : null,
+      color: scene.fog ? scene.fog.color.getHex() : null,
+      // scene.background is the SECOND fog source: the fogRing module
+      // sets it to pure black so distant geometry past the player's
+      // visibility ring fades to absolute dark. In tutorial mode that
+      // black background bleeds into the perimeter and reads as "fog
+      // is still here." Snapshot + restore both fog and bg so neither
+      // leaks into the tutorial's bright, fully-lit look.
+      bg: (scene.background && scene.background.getHex) ? scene.background.getHex() : null,
     };
   }
-  // Effectively kill fog by pushing the falloff well past anything
-  // ever rendered. Arena diagonal is ~141u; 5000 is comfortably out.
-  scene.fog.near = 5000;
-  scene.fog.far = 5001;
-  // Brighten the fog color too — even with near/far pushed, some
-  // edge cases (very tall objects, far skybox) can still pick up
-  // residual fog tint. White means any leak is invisible against
-  // the bright arena.
-  scene.fog.color.setHex(0xffffff);
+  if (scene.fog) {
+    // Effectively kill fog by pushing the falloff well past anything
+    // ever rendered. Arena diagonal is ~141u; 5000 is comfortably out.
+    scene.fog.near = 5000;
+    scene.fog.far = 5001;
+    // Bright fog color in case any edge case still picks up the tint.
+    scene.fog.color.setHex(0xffffff);
+  }
+  if (scene.background && scene.background.setHex) {
+    // Bright sky so the tutorial's perimeter doesn't fade to black.
+    // Picked a soft off-white that matches the tutorial's clean look
+    // without being a glaring pure-white that overwhelms the arena's
+    // saturated rainbow palette.
+    scene.background.setHex(0xeeeeee);
+  }
 }
 export function restoreFog() {
-  if (!scene || !scene.fog || _fogSnapshot === null) return;
-  scene.fog.near = _fogSnapshot.near;
-  scene.fog.far = _fogSnapshot.far;
-  scene.fog.color.setHex(_fogSnapshot.color);
+  if (!scene || _fogSnapshot === null) return;
+  if (scene.fog && _fogSnapshot.near !== null) {
+    scene.fog.near = _fogSnapshot.near;
+    scene.fog.far = _fogSnapshot.far;
+    scene.fog.color.setHex(_fogSnapshot.color);
+  }
+  if (scene.background && _fogSnapshot.bg !== null && scene.background.setHex) {
+    scene.background.setHex(_fogSnapshot.bg);
+  }
   _fogSnapshot = null;
 }
