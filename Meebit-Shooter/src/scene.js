@@ -200,6 +200,7 @@ const lampPointLights = [];
 export const Scene = {
   scene, camera, renderer, rimLight, ground, groundMat, gridHelper,
   capMesh, capMat, lampBulbs, lampPointLights, hemi, floorTex, moon,
+  ambient,
 };
 
 // ---- THEME INTERPOLATION ----

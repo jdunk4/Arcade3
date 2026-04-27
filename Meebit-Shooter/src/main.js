@@ -38,17 +38,20 @@ import {
   applyTutorialFloor, restoreNormalFloor,
   disableShadows, restoreShadows,
   disableFog, restoreFog,
+  boostTutorialLighting, restoreTutorialLighting,
   getTutorialFloorColorAt, getTutorialCellInfo,
 } from './tutorial.js';
 import {
   startTutorialController, stopTutorialController,
   tickTutorialController,
+  getActiveLessonIdx as getActiveTutorialLessonIdx,
   notifyEnemyKilled as tutorialOnEnemyKilled,
   notifyShotFired as tutorialOnShotFired,
   notifyDashed as tutorialOnDashed,
   notifyHazardHit as tutorialOnHazardHit,
   notifyDeadlyHazardHit as tutorialOnDeadlyHazardHit,
   notifyPotionConsumed as tutorialOnPotionConsumed,
+  notifyGrenadeThrown as tutorialOnGrenadeThrown,
 } from './tutorialLessons.js';
 import { updateLifedrainBeams, applyLifedrainTick, fireLifedrainSwarm, updateLifedrainProjectiles, clearLifedrainEffects } from './lifedrainer.js';
 import { scatterCorpses, clearCorpses } from './corpses.js';
@@ -2167,6 +2170,12 @@ function startTutorial() {
   //      and undo step 1)
   disableShadows(renderer);
   disableFog();
+  // Crank ambient + hemi to bright white so the meebit isn't muted
+  // by chapter-mood lighting. Without this the avatar reads as DARK
+  // even with two parented PointLights, because the scene-wide
+  // ambient sits at intensity 0.55 with a deep purple tint that
+  // dominates the meebit's albedo.
+  boostTutorialLighting();
   try { setFogVisible(false); } catch (e) {}
 
   Audio.init();
@@ -2355,6 +2364,7 @@ function _exitTutorialIfActive() {
   restoreNormalFloor();
   restoreShadows(renderer);
   restoreFog();
+  restoreTutorialLighting();
   // Re-show the fog ring meshes; the animate loop will resume calling
   // updateFogRing on the next non-tutorial frame which will re-assert
   // proper fog params for the active chapter.
@@ -4176,6 +4186,7 @@ function tryThrowGrenade() {
   const w = WEAPONS.grenade;
   S.grenadeCharges -= 1;
   S.grenadeCooldown = w.fireRate;
+  if (S.tutorialMode) tutorialOnGrenadeThrown();
   _syncGrenadeHUD();
 
   const origin = new THREE.Vector3(
@@ -5075,11 +5086,23 @@ function killEnemy(idx) {
   // each) so they feel like genuine windfalls. Drop position is
   // the enemy's last position; the pickup mesh's pop animation
   // gives a clear "something appeared here" telegraph.
-  if (rollPotionDrop(!!e.isBoss)) {
-    spawnPickup('potion', e.pos.clone());
-  }
-  if (rollGrenadeDrop(!!e.isBoss)) {
-    spawnPickup('grenade', e.pos.clone());
+  // Tutorial mode: suppress enemy drops of potions and grenades
+  // until the HEAL lesson activates (lesson index 9, 0-indexed).
+  // Reason: that lesson explicitly clears inventory and spawns its
+  // own pickups — if enemies dropped potions/grenades during the
+  // earlier lessons (kill, weapons, escort, cannon...) the player
+  // could enter the heal lesson with stockpiled items and skip the
+  // pickup-and-use mechanic the lesson is designed to teach. Once
+  // the heal lesson activates onwards, drops resume normally so the
+  // overdrive lesson still gets the full chaotic loot pattern.
+  const _tutSuppressDrops = S.tutorialMode && getActiveTutorialLessonIdx() < 9;
+  if (!_tutSuppressDrops) {
+    if (rollPotionDrop(!!e.isBoss)) {
+      spawnPickup('potion', e.pos.clone());
+    }
+    if (rollGrenadeDrop(!!e.isBoss)) {
+      spawnPickup('grenade', e.pos.clone());
+    }
   }
 
   onEnemyKilled(e, inZone);

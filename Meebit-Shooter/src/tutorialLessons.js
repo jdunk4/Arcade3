@@ -55,6 +55,7 @@ import {
 } from './escortTruck.js';
 import { spawnBlock, blocks } from './blocks.js';
 import { updateOres, clearAllOres } from './ores.js';
+import { spawnPickup } from './pickups.js';
 
 // ---------------------------------------------------------------------
 // State
@@ -84,6 +85,8 @@ let _deadlyHazardHits = 0;
 let _deadlyHazardHitsAtActivate = 0;
 let _potionsConsumed = 0;
 let _potionsConsumedAtActivate = 0;
+let _grenadesThrown = 0;
+let _grenadesThrownAtActivate = 0;
 
 // References to lesson-spawned props so they can be torn down.
 let _activeProps = [];
@@ -109,6 +112,7 @@ export function startTutorialController(opts) {
   _hazardHits = 0;
   _deadlyHazardHits = 0;
   _potionsConsumed = 0;
+  _grenadesThrown = 0;
   _activeProps.length = 0;
   _activeEnemies.clear();
   _lastPlayerPos = player && player.pos ? player.pos.clone() : null;
@@ -151,6 +155,12 @@ export function notifyDeadlyHazardHit() {
 }
 export function notifyPotionConsumed() {
   _potionsConsumed++;
+}
+// Fires when the player throws a grenade (S.grenadeCharges decrements
+// inside tryThrowGrenade in main.js). Used by the expanded heal lesson
+// which requires the player to USE both a potion AND a grenade.
+export function notifyGrenadeThrown() {
+  _grenadesThrown++;
 }
 
 // ---------------------------------------------------------------------
@@ -228,6 +238,7 @@ function _advance() {
   _hazardHitsAtActivate = _hazardHits;
   _deadlyHazardHitsAtActivate = _deadlyHazardHits;
   _potionsConsumedAtActivate = _potionsConsumed;
+  _grenadesThrownAtActivate = _grenadesThrown;
   _weaponsTried.clear();
   // Clear any arrows the previous lesson may have left up; the new
   // lesson will repopulate them in onActivate or onUpdate if needed.
@@ -541,13 +552,32 @@ function buildLessonList() {
         spawnEscortTruck(0, FROM, TO);
         S.isEscortWave = true;
       } catch (e) { console.warn('[tutorial] escort', e); }
+
+      // Spawn the blocker IMMEDIATELY, right in front of the truck
+      // (x=-7, just 3u ahead of the FROM point at -10). Stationary
+      // so the player has to engage and clear it before the truck
+      // can advance. Earlier this spawn was deferred to the first
+      // onUpdate frame which gave the truck time to start rolling
+      // BEFORE encountering resistance — the user wanted the
+      // conflict to start at frame zero.
+      try {
+        const tint = tutorialEnemyColor(0xffffff);
+        const e = makeEnemy('zomeeb', tint, new THREE.Vector3(-7, 0, 0));
+        if (e) {
+          e.speed = 0;
+          this._blocker = e;
+          this._blockerSpawned = true;
+          _activeEnemies.add(e);
+        }
+      } catch (err) { console.warn('[tutorial] escort blocker', err); }
+
       // Visible goal ring at the destination so the player has a
       // concrete "deliver here" target. Tinted with the chapter
       // color so it matches the rest of the tutorial palette.
-      const tint = CHAPTERS[(S.chapter || 0) % CHAPTERS.length].full.grid1;
+      const tint2 = CHAPTERS[(S.chapter || 0) % CHAPTERS.length].full.grid1;
       const ringGeo = new THREE.RingGeometry(2.0, 2.4, 48);
       const ringMat = new THREE.MeshBasicMaterial({
-        color: tint, transparent: true, opacity: 0.85,
+        color: tint2, transparent: true, opacity: 0.85,
         side: THREE.DoubleSide,
       });
       const ring = new THREE.Mesh(ringGeo, ringMat);
@@ -560,7 +590,7 @@ function buildLessonList() {
       // floating outline.
       const discGeo = new THREE.CircleGeometry(2.0, 36);
       const discMat = new THREE.MeshBasicMaterial({
-        color: tint, transparent: true, opacity: 0.18,
+        color: tint2, transparent: true, opacity: 0.18,
       });
       const disc = new THREE.Mesh(discGeo, discMat);
       disc.rotation.x = -Math.PI / 2;
@@ -574,18 +604,8 @@ function buildLessonList() {
       if (this._goalRing && this._goalRing.material) {
         this._goalRing.material.opacity = 0.65 + 0.30 * Math.sin(performance.now() * 0.005);
       }
-      // Once truck exists, spawn a blocker mid-path on the first frame.
-      if (!this._blockerSpawned && hasTruck()) {
-        this._blockerSpawned = true;
-        const tint = tutorialEnemyColor(0xffffff);
-        const e = makeEnemy('zomeeb', tint, new THREE.Vector3(0, 0, 0));
-        if (e) {
-          e.speed = 0;
-          this._blocker = e;
-          _activeEnemies.add(e);
-        }
-      }
-      // Arrow → truck (or blocker if alive).
+      // Arrow → truck (or blocker if alive). Blocker is spawned in
+      // onActivate now, no first-frame deferral needed.
       const arrows = [];
       const blockerAlive = this._blocker && this._blocker.hp > 0;
       if (blockerAlive) {
@@ -703,8 +723,27 @@ function buildLessonList() {
           const inCorner = (ddx * ddx + ddz * ddz) < (3.0 * 3.0);
           if (inCorner) {
             this._chargeT = Math.min(CORNER_CHARGE_DURATION, this._chargeT + dt);
+            // Periodic charging audio — short ascending hum every
+            // ~0.4s so the player audibly hears the charge climbing.
+            // Pitched higher as progress climbs (Audio.cannonChargingTick
+            // takes a 0..1 progress value). Without this the corner-
+            // charge phase felt silent in tutorial; the production
+            // game gets the same cue from waves.js.
+            this._chargeAudioT = (this._chargeAudioT || 0) - dt;
+            if (this._chargeAudioT <= 0) {
+              this._chargeAudioT = 0.40;
+              try {
+                Audio.cannonChargingTick && Audio.cannonChargingTick(
+                  this._chargeT / CORNER_CHARGE_DURATION
+                );
+              } catch (e) {}
+            }
           } else {
             this._chargeT = Math.max(0, this._chargeT - dt * 0.3);
+            // Reset the audio timer when player leaves the pad so the
+            // next time they step in, the cue fires immediately rather
+            // than after a stale gap.
+            this._chargeAudioT = 0;
           }
           try { setCannonCornerProgress(this._chargeT / CORNER_CHARGE_DURATION); } catch (e) {}
           // Animate the big overlay ring/disc to track progress.
@@ -849,21 +888,75 @@ function buildLessonList() {
     },
   });
 
-  // ----- 12. HEAL -----
+  // ----- 12. HEAL & THROW — pick up a potion + grenade, use both -----
+  // Expanded from a simple "use a potion" task. Lesson 11 (DODGE THE
+  // DEADLY) almost certainly killed the player at least once — they
+  // respawned at center via the tutorial's no-die handler. Now we
+  // spawn a potion AND a grenade pickup right where they respawned,
+  // forcing them to walk over both, pick them up, and USE both
+  // (H for potion, G for grenade). Teaches the full healing /
+  // explosive-utility loop in one beat.
+  //
+  // Why we zero out S.potions and S.grenadeCharges on activate:
+  // the spawned pickups need to be REQUIRED. If the player already
+  // has a potion or grenade in their inventory from earlier wave
+  // drops, the lesson's progression becomes ambiguous (did they
+  // pick up the new ones, or use a stockpile?). Forcing zero starts
+  // them on a clean slate.
   list.push({
     id: 'heal',
-    label: 'USE A POTION',
-    hint: 'Press H to drink a potion and heal your wounds.',
+    label: 'PICK UP & USE POTION + GRENADE',
+    hint: 'Walk over the items at center. Press H to heal, G to throw the grenade.',
     onActivate() {
-      // Make sure the player has at least one potion AND is below
-      // max HP so the potion actually does something. tryUsePotion
-      // refuses if HP is full.
-      if ((S.potions || 0) < 1) S.potions = 1;
+      // Clear inventory so pickups are required, not optional.
+      S.potions = 0;
+      S.grenadeCharges = 0;
+      // Drop HP so the potion actually does something (tryUsePotion
+      // refuses if HP is full).
       if (S.hp >= S.hpMax) {
         S.hp = Math.max(1, Math.floor(S.hpMax * 0.5));
       }
+      // Spawn the two pickups at CENTER (0,0). The user spec'd
+      // "see a grenade and potion near center" — this stays true
+      // even if the player happened to skip dying in lesson 11
+      // and arrives at the heal lesson from somewhere else in the
+      // arena. Slight separation so the pickup meshes don't visually
+      // overlap.
+      const cx = 0;
+      const cz = 0;
+      this._spawnX = cx;
+      this._spawnZ = cz;
+      try {
+        spawnPickup('potion', new THREE.Vector3(cx - 1.2, 0.5, cz));
+        spawnPickup('grenade', new THREE.Vector3(cx + 1.2, 0.5, cz));
+      } catch (e) { console.warn('[tutorial] heal pickups', e); }
     },
-    isComplete: () => (_potionsConsumed - _potionsConsumedAtActivate) >= 1,
+    onUpdate() {
+      // Arrows → unused pickups. We can't reliably see pickups from
+      // here without importing the array, so just point at where they
+      // were spawned. The pickup mesh's auto-magnet pull will draw the
+      // player toward them once close enough.
+      const cx = (this._spawnX != null) ? this._spawnX : 0;
+      const cz = (this._spawnZ != null) ? this._spawnZ : 0;
+      const arrows = [];
+      const potionUsed = (_potionsConsumed - _potionsConsumedAtActivate) >= 1;
+      const grenadeUsed = (_grenadesThrown - _grenadesThrownAtActivate) >= 1;
+      if (!potionUsed) arrows.push({ x: cx - 1.2, z: cz, label: 'POTION' });
+      if (!grenadeUsed) arrows.push({ x: cx + 1.2, z: cz, label: 'GRENADE' });
+      S.tutorialArrows = arrows;
+    },
+    isComplete() {
+      const potionUsed = (_potionsConsumed - _potionsConsumedAtActivate) >= 1;
+      const grenadeUsed = (_grenadesThrown - _grenadesThrownAtActivate) >= 1;
+      return potionUsed && grenadeUsed;
+    },
+    progress() {
+      const potionUsed = (_potionsConsumed - _potionsConsumedAtActivate) >= 1;
+      const grenadeUsed = (_grenadesThrown - _grenadesThrownAtActivate) >= 1;
+      const a = potionUsed ? '✓ POTION' : 'POTION';
+      const b = grenadeUsed ? '✓ GRENADE' : 'GRENADE';
+      return a + ' · ' + b;
+    },
   });
 
   // ----- 13. OVERDRIVE — 25-streak triggers overdrive (HORDE MODE) -----

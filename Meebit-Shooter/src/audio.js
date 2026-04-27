@@ -710,9 +710,18 @@ class AudioEngine {
       // the truck at all.
       this._beep({ type: 'sawtooth', freqStart: 70, freqEnd: 65, dur: 0.40, gainStart: 0.22 });
       this._beep({ type: 'square',   freqStart: 140, freqEnd: 130, dur: 0.32, gainStart: 0.10, delay: 0.05 });
+      // Mid-range "putt-putt" engine note — clearly audible on any
+      // speaker, including laptops and phones where the 70Hz
+      // fundamental drops out entirely. This is the layer that makes
+      // the truck movement unmistakable in tutorial mode.
+      this._beep({ type: 'square',   freqStart: 320, freqEnd: 280, dur: 0.18, gainStart: 0.16 });
+      this._beep({ type: 'sawtooth', freqStart: 480, freqEnd: 420, dur: 0.16, gainStart: 0.08, delay: 0.09 });
     } else {
       // Idle huff — quieter, simpler
       this._beep({ type: 'sawtooth', freqStart: 75, freqEnd: 70, dur: 0.30, gainStart: 0.13 });
+      // Mid-range idle layer too, just quieter, so the truck reads as
+      // "stopped, engine still running" rather than silent.
+      this._beep({ type: 'square',   freqStart: 280, freqEnd: 260, dur: 0.20, gainStart: 0.07 });
     }
   }
 

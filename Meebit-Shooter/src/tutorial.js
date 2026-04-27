@@ -517,3 +517,65 @@ export function restoreFog() {
   }
   _fogSnapshot = null;
 }
+
+// ---------------------------------------------------------------------
+// Lighting boost. The scene's default lighting is tuned for the
+// chapter mood — moody purple ambient, chapter-tinted hemi. That
+// makes the meebit look DARK in tutorial because the strong rainbow
+// floor steals visual attention while the meebit gets muted lighting.
+//
+// Strategy: snapshot ambient + hemi intensities/colors on tutorial
+// entry, override them to bright neutral white at higher intensity,
+// then restore on exit. The hemi gets a sky-up white and a slightly
+// dimmer ground-down white so the meebit reads cleanly from both
+// camera angles. Ambient pumps to nearly white so even bottom faces
+// of the meebit stay readable — without this, parts of the meebit
+// facing away from any direct light remained very dark.
+//
+// We do NOT touch the moon (DirectionalLight) because the rim
+// lighting it provides is desirable for the meebit's silhouette;
+// boosting the ambient/hemi alone gives us "no dark crevices" while
+// keeping the moon's directional shape.
+// ---------------------------------------------------------------------
+let _lightingSnapshot = null;
+export function boostTutorialLighting() {
+  if (!Scene) return;
+  if (_lightingSnapshot === null) {
+    _lightingSnapshot = {
+      ambientIntensity: Scene.ambient ? Scene.ambient.intensity : null,
+      ambientColor: Scene.ambient ? Scene.ambient.color.getHex() : null,
+      hemiIntensity: Scene.hemi ? Scene.hemi.intensity : null,
+      hemiSky: Scene.hemi ? Scene.hemi.color.getHex() : null,
+      hemiGround: Scene.hemi ? Scene.hemi.groundColor.getHex() : null,
+    };
+  }
+  // Bright neutral ambient — pulls the meebit's dark sides up to
+  // a clearly visible level. 1.2 is well above the default 0.55;
+  // combined with white color (instead of dark purple #3a2850) the
+  // baseline luminance roughly quadruples.
+  if (Scene.ambient) {
+    Scene.ambient.color.setHex(0xffffff);
+    Scene.ambient.intensity = 1.2;
+  }
+  // Bright neutral hemi — sky white, ground a slightly warm off-white
+  // so floor reflections feel grounded but don't push the meebit toward
+  // any chapter-tinted hue.
+  if (Scene.hemi) {
+    Scene.hemi.color.setHex(0xffffff);
+    Scene.hemi.groundColor.setHex(0xeeeeee);
+    Scene.hemi.intensity = 1.0;
+  }
+}
+export function restoreTutorialLighting() {
+  if (!Scene || _lightingSnapshot === null) return;
+  if (Scene.ambient && _lightingSnapshot.ambientIntensity !== null) {
+    Scene.ambient.color.setHex(_lightingSnapshot.ambientColor);
+    Scene.ambient.intensity = _lightingSnapshot.ambientIntensity;
+  }
+  if (Scene.hemi && _lightingSnapshot.hemiIntensity !== null) {
+    Scene.hemi.color.setHex(_lightingSnapshot.hemiSky);
+    Scene.hemi.groundColor.setHex(_lightingSnapshot.hemiGround);
+    Scene.hemi.intensity = _lightingSnapshot.hemiIntensity;
+  }
+  _lightingSnapshot = null;
+}
