@@ -52,12 +52,67 @@
     <div class="save-row"><span>MEEBITS FREED</span><b id="title-collection">0 / 20000</b></div>
   </div>
 
-  <button class="cta" id="start-btn">ATTACK THE AI</button>
-  <button class="cta cta-tutorial" id="tutorial-btn">START TUTORIAL</button>
+  <!-- GAME-MODE SELECTOR (two-card picker, Fortnite-style)
+       Each card is hover/click-selectable. Selecting a card toggles a
+       full-color highlight + reveals a label + description below the
+       row. Click triggers the underlying #start-btn or #tutorial-btn,
+       which carry the actual start logic in main.js. The buttons
+       themselves are hidden but kept in the DOM so all existing
+       event listeners and code paths still work. -->
+  <div id="mode-picker">
+    <div class="mode-card" id="mode-card-tutorial" data-target="tutorial-btn">
+      <div class="mode-card-img" style="background-image:url('assets/title_card_tutorial.png');"></div>
+      <div class="mode-card-label">TUTORIAL</div>
+    </div>
+    <div class="mode-card" id="mode-card-game" data-target="start-btn">
+      <div class="mode-card-img" style="background-image:url('assets/title_card_game.png');"></div>
+      <div class="mode-card-label">ATTACK THE AI</div>
+    </div>
+  </div>
+  <div id="mode-picker-hint">SELECT A GAME MODE</div>
+  <div id="mode-picker-desc"></div>
+
+  <!-- Real CTAs (hidden — clicked programmatically by the cards above). -->
+  <button class="cta" id="start-btn" style="display:none;">ATTACK THE AI</button>
+  <button class="cta cta-tutorial" id="tutorial-btn" style="display:none;">START TUTORIAL</button>
   <button class="wallet-btn" id="connect-wallet-btn">🦊 CONNECT WALLET</button>
   <div style="font-size:10px; letter-spacing:2px; color:#888; margin-top:10px;">
     OWN A MEEBIT? CONNECT TO PLAY AS YOUR OWN AVATAR
   </div>
+  <script>
+  // Wire the mode-picker cards to the hidden CTA buttons. Hover sets
+  // the selected card; click forwards to the matching real button.
+  // Selection model: at most one card is .selected at a time. The
+  // description panel below shows that card's text.
+  (function () {
+    const cards = document.querySelectorAll('#mode-picker .mode-card');
+    const desc = document.getElementById('mode-picker-desc');
+    const DESCRIPTIONS = {
+      'tutorial-btn': 'TUTORIAL · LEARN THE GRID. NO DEATH. NO PRESSURE.',
+      'start-btn':    'ATTACK THE AI · 7 CHAPTERS. WAVES OF ZOMEEBS. NO MERCY.',
+    };
+    function select(card) {
+      cards.forEach(c => c.classList.toggle('selected', c === card));
+      const target = card && card.dataset.target;
+      desc.textContent = target ? DESCRIPTIONS[target] : '';
+    }
+    cards.forEach(card => {
+      card.addEventListener('mouseenter', () => select(card));
+      card.addEventListener('click', () => {
+        select(card);
+        const target = card.dataset.target;
+        const btn = target && document.getElementById(target);
+        // Tiny visual delay so the selection highlight registers
+        // before the title screen fades.
+        setTimeout(() => { if (btn) btn.click(); }, 90);
+      });
+    });
+    // Default selection: ATTACK THE AI (the production game) is the
+    // featured center card, mirroring Fortnite's BATTLE ROYALE focus.
+    const def = document.getElementById('mode-card-game');
+    if (def) select(def);
+  })();
+  </script>
 </div>
 
 <!-- Persistent matrix rain -->
