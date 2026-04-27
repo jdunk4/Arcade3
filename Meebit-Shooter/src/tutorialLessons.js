@@ -40,7 +40,7 @@ import { tutorialEnemyColor } from './tutorial.js';
 // player learns the actual mechanics rather than tutorial-flavored
 // mocks.
 import {
-  spawnCannon, clearCannon,
+  spawnCannon, clearCannon, armCannon,
   setActiveCannonCorner, setCannonCornerProgress, consumeCannonCorner,
   getCannonCornerPos, forceFireCannon, getCannonOrigin, hasCannon,
 } from './cannon.js';
@@ -599,6 +599,17 @@ function buildLessonList() {
       return isTruckArrived();
     },
     onComplete() {
+      // Defensive audio cue — the escortTruck module also fires
+      // Audio.truckDecompression() on arrival, but in tutorial mode
+      // that path has been observed to miss occasionally (possibly
+      // because the truck arrives within a single frame between the
+      // updateEscortTruck call and the lesson's isComplete poll).
+      // Calling it again here is idempotent — it's a one-shot cue
+      // — and guarantees the player hears the delivery the moment
+      // the lesson advances. Worst case: it fires twice, which the
+      // human ear reads as one big arrival rather than a doubled
+      // sound.
+      try { Audio.truckDecompression && Audio.truckDecompression(); } catch (e) {}
       try { clearEscortTruck(); } catch (e) {}
       S.isEscortWave = false;
     },
@@ -634,6 +645,11 @@ function buildLessonList() {
       try {
         spawnCannon(0);
         spawnQueenHive(0);
+        // Transition cannon IDLE → ARMED so forceFireCannon() passes
+        // its state guard. Without this the function early-returns
+        // false and Audio.cannonFire() never plays. Discovered while
+        // chasing missing tutorial audio.
+        armCannon();
       } catch (e) { console.warn('[tutorial] cannon/queen', e); }
       // Activate the first cannon corner so the cannon module shows
       // its native ring there; we add a bigger bright overlay too.

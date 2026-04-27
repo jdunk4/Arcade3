@@ -2187,20 +2187,124 @@ function startTutorial() {
   // below).
   startTutorialController({
     onAllDone: () => {
-      // Auto-return to title after a short pause so the player can
-      // savor the final checkmark.
-      setTimeout(() => {
-        S.paused = false;
-        S.running = false;
-        Audio.stopMusic();
-        _exitTutorialIfActive();
-        document.querySelectorAll('.hidden-ui').forEach(el => el.style.display = 'none');
-        document.getElementById('gameover').classList.add('hidden');
-        const _t = document.getElementById('title');
-        if (_t) _t.classList.remove('hidden');
-      }, 2200);
+      // Final lesson is overdrive. We want the player to FINISH the
+      // overdrive special ability (its 8-second power-up timer) before
+      // the tutorial closes — yanking the player out of overdrive mid-
+      // flight feels abrupt and steals the reward they just earned.
+      // Poll until S.overdriveActive flips false, then show the
+      // TUTORIAL COMPLETE prompt with a manual "Return to Main Screen"
+      // button instead of auto-dismissing on a timeout.
+      _waitForOverdriveAndPromptComplete();
     },
   });
+}
+
+// Poll until the active overdrive power-up has fully played out, then
+// show the tutorial-complete modal. While overdrive is on, S.overdriveActive
+// is true and S.overdriveTimer counts down from OVERDRIVE_DURATION (8s).
+// We check every 200ms — cheap, and the human-perceptible delay between
+// "overdrive ended" and "modal appeared" stays under a fifth of a second.
+function _waitForOverdriveAndPromptComplete() {
+  // Hard cap on the wait so a stuck overdrive flag can't lock the
+  // tutorial in limbo indefinitely. 12s is OVERDRIVE_DURATION (8s) +
+  // generous slack; if we're still waiting after that, just show the
+  // modal anyway.
+  const startWait = performance.now();
+  const HARD_CAP_MS = 12000;
+  const tick = () => {
+    if (!S.overdriveActive || performance.now() - startWait > HARD_CAP_MS) {
+      _showTutorialCompleteModal();
+      return;
+    }
+    setTimeout(tick, 200);
+  };
+  tick();
+}
+
+// Build (lazily) and show the TUTORIAL COMPLETE confirmation modal.
+// Single CTA: RETURN TO MAIN SCREEN. Click triggers the actual
+// teardown + title-screen restoration. Modal is created on first call
+// and reused on subsequent runs (which won't happen in a normal session
+// but the code path is defended anyway).
+let _tutCompleteModal = null;
+function _showTutorialCompleteModal() {
+  if (!_tutCompleteModal) {
+    const m = document.createElement('div');
+    m.id = 'tutorial-complete-modal';
+    // High z-index so it sits above the title overlay (100) and the
+    // pause menu (10000). Same z as the gameover screen would block,
+    // so we explicitly hide gameover before showing this.
+    m.style.cssText = [
+      'position: fixed',
+      'inset: 0',
+      'background: radial-gradient(ellipse at center, rgba(20,4,40,0.92), rgba(7,3,13,0.99))',
+      'display: flex',
+      'flex-direction: column',
+      'align-items: center',
+      'justify-content: center',
+      'z-index: 10001',
+      'text-align: center',
+      'padding: 40px',
+      'font-family: Impact, monospace',
+      'color: #fff',
+      'cursor: var(--matrix-cursor)',
+    ].join(';');
+    m.innerHTML = `
+      <div style="font-size: 14px; letter-spacing: 6px; color: #888; margin-bottom: 20px;">
+        :: SIGNAL CLEAN ::
+      </div>
+      <div style="
+        font-size: 86px;
+        letter-spacing: 8px;
+        line-height: 0.95;
+        color: #00ff66;
+        text-shadow: 0 0 18px #00ff66, 0 0 44px rgba(0,255,102,0.7), 4px 4px 0 #000;
+        margin-bottom: 18px;
+      ">TUTORIAL<br>COMPLETE</div>
+      <div style="
+        font-size: 16px;
+        letter-spacing: 4px;
+        color: #ccc;
+        margin-bottom: 36px;
+      ">YOU ARE READY TO ENTER THE GRID.</div>
+      <button id="tutorial-complete-return" style="
+        font-family: Impact, monospace;
+        font-size: 24px;
+        letter-spacing: 5px;
+        padding: 16px 42px;
+        background: transparent;
+        color: #00ff66;
+        border: 2px solid #00ff66;
+        cursor: pointer;
+        text-shadow: 0 0 10px rgba(0,255,102,0.6);
+        transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+      ">RETURN TO MAIN SCREEN</button>
+    `;
+    document.body.appendChild(m);
+    const btn = m.querySelector('#tutorial-complete-return');
+    btn.addEventListener('mouseenter', () => {
+      btn.style.background = '#00ff66';
+      btn.style.color = '#000';
+    });
+    btn.addEventListener('mouseleave', () => {
+      btn.style.background = 'transparent';
+      btn.style.color = '#00ff66';
+    });
+    btn.addEventListener('click', () => {
+      // Hide modal, tear down tutorial, restore title screen.
+      m.style.display = 'none';
+      S.paused = false;
+      S.running = false;
+      Audio.stopMusic();
+      _exitTutorialIfActive();
+      document.querySelectorAll('.hidden-ui').forEach(el => el.style.display = 'none');
+      document.getElementById('gameover').classList.add('hidden');
+      const _t = document.getElementById('title');
+      if (_t) _t.classList.remove('hidden');
+    });
+    _tutCompleteModal = m;
+  }
+  _tutCompleteModal.style.display = 'flex';
 }
 
 function gameOver() {
@@ -2272,10 +2376,12 @@ function _exitTutorialIfActive() {
   _tutHazIdx = 0;
   _tutHazTimer = 0;
   try { clearHazards(); } catch (e) {}
-  // Hide cell-glow + meebit light on exit so they don't reappear at
-  // their last position the next time the player runs a normal game.
+  // Hide cell-glow + both meebit lights on exit so they don't
+  // reappear at their last position the next time the player runs
+  // a normal game.
   if (_tutCellMesh) _tutCellMesh.visible = false;
   if (_tutMeebitLight) _tutMeebitLight.visible = false;
+  if (_tutMeebitFillLight) _tutMeebitFillLight.visible = false;
   // If the OVERDRIVE lesson left overdrive mid-flight (8s timer
   // started, tutorial closed before it expired), force-exit it so
   // the player's scale/invuln state doesn't leak into the title
@@ -2316,6 +2422,7 @@ function _exitTutorialIfActive() {
 let _tutCellMesh = null;
 let _tutCellMat = null;
 let _tutMeebitLight = null;
+let _tutMeebitFillLight = null;     // constant-white fill so meebit isn't dark on saturated tiles
 let _tutCellSize = 0;             // remembered to detect first build
 let _tutCellTargetColor = new THREE.Color(0xffffff);
 function _updateTutorialFloorGlow() {
@@ -2325,6 +2432,7 @@ function _updateTutorialFloorGlow() {
     // Player is outside the rainbow zone (on the black border rails).
     if (_tutCellMesh) _tutCellMesh.visible = false;
     if (_tutMeebitLight) _tutMeebitLight.visible = false;
+    if (_tutMeebitFillLight) _tutMeebitFillLight.visible = false;
     return;
   }
 
@@ -2349,22 +2457,45 @@ function _updateTutorialFloorGlow() {
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
-    // Lifted slightly higher off the floor so the highlight fully
-    // overrides the texture beneath rather than peeking through any
-    // tiny z-fight. 0.06 is enough to be reliably on top.
-    mesh.position.y = 0.06;
+    // Lifted just barely above the floor (y=0.01) — BELOW everything
+    // else that paints the floor: hazard tiles (y=0.03), tetris
+    // shadows (y=0.02), cannon corner rings (y=0.05–0.06), escort
+    // goal pad rings (y=0.05–0.06), Minesweeper bomb icons, etc.
+    // Combined with a very low renderOrder, this guarantees the
+    // highlight reads as the FLOOR's color and any hazard / charge
+    // indicator on the same cell sits visually on top of it.
+    mesh.position.y = 0.01;
+    // renderOrder = -1 so the highlight quad is drawn before any
+    // other transparent ground decals that default to renderOrder 0.
+    // Without this, transparent draw order is determined by camera
+    // distance + creation order, and the highlight could end up
+    // ABOVE older transparents like the cannon charge ring.
+    mesh.renderOrder = -1;
     scene.add(mesh);
     _tutCellMesh = mesh;
     _tutCellMat = mat;
   }
   if (!_tutMeebitLight) {
-    // Bright point light parented to the meebit so it tracks
-    // automatically. Intensity 3.0 and slightly extended range
-    // (8u) so the meebit visibly takes on the tile colour even
-    // with the brighter cell highlight underneath stealing visual
-    // attention.
+    // TWO lights stacked on the player:
+    //   1. _tutMeebitFillLight — plain white fill. Always-on
+    //      illumination that brightens the meebit regardless of
+    //      what tile color the rainbow light is painting. Without
+    //      this the meebit reads as DARK on saturated tiles
+    //      (e.g. a deep blue tile leaves red parts of the meebit
+    //      unlit because there's no red in the tile light).
+    //   2. _tutMeebitLight — colored point light, tile-tinted.
+    //      Adds the rainbow personality on top of the fill.
+    //
+    // Both parented to player.obj so they track movement
+    // automatically.
+    const fill = new THREE.PointLight(0xffffff, 1.6, 7.0, 1.4);
+    fill.position.set(0, 1.6, 0);     // slightly above chest
+    if (player.obj) player.obj.add(fill);
+    else scene.add(fill);
+    _tutMeebitFillLight = fill;
+
     const light = new THREE.PointLight(0xffffff, 3.0, 8.0, 1.6);
-    light.position.set(0, 1.0, 0);    // local offset — chest height
+    light.position.set(0, 1.0, 0);    // chest height
     if (player.obj) player.obj.add(light);
     else scene.add(light);
     _tutMeebitLight = light;
@@ -2378,6 +2509,7 @@ function _updateTutorialFloorGlow() {
   _tutCellMesh.position.x = info.x;
   _tutCellMesh.position.z = info.z;
   if (_tutMeebitLight) _tutMeebitLight.visible = true;
+  if (_tutMeebitFillLight) _tutMeebitFillLight.visible = true;
 
   // info.color is already at max saturation + high lightness
   // (getTutorialGlowColorAt does the HSL pump to s=1.0, l=0.55).
