@@ -191,18 +191,19 @@ function attachGLB(gltf) {
                || player.bones['right_hand'];
   if (handBone) {
     handBone.add(gun);
-    // In the Meebits/Mixamo hand bone, local axes are: +Y points
-    // down the fingers (palm-out), +Z points out the back of the
-    // hand. The gun box's local +Z is the barrel direction. Rotating
-    // the gun -90° around its local X axis re-aligns the barrel
-    // with the hand's +Y (fingertip-forward) so the gun points
-    // where the meebit is aiming.
-    gun.rotation.set(-Math.PI / 2, 0, 0);
-    // Seat the gun in the palm: small offset down the fingers (+Y
-    // in hand-local) so the grip ends up near the wrist pivot and
-    // the barrel projects forward past the fingertips. y=0.15
-    // empirically lands the box right in front of the palm.
-    gun.position.set(0, 0.15, 0);
+    // This Meebits VRM rig has T-pose rest with identity rotations
+    // throughout the arm chain. In the hand bone's local frame:
+    //   +X = "down the fingers / out the wrist"  (palm-extended direction)
+    //   +Y = up (back of hand in rest pose)
+    //   +Z = forward (out the back of the wrist in rest pose)
+    // The gun box's local +Z is its barrel direction. To align the
+    // barrel with the hand's +X (fingertip-forward), rotate the gun
+    // +90° around its local Y axis.
+    gun.rotation.set(0, Math.PI / 2, 0);
+    // Seat the gun past the wrist along the fingers axis (+X). Value
+    // tuned empirically: 0.05 lands the box right in the palm of the
+    // hand rather than at the wrist pivot or out past the fingertips.
+    gun.position.set(0.05, 0, 0);
   } else {
     // Fallback path — no hand bone found. Position+orient relative
     // to the meebit body root (world-aligned axes, +Z is forward).
