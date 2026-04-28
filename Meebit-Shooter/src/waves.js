@@ -1970,20 +1970,31 @@ function updateBossPattern(dt, boss) {
   if (_factionLetter) {
     const hpFracPaint = boss.hp / boss.hpMax;
     const tint = CHAPTERS[(S.chapter || 0) % CHAPTERS.length].full.grid1;
-    if (!boss.paint90 && hpFracPaint < 0.90) {
+    // Min-spacing guard: at least 6s between paints so a fast-killing
+    // player doesn't stack all 4 letters in the same second. The
+    // threshold flag still tracks "paint X has been QUEUED" but we
+    // wait for the spacing window before actually firing it.
+    const PAINT_MIN_SPACING = 6.0;
+    boss._paintCooldownT = Math.max(0, (boss._paintCooldownT || 0) - dt);
+    const canPaint = boss._paintCooldownT <= 0;
+    if (!boss.paint90 && hpFracPaint < 0.90 && canPaint) {
       boss.paint90 = true;
+      boss._paintCooldownT = PAINT_MIN_SPACING;
       try { paintFactionHazard(_factionLetter, tint); } catch (e) {}
     }
-    if (!boss.paint70 && hpFracPaint < 0.70) {
+    if (!boss.paint70 && hpFracPaint < 0.70 && canPaint && boss.paint90) {
       boss.paint70 = true;
+      boss._paintCooldownT = PAINT_MIN_SPACING;
       try { paintFactionHazard(_factionLetter, tint); } catch (e) {}
     }
-    if (!boss.paint50 && hpFracPaint < 0.50) {
+    if (!boss.paint50 && hpFracPaint < 0.50 && canPaint && boss.paint70) {
       boss.paint50 = true;
+      boss._paintCooldownT = PAINT_MIN_SPACING;
       try { paintFactionHazard(_factionLetter, tint); } catch (e) {}
     }
-    if (!boss.paint30 && hpFracPaint < 0.30) {
+    if (!boss.paint30 && hpFracPaint < 0.30 && canPaint && boss.paint50) {
       boss.paint30 = true;
+      boss._paintCooldownT = PAINT_MIN_SPACING;
       try { paintFactionHazard(_factionLetter, tint); } catch (e) {}
     }
   }

@@ -29,6 +29,8 @@
 
 import * as THREE from 'three';
 import { scene } from './scene.js';
+import { Audio } from './audio.js';
+import { UI } from './ui.js';
 
 // Currently active paints. Each entry is { strips: [...], letter, tint, born, telegraphDone }.
 const _active = [];
@@ -226,6 +228,16 @@ export function paintFactionHazard(letter, tintHex) {
     born: performance.now() / 1000,
     telegraphDone: false,
   });
+  // Warning cue — toast + radio beep at the start of the 1.5s
+  // telegraph. Some players might miss the visual outline pulse
+  // (e.g., kiting at the arena edge with the camera angled away);
+  // the toast + audio guarantees they know something is incoming.
+  // Toast color = chapter tint as a hex CSS string for readability.
+  try {
+    const cssColor = '#' + tintHex.toString(16).padStart(6, '0');
+    UI.toast && UI.toast(letter + ' INCOMING', cssColor, 1400);
+  } catch (e) {}
+  try { Audio.radioBeep && Audio.radioBeep(); } catch (e) {}
 }
 
 /**
@@ -277,9 +289,12 @@ export function updateFactionPaint(dt, playerPos, S, UI, Audio, shake) {
 
     if (!paint.telegraphDone) {
       paint.telegraphDone = true;
-      if (Audio && Audio.damage) {
-        try { Audio.damage(); } catch (e) {}
-      }
+      // Activation cue — bigBoom reads as "letter just slammed
+      // onto the arena floor" (low-frequency noise + descending
+      // sawtooth). Was previously Audio.damage() which is the
+      // player-hit beep — semantically wrong since the paint isn't
+      // hitting the player at this moment, just landing.
+      try { Audio.bigBoom && Audio.bigBoom(); } catch (e) {}
     }
 
     // ACTIVE: solid fill with gentle pulse, outline dim halo.
