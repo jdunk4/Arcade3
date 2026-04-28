@@ -163,7 +163,17 @@ function _makeStripMeshes(spec, tintHex) {
   });
   const fill = new THREE.Mesh(geom, fillMat);
   fill.rotation.x = -Math.PI / 2;           // lay flat
-  fill.rotation.z = spec.angleY;            // strip's world rotation maps to local Z after the X-flat rotation
+  // NEGATED. After the X-axis flatten, the plane's local +Z now points
+  // in world -Y direction. So setting rotation.z = θ rotates the plane
+  // around world -Y by θ — which is the OPPOSITE direction from what
+  // the collision math (_pointInStrip) assumes about angleY (a
+  // standard +Y axis rotation). Without this negation, the visible
+  // strip and the collision rectangle land on MIRROR-IMAGE diagonals,
+  // so a player not standing on the visible strip can still take
+  // damage from the invisible mirror. Bug surfaced only on the Y
+  // letter (single arm per side) and Z's diagonal — the X letter
+  // hides the bug because mirroring an X yields an X.
+  fill.rotation.z = -spec.angleY;
   fill.position.set(spec.cx, 0.04, spec.cz);
   scene.add(fill);
 
@@ -182,7 +192,7 @@ function _makeStripMeshes(spec, tintHex) {
   });
   const outline = new THREE.Mesh(outlineGeom, outlineMat);
   outline.rotation.x = -Math.PI / 2;
-  outline.rotation.z = spec.angleY;
+  outline.rotation.z = -spec.angleY;
   outline.position.set(spec.cx, 0.035, spec.cz);   // slightly under fill so it reads as a halo
   scene.add(outline);
 
