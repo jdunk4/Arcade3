@@ -3628,8 +3628,15 @@ function updateBeam() {
     beamMesh.visible = false;
     return;
   }
-  // Beam visual: a scaled box from the player's gun to the beam endpoint (wall or first enemy)
-  const origin = new THREE.Vector3(player.pos.x, 1.3, player.pos.z);
+  // Beam visual: a scaled box from the player's gun to the beam endpoint
+  // (wall or first enemy). Y=1.7 puts the origin at the gun-barrel
+  // height (player's raised hand area) so the beam visibly emerges
+  // from the weapon — was 1.3 (hip area) which read as the beam
+  // coming out of the player's belly. Damage hit-tests are 2D
+  // (perpendicular distance in the XZ plane) so the Y change is
+  // purely cosmetic.
+  const BEAM_Y = 1.7;
+  const origin = new THREE.Vector3(player.pos.x, BEAM_Y, player.pos.z);
   const dirX = Math.sin(player.facing);
   const dirZ = Math.cos(player.facing);
   let length = w.beamRange;
@@ -3663,7 +3670,7 @@ function updateBeam() {
       _beamShieldPingT = now;
       const impact = new THREE.Vector3(
         origin.x + dirX * domeT,
-        1.3,
+        BEAM_Y,
         origin.z + dirZ * domeT,
       );
       pingQueenShieldAt(impact);
@@ -3688,9 +3695,9 @@ function updateBeam() {
   beamMesh.visible = true;
   const midX = origin.x + dirX * (length / 2);
   const midZ = origin.z + dirZ * (length / 2);
-  beamMesh.position.set(midX, 1.3, midZ);
+  beamMesh.position.set(midX, BEAM_Y, midZ);
   beamMesh.scale.set(1, 1, length);
-  beamMesh.lookAt(origin.x + dirX, 1.3, origin.z + dirZ);
+  beamMesh.lookAt(origin.x + dirX, BEAM_Y, origin.z + dirZ);
   beamMat.color.setHex(w.color);
   // Pulse
   beamMat.opacity = 0.65 + Math.sin(S.timeElapsed * 30) * 0.15;
