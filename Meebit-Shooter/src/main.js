@@ -114,6 +114,10 @@ import {
 import {
   spawnPuddle, clearAllPuddles, updatePuddles,
 } from './bossPuddles.js';
+import {
+  triggerFreezeCycle, isInsideAnyPod, getFreezePhase,
+  didFreezeFireThisFrame, clearFreeze, updateFreeze,
+} from './bossFreeze.js';
 import * as tetrisStyle from './hazardsTetris.js';
 import * as galagaStyle from './hazardsGalaga.js';
 import * as minesweeperStyle from './hazardsMinesweeper.js';
@@ -3422,6 +3426,13 @@ function updatePlayer(dt) {
   // alongside paint so all the "before HP-die check" hazard sources
   // process in the same window.
   updatePuddles(dt, player.pos, S, UI, Audio, shake);
+  // GLACIER_WRAITH freeze cycle. Drives the telegraph→frozen→thaw
+  // phase machine + pod animation. Damage application happens in
+  // the boss pattern dispatch (waves.js) which checks
+  // didFreezeFireThisFrame() — putting updateFreeze BEFORE
+  // updateWaves so the phase transition is visible to the dispatch
+  // on the same frame.
+  updateFreeze(dt);
   if (S.tutorialMode && S.hp < _hpBeforeHazard) {
     tutorialOnHazardHit();
     if (_hpBeforeHazard > 0 && S.hp <= 0) {

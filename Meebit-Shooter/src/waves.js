@@ -80,6 +80,10 @@ import * as OresModule from './ores.js';
 import { spawnHazardsForWave, clearHazards, setHazardSpawningEnabled, tickHazardSpawning, setHazardRushMode } from './hazards.js';
 import { paintFactionHazard, clearFactionPaint, getActivePaintCount } from './factionPaint.js';
 import { spawnPuddle, clearAllPuddles } from './bossPuddles.js';
+import {
+  triggerFreezeCycle, isInsideAnyPod, getFreezePhase,
+  didFreezeFireThisFrame, clearFreeze,
+} from './bossFreeze.js';
 import { setGalagaTargetCount, resetGalagaTargetCount, setGalagaOverdrive } from './hazardsGalaga.js';
 import { recolorCrowd } from './crowd.js';
 import {
@@ -2098,6 +2102,73 @@ function updateBossPattern(dt, boss) {
       }
     }
   }
+
+  // ---------------------------------------------------------------
+  // GLACIER_WRAITH unique mechanic — telegraphed arena freeze with
+  // multi-pod safety zones. Per spec: "telegraph freeze is coming.
+  // Land a pod or two near the boss. Boss attacks. Killing everything
+  // not in pod."
+  //
+  // Cycle: first freeze fires 8s into the fight (gives the player
+  // time to learn the boss). Subsequent freezes every 12s.
+  // Escalation: 1 pod first cycle, 2 pods after — second pod gives
+  // the player options no matter which way they were running when
+  // the warning hit.
+  //
+  // Damage rules (applied on the single frame the freeze fires):
+  //   - Player outside any pod: -60 HP (heavy but not auto-OHKO so
+  //     a near-miss isn't a one-shot run-ender)
+  //   - Enemies outside any pod: instakill (matches "killing
+  //     everything not in pod" spec)
+  //   - Player inside any pod: no damage
+  //   - Enemies inside any pod: no damage (rare; minions usually
+  //     don't path into the safe zone but if they did, fair's fair)
+  if (boss.type === 'GLACIER_WRAITH') {
+    if (boss.freezeCooldown == null) {
+      boss.freezeCooldown = 8.0;        // first cycle 8s in
+      boss.freezeCycleCount = 0;
+    }
+    boss.freezeCooldown -= dt;
+    if (boss.freezeCooldown <= 0 && getFreezePhase() === 'idle') {
+      boss.freezeCycleCount++;
+      // Escalation: cycle 1 = 1 pod, cycle 2+ = 2 pods
+      const podCount = (boss.freezeCycleCount === 1) ? 1 : 2;
+      try {
+        triggerFreezeCycle({ x: boss.pos.x, z: boss.pos.z }, podCount);
+      } catch (e) { console.warn('[GLACIER_WRAITH freeze]', e); }
+      boss.freezeCooldown = 12.0;
+    }
+
+    // Damage application — exactly one frame per cycle.
+    if (didFreezeFireThisFrame()) {
+      // Player damage. Respects invuln (dash-frames pass through).
+      // 60 HP — heavy but not auto-OHKO so a near-miss isn't a
+      // one-shot run-ender.
+      if (S.invulnTimer <= 0) {
+        if (!isInsideAnyPod(player.pos.x, player.pos.z)) {
+          S.hp -= 60;
+          if (S.hp <= 0) S.hp = 0;
+          if (UI && UI.damageFlash) UI.damageFlash();
+          shake(0.4, 0.4);
+        }
+      }
+      // Enemy genocide — kill anything outside a pod. Iterate
+      // backward in case enemy death triggers splice in caller.
+      // The boss itself is in the enemies array but we skip it
+      // (don't want the boss to suicide on its own freeze).
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const e = enemies[i];
+        if (!e || e === boss) continue;
+        if (e.isBoss) continue;          // any sub-bosses
+        if (!e.pos) continue;
+        if (isInsideAnyPod(e.pos.x, e.pos.z)) continue;
+        // Set HP to 0 — the regular enemy update path will detect
+        // and dispose. Going through .hp instead of direct dispose
+        // ensures kill-credit + score + XP land like normal kills.
+        e.hp = 0;
+      }
+    }
+  }
   // ---------------------------------------------------------------
 
   // Trigger at 50% HP one-time "panic" summon
@@ -2860,6 +2931,9 @@ export function onEnemyKilled(enemy, killedInZone = false) {
     try { clearFactionPaint(); } catch (e) {}
     // Wipe TOXIC_MAW puddles too. Idempotent for other bosses.
     try { clearAllPuddles(); } catch (e) {}
+    // Wipe GLACIER_WRAITH freeze pods + flash overlay. Idempotent
+    // for non-glacier bosses.
+    try { clearFreeze(); } catch (e) {}
     S.bossRef = null;
     S.bossFightStartTime = null;
     grantBossReward();
