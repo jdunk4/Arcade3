@@ -3629,13 +3629,11 @@ function updateBeam() {
     return;
   }
   // Beam visual: a scaled box from the player's gun to the beam endpoint
-  // (wall or first enemy). Y=1.7 puts the origin at the gun-barrel
-  // height (player's raised hand area) so the beam visibly emerges
-  // from the weapon — was 1.3 (hip area) which read as the beam
-  // coming out of the player's belly. Damage hit-tests are 2D
-  // (perpendicular distance in the XZ plane) so the Y change is
-  // purely cosmetic.
-  const BEAM_Y = 1.7;
+  // (wall or first enemy). Y=1.9 puts the origin right at the gun-barrel
+  // height. Was 1.3 (hip), bumped to 1.7 (close), then 1.9 (final) per
+  // playtester eye-check. Damage hit-tests are 2D (perpendicular
+  // distance in the XZ plane) so the Y is purely cosmetic.
+  const BEAM_Y = 1.9;
   const origin = new THREE.Vector3(player.pos.x, BEAM_Y, player.pos.z);
   const dirX = Math.sin(player.facing);
   const dirZ = Math.cos(player.facing);
