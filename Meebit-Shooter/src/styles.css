@@ -470,12 +470,105 @@ canvas { display: block; cursor: var(--matrix-cursor); }
   #title-center { flex-basis: 420px; min-width: 320px; }
 }
 @media (max-width: 900px) {
-  /* Wrap: cards stack vertically below the text. */
-  #title-row { flex-direction: column; }
-  .mode-card { width: 240px; height: 320px; }
-  .mode-card-label { font-size: 22px; letter-spacing: 3px; bottom: 12px; }
-  #title-center h1 { font-size: 44px; letter-spacing: 4px; }
-  #title-center { flex-basis: auto; min-width: 0; max-width: 90vw; }
+  /* Mobile main menu — squashed to fit one phone-screen tall. The
+     prior version stacked cards vertically, which made the menu
+     LONGER and forced scrolling. Instead we keep cards side-by-side
+     at small size and aggressively compress the text block above.
+     Per playtester feedback: "squash the text and the options for
+     tutorial / main game so it all fits on the screen". */
+
+  /* Title row — keep cards in a horizontal row. Tighter gap. Wrap
+     stays on as a safety net for very narrow viewports. */
+  #title-row {
+    flex-direction: row;
+    gap: 10px;
+    margin-top: 4px;
+  }
+
+  /* Mode cards — small enough that two fit beside the center text
+     block on a 390-414px phone. Aspect is still card-like. */
+  .mode-card {
+    width: 110px;
+    height: 150px;
+    border-width: 2px;
+  }
+  .mode-card-label {
+    font-size: 14px;
+    letter-spacing: 2px;
+    bottom: 6px;
+  }
+
+  /* Center text block — narrow, with title compressed and the
+     control-reference paragraph hidden entirely. The paragraph
+     tells desktop players about WASD/Q/SPACE — mobile players are
+     tapping the joystick + fire button so this reference is just
+     dead pixels eating screen height. */
+  #title-center {
+    flex-basis: auto;
+    min-width: 0;
+    max-width: 100%;
+    flex: 1 1 0;
+  }
+  #title-center h1 {
+    font-size: 32px;
+    letter-spacing: 3px;
+    margin-bottom: 4px;
+    line-height: 0.95;
+  }
+  #title-center h2 {
+    font-size: 11px;
+    letter-spacing: 2px;
+    margin-bottom: 6px;
+  }
+  /* Hide the control-reference paragraph entirely. Desktop-only
+     informational content. */
+  #title-center p { display: none; }
+
+  /* Save panel — compress the rows so the high-score stripe is
+     present but small. */
+  #title-save-panel {
+    transform: scale(0.85);
+    transform-origin: center top;
+    margin: 0;
+  }
+  .save-row { font-size: 10px; padding: 4px 8px; }
+
+  /* Mode picker hint + description — tight rows so they don't
+     consume vertical space below the cards. */
+  #mode-picker-hint {
+    font-size: 10px;
+    letter-spacing: 3px;
+    margin-top: 8px;
+  }
+  #mode-picker-desc {
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    margin-top: 3px;
+    margin-bottom: 6px;
+    min-height: 15px;
+  }
+
+  /* CTA buttons — tighter padding so they don't bloat the bottom. */
+  .cta {
+    padding: 12px 24px !important;
+    font-size: 16px !important;
+    letter-spacing: 3px !important;
+  }
+  .wallet-btn {
+    padding: 10px 18px !important;
+    font-size: 12px !important;
+    margin-top: 8px !important;
+  }
+}
+
+/* Very narrow phones (e.g. iPhone SE 375px) — push the squash even
+   further so two cards plus center text still fit horizontally. */
+@media (max-width: 480px) {
+  .mode-card { width: 90px; height: 124px; }
+  .mode-card-label { font-size: 12px; letter-spacing: 1.5px; }
+  #title-center h1 { font-size: 26px; letter-spacing: 2px; }
+  #title-center h2 { font-size: 10px; }
+  #title-row { gap: 6px; }
 }
 
 /* ====== WALLET BUTTON ====== */
@@ -766,15 +859,63 @@ canvas { display: block; cursor: var(--matrix-cursor); }
 @media (max-width: 900px), (pointer: coarse) {
   .mobile-only { display: block; }
   #controls { display: none; }
-  #score { font-size: 44px; }
-  #stats-row { font-size: 12px; gap: 14px; }
-  .slot { width: 44px; height: 44px; font-size: 20px; }
+  /* Smaller score so it doesn't dominate the top of the screen */
+  #score { font-size: 32px; }
+  #stats-row { font-size: 11px; gap: 10px; }
+  /* Smaller weapon slot icons inside the wheel — wheel-specific
+     shrink is also applied by the revolver-css block injected at
+     runtime. This base value handles the chapter-7 charge port and
+     other places .slot is used outside the wheel context. */
+  .slot { width: 40px; height: 40px; font-size: 18px; }
   .overlay h1 { font-size: 56px; letter-spacing: 4px; }
-  #avatar { width: 56px; height: 56px; }
-  #player-info { min-width: 160px; }
-  #levelup { font-size: 60px; }
-  #wave-banner-countdown { font-size: 120px; }
-  #boss-bar { width: 90vw; top: 120px; }
+  /* Smaller player avatar + tighter player info panel so the
+     bottom-left corner doesn't spill over the joystick */
+  #avatar { width: 44px; height: 44px; }
+  #player-info { min-width: 130px; font-size: 11px; }
+  #levelup { font-size: 48px; }
+  #wave-banner-countdown { font-size: 90px; }
+  #boss-bar { width: 90vw; top: 90px; }
+  /* Hero hexagons — already small but shrink the whole cluster
+     proportionally on narrow screens. transform: scale leaves the
+     anchor position intact. */
+  #hero-hexagons {
+    transform: scale(0.78);
+    transform-origin: top left;
+  }
+  /* Killstreak counter — smaller font so it doesn't stretch across
+     multiple lines on narrow screens. */
+  #killstreak { font-size: 36px !important; }
+  /* Inventory chips (potions / grenades) — slightly smaller padding */
+  #inventory-widget {
+    transform: scale(0.85);
+    transform-origin: top left;
+  }
+  /* Tutorial / objective panel — keep readable but trim padding */
+  #objective-panel { font-size: 12px; padding: 8px 10px; }
+  /* Joystick — pull in slightly so the visible playable area doesn't
+     have a giant 130px circle eating the bottom-left corner. The
+     joystick still has a generous touch target inside the visible
+     ring; the visual just shrinks. */
+  #joystick {
+    width: 110px !important;
+    height: 110px !important;
+    bottom: 24px !important;
+    left: 16px !important;
+  }
+  #joystick .knob {
+    width: 46px !important;
+    height: 46px !important;
+  }
+  /* Big bottom-right fire button — keep at standard size but pull
+     toward the corner so it has clearance from the wheel which
+     now sits at right:140px. */
+  #fire-btn {
+    bottom: 24px !important;
+    right: 16px !important;
+    width: 90px !important;
+    height: 90px !important;
+    font-size: 18px !important;
+  }
 }
 #joystick {
   position: fixed; bottom: 90px; left: 20px;
