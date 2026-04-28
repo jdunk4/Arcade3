@@ -1047,45 +1047,11 @@ function _flingerSpawnFx(pos, tint) {
 // -----------------------------------------------------------------------------
 
 function _syncHUD() {
-  let el = document.getElementById('flinger-indicator');
-  const charges = S.flingerCharges || 0;
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'flinger-indicator';
-    // Positioned on the LEFT side below the pixl-pal indicator
-    // (top:160px). Flinger and pixl-pal are paired chapter-ally
-    // indicators that the user wants grouped next to the inventory
-    // rather than scattered to the opposite side of the screen.
-    el.style.cssText = [
-      'position:fixed',
-      'top:200px',
-      'left:16px',
-      'z-index:15',
-      'padding:8px 12px',
-      'border:2px solid #ff8800',
-      'border-radius:6px',
-      'background:rgba(24,12,2,0.7)',
-      'color:#ff8800',
-      "font-family:'Impact',monospace",
-      'font-size:14px',
-      'letter-spacing:2px',
-      'box-shadow:0 0 14px rgba(255,136,0,0.4)',
-      'pointer-events:none',
-      'user-select:none',
-      'transition:opacity 0.2s',
-    ].join(';');
-    document.body.appendChild(el);
-  }
-  if (charges <= 0 && flingers.length === 0) {
-    el.style.opacity = '0.35';
-    el.innerHTML = 'FLINGER · <b>0</b>';
-  } else if (flingers.length > 0 && charges <= 0) {
-    el.style.opacity = '1';
-    el.innerHTML = 'FLINGER · <b style="color:#fff">LIVE</b>';
-  } else {
-    el.style.opacity = '1';
-    el.innerHTML = 'FLINGER · <b style="color:#fff">' + charges + '</b>';
-  }
+  // FLINGER chip REMOVED per playtester feedback — see pixlPals.js
+  // _syncHUD comment for the same rationale. Hero hexagons HUD now
+  // covers chapter-ally theming visually. Strip any leftover element.
+  const el = document.getElementById('flinger-indicator');
+  if (el && el.parentNode) el.parentNode.removeChild(el);
 }
 
 /** Create the HUD badge. Idempotent. */

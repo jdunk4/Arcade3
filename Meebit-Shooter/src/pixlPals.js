@@ -1124,47 +1124,15 @@ function _palSpawnFx(pos) {
 // HUD INDICATOR
 // -----------------------------------------------------------------------------
 
-// Lightweight DOM indicator — we keep it self-contained here so ui.js
-// doesn't need to know about pals. Badge shows LIVE while a pal is on
-// the field and dims out otherwise. No more [E] prompt — pals now
-// auto-deploy 10s into boss fights.
+// Lightweight DOM indicator — REMOVED per playtester feedback. The
+// chapter-ally hero hexagons HUD (heroHexagons.js) now communicates
+// pal/flinger/gob status visually in the top-left, so the text chip
+// is redundant clutter. _syncHUD is kept as a no-op to avoid having
+// to find and prune every call site; it now also strips any chip
+// that may have been created by a previous version (hot-reload path).
 function _syncHUD() {
-  let el = document.getElementById('pixlpal-indicator');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'pixlpal-indicator';
-    // Positioned LEFT side, below the killstreak (top:16px) + inventory
-    // widget (potions + grenades stack starting around top:80px). The
-    // pixl-pal sits below those, with the flinger indicator below it.
-    // User asked for these chapter-ally indicators to live next to the
-    // inventory rather than on the opposite side of the screen.
-    el.style.cssText = [
-      'position:fixed',
-      'top:160px',
-      'left:16px',
-      'z-index:15',
-      'padding:8px 12px',
-      'border:2px solid #00ff66',
-      'border-radius:6px',
-      'background:rgba(0,20,10,0.7)',
-      'color:#00ff66',
-      "font-family:'Impact',monospace",
-      'font-size:14px',
-      'letter-spacing:2px',
-      'box-shadow:0 0 14px rgba(0,255,102,0.4)',
-      'pointer-events:none',
-      'user-select:none',
-      'transition:opacity 0.2s',
-    ].join(';');
-    document.body.appendChild(el);
-  }
-  if (pals.length > 0) {
-    el.style.opacity = '1';
-    el.innerHTML = 'PIXL PAL · <b style="color:#fff">LIVE</b>';
-  } else {
-    el.style.opacity = '0.35';
-    el.innerHTML = 'PIXL PAL · <b>STANDBY</b>';
-  }
+  const el = document.getElementById('pixlpal-indicator');
+  if (el && el.parentNode) el.parentNode.removeChild(el);
 }
 
 // Call periodically — pals.length changes during updatePixlPals, so we

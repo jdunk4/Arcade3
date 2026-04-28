@@ -57,13 +57,30 @@ function _gobSrc(chapterIdx) {
 // (100%, 25% / 100%, 75%). Pure CSS — no SVG masking needed.
 const _HEX_CLIP = 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)';
 
-// Tile dimensions — point-to-point height 60px, flat-to-flat width 52px.
-// For a regular pointy-top hex, height = width × (2 / √3) ≈ width × 1.155;
-// using 52 × 60 keeps the hex very nearly regular while staying clean
-// integer pixel sizes.
-const _TILE_W = 52;
-const _TILE_H = 60;
-const _TILE_GAP = 8;
+// Single hex cell dimensions — pointy-top, point-to-point height
+// 60px, flat-to-flat width 52px (approx regular hex ratio 2/√3 ≈ 1.155).
+const _CELL_W = 52;
+const _CELL_H = 60;
+
+// Honeycomb cluster layout — 3 hexes touching at edges per image 2
+// reference. For pointy-top hexes, two hexes are adjacent if the
+// second is offset by (W*0.75, H*0.5) from the first. Cluster shape
+// is "top-left + middle-right + bottom-left":
+//
+//   ●         ← cell 0 (top-left), at (0, 0)
+//      ●      ← cell 1 (middle-right), at (W*0.75, H*0.5)
+//   ●         ← cell 2 (bottom-left), at (0, H)
+//
+// Container size: width = W + W*0.75 = W*1.75, height = H + H*0.5 = H*1.5.
+const _CLUSTER_W = Math.round(_CELL_W * 1.75);
+const _CLUSTER_H = Math.round(_CELL_H * 1.5);
+
+// Per-cell positions (top-left corner of each hex, in container coords).
+const _CELL_POSITIONS = [
+  { left: 0,                          top: 0 },                      // top-left
+  { left: Math.round(_CELL_W * 0.75), top: Math.round(_CELL_H * 0.5) }, // middle-right
+  { left: 0,                          top: _CELL_H },                  // bottom-left
+];
 
 // Module state
 let _root = null;
@@ -78,13 +95,17 @@ export function initHeroHexagons() {
   if (_root) return;
   _root = document.createElement('div');
   _root.id = 'hero-hexagons';
+  // Position to the RIGHT of the potion/grenade chip stack (which sits
+  // at left:16px and is roughly 140px wide). Aligned to the top of
+  // that stack (top:80px) so the cluster sits flush with it.
+  // Critically: NOT overlapping the killstreak counter (top:16px,
+  // left:16px) which sits above the inventory widgets.
   _root.style.cssText = [
     'position: fixed',
-    'top: 12px',
-    'left: 16px',
-    'display: flex',
-    'flex-direction: row',
-    `gap: ${_TILE_GAP}px`,
+    'top: 80px',
+    'left: 160px',
+    `width: ${_CLUSTER_W}px`,
+    `height: ${_CLUSTER_H}px`,
     'pointer-events: none',
     'z-index: 25',                   // above HUD chips, below modals
     'opacity: 0',                     // fade in once first chapter is set
@@ -92,9 +113,9 @@ export function initHeroHexagons() {
   ].join(';');
 
   _tiles = {
-    pixl:    _makeTile('pixl'),
-    flinger: _makeTile('flinger'),
-    gob:     _makeTile('gob'),
+    pixl:    _makeTile('pixl',    _CELL_POSITIONS[0]),
+    flinger: _makeTile('flinger', _CELL_POSITIONS[1]),
+    gob:     _makeTile('gob',     _CELL_POSITIONS[2]),
   };
   _root.appendChild(_tiles.pixl.wrap);
   _root.appendChild(_tiles.flinger.wrap);
@@ -102,7 +123,7 @@ export function initHeroHexagons() {
   document.body.appendChild(_root);
 }
 
-function _makeTile(category) {
+function _makeTile(category, pos) {
   // Outer wrap — provides the hexagonal clip + a glowing border via
   // a pseudo-element trick. We use TWO stacked clipped divs:
   //   - Outer (wrap): slightly larger, tinted background — acts as
@@ -112,12 +133,13 @@ function _makeTile(category) {
   const wrap = document.createElement('div');
   wrap.className = 'hero-hex hero-hex-' + category;
   wrap.style.cssText = [
-    `width: ${_TILE_W}px`,
-    `height: ${_TILE_H}px`,
+    'position: absolute',                     // honeycomb cluster cell
+    `left: ${pos.left}px`,
+    `top: ${pos.top}px`,
+    `width: ${_CELL_W}px`,
+    `height: ${_CELL_H}px`,
     `clip-path: ${_HEX_CLIP}`,
     'background: rgba(255, 255, 255, 0.85)',   // border color, retinted in update
-    'position: relative',
-    'flex-shrink: 0',
     'transition: background-color 0.5s ease-out',
   ].join(';');
 
@@ -185,12 +207,12 @@ export function updateHeroHexagons(chapterIdx, tintHex) {
 }
 
 /**
- * Show or hide the hexagon row. Use to suppress during cinematics,
+ * Show or hide the hexagon cluster. Use to suppress during cinematics,
  * boss intros, etc.
  */
 export function setHeroHexagonsVisible(visible) {
   if (!_root) return;
-  _root.style.display = visible ? 'flex' : 'none';
+  _root.style.display = visible ? 'block' : 'none';
 }
 
 /**
