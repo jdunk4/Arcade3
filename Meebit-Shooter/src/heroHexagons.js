@@ -52,24 +52,28 @@ function _gobSrc(chapterIdx) {
   return `assets/PNGs/Gobs/${c}%20GOB.png`;
 }
 
-// Pointy-top hexagonal clip-path. Points at top (50%, 0%) and bottom
-// (50%, 100%); flat sides at left (0%, 25% / 0%, 75%) and right
-// (100%, 25% / 100%, 75%). Pure CSS — no SVG masking needed.
-const _HEX_CLIP = 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)';
+// Flat-top hexagonal clip-path. Flat top edge (25%-75%), points at
+// left (0%, 50%) and right (100%, 50%), flat bottom edge (25%-75%).
+// This matches image 2's reference cluster — earlier version used
+// pointy-top by mistake (I confused myself reading the reference).
+const _HEX_CLIP = 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)';
 
-// Single hex cell dimensions — pointy-top, point-to-point height
-// 60px, flat-to-flat width 52px (approx regular hex ratio 2/√3 ≈ 1.155).
-const _CELL_W = 52;
-const _CELL_H = 60;
+// Single hex cell dimensions — flat-top, point-to-point WIDTH 60px,
+// flat-to-flat HEIGHT ≈ 52px (regular hex ratio H = W × √3/2).
+// Note this is the OPPOSITE aspect from pointy-top: flat-top is
+// wider than tall.
+const _CELL_W = 60;
+const _CELL_H = 52;
 
 // Honeycomb cluster layout — 3 hexes touching at edges per image 2
-// reference. For pointy-top hexes, two hexes are adjacent if the
-// second is offset by (W*0.75, H*0.5) from the first. Cluster shape
-// is "top-left + middle-right + bottom-left":
+// reference. For FLAT-top hexes, two diagonally-adjacent hexes nest
+// when the second is offset by (W*0.75, H*0.5) from the first.
+// Vertically-adjacent hexes (sharing a horizontal edge) offset by
+// (0, H). Cluster shape from image 2:
 //
-//   ●         ← cell 0 (top-left), at (0, 0)
-//      ●      ← cell 1 (middle-right), at (W*0.75, H*0.5)
-//   ●         ← cell 2 (bottom-left), at (0, H)
+//    ●         ← cell 0 (top-left), at (0, 0)
+//      ●       ← cell 1 (middle-right), at (W*0.75, H*0.5)
+//    ●         ← cell 2 (bottom-left), at (0, H)
 //
 // Container size: width = W + W*0.75 = W*1.75, height = H + H*0.5 = H*1.5.
 const _CLUSTER_W = Math.round(_CELL_W * 1.75);
@@ -84,8 +88,17 @@ const _CELL_POSITIONS = [
 
 // Module state
 let _root = null;
-let _tiles = null;     // { pixl: {wrap, img}, flinger: {...}, gob: {...} }
+let _tiles = null;     // { pixl: {wrap, img, active}, flinger: {...}, gob: {...} }
 let _currentChapter = -1;
+
+// Active-state CSS — applied to the wrap (rim) and imgBox (portrait
+// container). Inactive = desaturated grey-out filter on the IMG +
+// dimmed rim opacity. Active = full saturation + full bright rim +
+// pulsing glow.
+const _ACTIVE_FILTER   = 'none';
+const _INACTIVE_FILTER = 'grayscale(0.95) brightness(0.55) contrast(0.85)';
+const _ACTIVE_RIM_OPACITY   = '1';
+const _INACTIVE_RIM_OPACITY = '0.4';
 
 /**
  * Build the DOM scaffold once. Idempotent — second call is a no-op.
@@ -130,6 +143,11 @@ function _makeTile(category, pos) {
   //     the visible "border" once the inner is masked.
   //   - Inner (imgBox): clipped one pixel smaller, contains the IMG.
   // Result: a thin tinted rim around the portrait.
+  //
+  // Active vs inactive state controlled via .filter on the imgBox
+  // (greyscale+dim when inactive) and .opacity on the wrap rim.
+  // Transitions tied to a 0.4s ease-out so the "charge up" reads as
+  // animated when the corresponding ally activates.
   const wrap = document.createElement('div');
   wrap.className = 'hero-hex hero-hex-' + category;
   wrap.style.cssText = [
@@ -140,7 +158,8 @@ function _makeTile(category, pos) {
     `height: ${_CELL_H}px`,
     `clip-path: ${_HEX_CLIP}`,
     'background: rgba(255, 255, 255, 0.85)',   // border color, retinted in update
-    'transition: background-color 0.5s ease-out',
+    `opacity: ${_INACTIVE_RIM_OPACITY}`,        // start dim (charging)
+    'transition: background-color 0.5s ease-out, opacity 0.4s ease-out',
   ].join(';');
 
   const imgBox = document.createElement('div');
@@ -150,6 +169,8 @@ function _makeTile(category, pos) {
     `clip-path: ${_HEX_CLIP}`,
     'background: rgba(0, 0, 0, 0.55)',          // dark backdrop behind portrait
     'overflow: hidden',
+    `filter: ${_INACTIVE_FILTER}`,              // start desaturated (charging)
+    'transition: filter 0.4s ease-out',
   ].join(';');
 
   const img = document.createElement('img');
@@ -166,7 +187,7 @@ function _makeTile(category, pos) {
 
   imgBox.appendChild(img);
   wrap.appendChild(imgBox);
-  return { wrap, imgBox, img };
+  return { wrap, imgBox, img, active: false };
 }
 
 /**
@@ -224,4 +245,42 @@ export function clearHeroHexagons() {
   _root = null;
   _tiles = null;
   _currentChapter = -1;
+}
+
+/**
+ * Set whether a given hex is "active" (lit, full color) or "charging"
+ * (greyscale + dim rim). Idempotent — re-setting the same state is
+ * a no-op so this is cheap to call every wave/chapter transition.
+ *
+ * @param {'pixl'|'flinger'|'gob'} category
+ * @param {boolean} active
+ */
+export function setHeroHexActive(category, active) {
+  if (!_tiles) return;
+  const t = _tiles[category];
+  if (!t) return;
+  if (t.active === active) return;
+  t.active = active;
+  t.imgBox.style.filter = active ? _ACTIVE_FILTER : _INACTIVE_FILTER;
+  t.wrap.style.opacity  = active ? _ACTIVE_RIM_OPACITY : _INACTIVE_RIM_OPACITY;
+}
+
+/**
+ * Drive all three hex active states based on the local wave index
+ * (1..5 within the current chapter). Activation rules:
+ *   - FLINGER  : wave >= 2  (player gets flinger charges from wave 2)
+ *   - PIXL PAL : wave >= 5  (auto-deploys during the boss fight)
+ *   - GOB      : TBD — stays inactive (charging) for now
+ *
+ * Called from waves.js startWave() after updateChapterFromWave so
+ * S.localWave is current. Cheap — no work if states haven't changed.
+ *
+ * @param {number} localWave 1-based local wave index within chapter
+ */
+export function updateHeroHexagonStates(localWave) {
+  if (!_tiles) return;
+  setHeroHexActive('flinger', localWave >= 2);
+  setHeroHexActive('pixl',    localWave >= 5);
+  // GOB activation rule TBD per spec — leave inactive until decided.
+  setHeroHexActive('gob',     false);
 }

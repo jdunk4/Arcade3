@@ -16,6 +16,7 @@ import {
 } from './effects.js';
 import { applyTheme, scene, renderer, camera } from './scene.js';
 import { isTutorialActive, tutorialEnemyColor, tutorialSpawnRateOverride } from './tutorial.js';
+import { updateHeroHexagonStates } from './heroHexagons.js';
 import { player, setPlayerGlowColor } from './player.js';
 import {
   spawnRescueMeebit, updateRescueMeebit, removeRescueMeebit,
@@ -169,6 +170,10 @@ export function getWaveDef_current() { return waveDef; }
 
 export function startWave(waveNum) {
   updateChapterFromWave(waveNum);
+  // Hero hexagons HUD — light up the FLINGER/PIXL hexes at their
+  // activation waves (2 and 5 within each chapter). Try/catch
+  // because tutorial mode skips heroHexagon init entirely.
+  try { updateHeroHexagonStates(S.localWave); } catch (e) {}
   waveDef = getWaveDef(waveNum);
   S.waveKillTarget = waveDef.killTarget || 0;
   S.waveKillsProgress = 0;
