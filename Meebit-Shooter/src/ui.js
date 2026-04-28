@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { S } from './state.js';
+import { S, mouse } from './state.js';
 import { WEAPONS, CHAPTERS, WAVES_PER_CHAPTER, BLOCK_CONFIG, PARADISE_FALLEN_CHAPTER_IDX, CH7_WAVE_COUNT } from './config.js';
 import { getWaveDef_current } from './waves.js';
+import { Audio } from './audio.js';
 
 // Reusable scratch vectors
 const _v3 = new THREE.Vector3();
@@ -451,39 +452,52 @@ export const UI = {
       const style = document.createElement('style');
       style.id = 'revolver-css';
       style.textContent = `
-        /* PC-only build. The existing styles.css has a media query
-           "@media (pointer: coarse)" that makes .mobile-only elements
-           visible on any device the browser reports as touch-capable —
-           including touch-screen laptops, hybrid devices, and some
-           emulator modes. Since this is a desktop browser game, we
-           force-hide them all here, overriding the original media
-           query with !important.
+        /* The original styles.css enables .mobile-only elements on
+           any (pointer: coarse) device. We force-hide them here on
+           DESKTOP so a touchscreen laptop or hybrid device that
+           reports coarse pointer doesn't get redundant mobile
+           controls layered over a desktop revolver. The media query
+           guards this so REAL mobile devices (phones, tablets, narrow
+           viewports) DO get .mobile-only displayed — joystick, fire
+           button, and the new revolver-center fire button.
            Affects: #fire-btn, #pick-btn, #pal-btn, #joystick, plus
            the inline ".mobile-only" hint text in the controls panel. */
-        .mobile-only {
-          display: none !important;
+        @media (pointer: fine) and (hover: hover) and (min-width: 901px) {
+          .mobile-only {
+            display: none !important;
+          }
         }
 
         /* DEFENSE IN DEPTH — physically reposition the mobile buttons
-           to the LEFT side of the screen as a safety net. Even though
-           .mobile-only is force-hidden above, this prevents any future
-           leak (browser quirk, debug toggle, etc.) from causing FIRE
-           or PICKAXE to appear ON TOP OF the revolver wheel.
-           Original styles.css positioned them at right:20px which
-           collides directly with the revolver. We move them to
-           left:20px so they sit harmlessly in the bottom-left corner
-           if they ever reappear, where they overlap nothing important. */
-        #fire-btn {
-          left: 20px !important;
-          right: auto !important;
-        }
-        #pick-btn {
-          left: 20px !important;
-          right: auto !important;
-        }
-        #pal-btn {
-          left: 20px !important;
-          right: auto !important;
+           to the LEFT side of the screen as a safety net on DESKTOP.
+           Even though .mobile-only is force-hidden above, this prevents
+           any future leak (browser quirk, debug toggle, etc.) from
+           causing FIRE or PICKAXE to appear ON TOP OF the desktop
+           revolver wheel. Original styles.css positioned them at
+           right:20px which collides directly with the revolver. We
+           move them to left:20px so they sit harmlessly in the
+           bottom-left corner if they ever reappear, where they
+           overlap nothing important.
+
+           CRITICAL — wrapped in the SAME desktop-only media query as
+           the .mobile-only force-hide. Without this guard, the rules
+           applied to mobile too and overrode the proper bottom-right
+           fire-button positioning from styles.css, burying the fire
+           button under the joystick. That's what caused the "we lost
+           the fire button" bug. */
+        @media (pointer: fine) and (hover: hover) and (min-width: 901px) {
+          #fire-btn {
+            left: 20px !important;
+            right: auto !important;
+          }
+          #pick-btn {
+            left: 20px !important;
+            right: auto !important;
+          }
+          #pal-btn {
+            left: 20px !important;
+            right: auto !important;
+          }
         }
 
         /* Hide pickaxe + grenade slots from the revolver — game logic
@@ -587,6 +601,110 @@ export const UI = {
           opacity: 0.30;
           filter: grayscale(0.7);
         }
+
+        /* ============================================================
+           CENTER FIRE BUTTON (mobile only)
+           ============================================================
+           A small circular fire button planted IN THE CENTER of the
+           revolver wheel. Always visible on mobile so the player can
+           scroll/change weapons AND fire without lifting their thumb
+           off the wheel area. Coexists with the bigger bottom-right
+           #fire-btn for two-thumb play.
+           Built at runtime in updateWeaponSlots — see _ensureCenterFire.
+           Default state on desktop is hidden via the .mobile-only
+           rule that the desktop @media block above honors.
+           ============================================================ */
+        #revolver-fire {
+          position: absolute !important;
+          left: 50% !important;
+          top: 50% !important;
+          transform: translate(-50%, -50%) !important;
+          width: 56px !important;
+          height: 56px !important;
+          border-radius: 50% !important;
+          background: radial-gradient(circle,
+            rgba(79,247,255,0.50),
+            rgba(0,0,0,0.75)) !important;
+          border: 2px solid var(--neon-cyan, #4ff7ff) !important;
+          box-shadow: 0 0 16px rgba(79,247,255,0.65),
+                      inset 0 0 8px rgba(79,247,255,0.30) !important;
+          color: var(--neon-cyan, #4ff7ff) !important;
+          font-family: 'Impact', monospace !important;
+          font-size: 14px !important;
+          letter-spacing: 1.5px !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          z-index: 41 !important;          /* above slots (z-index 2) */
+          touch-action: none !important;
+          user-select: none !important;
+          -webkit-user-select: none !important;
+          -webkit-tap-highlight-color: transparent !important;
+          pointer-events: auto !important;
+          cursor: pointer;
+        }
+        /* Briefly punch the button visual when held — gives the player
+           tactile feedback that the press registered. Class toggled by
+           touchstart/touchend wiring in updateWeaponSlots. */
+        #revolver-fire.firing {
+          background: radial-gradient(circle,
+            rgba(255,235,150,0.75),
+            rgba(0,0,0,0.6)) !important;
+          border-color: #ffe6a0 !important;
+          color: #fff8c0 !important;
+          box-shadow: 0 0 24px rgba(255,235,150,0.95),
+                      inset 0 0 12px rgba(255,255,200,0.5) !important;
+          transform: translate(-50%, -50%) scale(0.94) !important;
+        }
+
+        /* ============================================================
+           MOBILE MEDIA QUERY — shrinks the wheel and reflow the HUD
+           so the playscreen isn't smooshed.
+           ============================================================ */
+        @media (pointer: coarse), (max-width: 900px) {
+          /* Wheel container — slightly smaller than the desktop 240px,
+             still bottom-right but lifted clear of the big fire button
+             which sits at bottom:20px right:14px (80px wide on mobile).
+             The wheel STACKS ABOVE the fire button now (bottom:115)
+             rather than sitting beside it — earlier horizontal layout
+             had the wheel covering the fire button on narrow phones,
+             which is what caused the "lost the fire button" report. */
+          #inventory {
+            bottom: 115px !important;     /* clears the fire button (20 + 80 + 15px gap) */
+            right: 14px !important;
+            width: 130px !important;
+            height: 130px !important;
+          }
+
+          /* Slot size — wheel container is 130px so radius drops to
+             48px to keep slots inside. Slots themselves shrink to 34
+             so they don't spill outside the smaller wheel. */
+          #inventory .slot {
+            width: 34px !important;
+            height: 34px !important;
+            font-size: 14px !important;
+            transform: translate(-50%, -50%)
+              rotate(var(--revolver-angle, 0deg))
+              translateY(-48px)
+              rotate(calc(-1 * var(--revolver-angle, 0deg))) !important;
+          }
+          #inventory .slot.active {
+            transform: translate(-50%, -50%)
+              rotate(var(--revolver-angle, 0deg))
+              translateY(-48px)
+              rotate(calc(-1 * var(--revolver-angle, 0deg)))
+              scale(1.35) !important;
+          }
+
+          /* Center fire — sits in the wheel hub. Smaller now to
+             match the tighter wheel. */
+          #revolver-fire {
+            width: 38px !important;
+            height: 38px !important;
+            font-size: 10px !important;
+            letter-spacing: 1px !important;
+          }
+        }
       `;
       document.head.appendChild(style);
     }
@@ -597,7 +715,79 @@ export const UI = {
       if (!slot) return;
       el.classList.toggle('owned', S.ownedWeapons.has(slot));
       el.classList.toggle('active', slot === S.currentWeapon);
+
+      // Tap-select on mobile (and click on desktop). Wire ONCE per
+      // slot — the _tapWired flag is a one-time guard so re-running
+      // updateWeaponSlots doesn't stack handlers. Dispatches a
+      // 'mw:select-weapon' custom event main.js listens for to do the
+      // full weapon-switch path (recolorGun, _syncWeaponCursor, toast,
+      // updateWeaponSlots). This avoids a circular import between
+      // ui.js and main.js while keeping the tap path identical to
+      // the existing keyboard-1..6 path.
+      if (!el._tapWired) {
+        const onSelect = (e) => {
+          // Only owned weapons are selectable. Tapping an unowned/dim
+          // slot should be a no-op so the player doesn't get a
+          // confusing "selected then snapped back" flash.
+          if (!S.ownedWeapons.has(slot)) return;
+          window.dispatchEvent(new CustomEvent('mw:select-weapon', { detail: slot }));
+          if (e) e.preventDefault();
+        };
+        el.addEventListener('touchstart', onSelect, { passive: false });
+        el.addEventListener('click', onSelect);
+        el._tapWired = true;
+      }
     });
+
+    // ----- CENTER FIRE BUTTON (mobile) -----
+    // Build the small circular fire button planted in the wheel
+    // center. Idempotent — only the FIRST call creates and wires the
+    // element; subsequent calls are no-ops. .mobile-only class hides
+    // it on desktop via the existing media query in this CSS block.
+    //
+    // Tap behavior mirrors the bigger bottom-right #fire-btn: hold
+    // for continuous fire (sets mouse.down=true), release to stop.
+    // Both buttons can coexist; either one held will keep firing.
+    const inv = document.getElementById('inventory');
+    if (inv && !document.getElementById('revolver-fire')) {
+      const cf = document.createElement('div');
+      cf.id = 'revolver-fire';
+      cf.className = 'mobile-only';
+      cf.textContent = 'FIRE';
+      // touchstart sets the same mouse.down flag the bottom-right
+      // fire button uses — preventDefault stops the browser from
+      // turning a long-press into a context menu / selection.
+      cf.addEventListener('touchstart', (e) => {
+        mouse.down = true;
+        cf.classList.add('firing');
+        try { Audio.resume(); } catch (err) {}
+        e.preventDefault();
+      }, { passive: false });
+      cf.addEventListener('touchend', () => {
+        mouse.down = false;
+        cf.classList.remove('firing');
+      });
+      cf.addEventListener('touchcancel', () => {
+        mouse.down = false;
+        cf.classList.remove('firing');
+      });
+      // Mouse fallback for hybrid devices / desktop dev testing —
+      // never used in production but stops the button feeling dead
+      // if someone clicks it with a trackpad.
+      cf.addEventListener('mousedown', (e) => {
+        mouse.down = true;
+        cf.classList.add('firing');
+        try { Audio.resume(); } catch (err) {}
+        e.preventDefault();
+      });
+      const _stopFire = () => {
+        mouse.down = false;
+        cf.classList.remove('firing');
+      };
+      cf.addEventListener('mouseup', _stopFire);
+      cf.addEventListener('mouseleave', _stopFire);
+      inv.appendChild(cf);
+    }
 
     // ----- CHAPTER 7 RAINBOW CHARGE PORT -----
     // In chapter 7, the lifedrainer is the only available weapon — no
