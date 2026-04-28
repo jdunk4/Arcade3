@@ -120,6 +120,9 @@ import {
   applySuctionToVelocity,
 } from './bossFreeze.js';
 import {
+  initHeroHexagons, updateHeroHexagons, setHeroHexagonsVisible,
+} from './heroHexagons.js';
+import {
   spawnSolarFlare, clearAllFlares, updateFlares,
 } from './bossSolarFlare.js';
 import * as tetrisStyle from './hazardsTetris.js';
@@ -2113,6 +2116,17 @@ function startGame() {
   }, 3000);
   UI.updateHUD();
   UI.updateWeaponSlots();
+  // Hero hexagons HUD — three pointy-top hexagonal tiles in the
+  // top-left showing chapter-themed NPC portraits (PIXL PAL,
+  // FLINGER, GOB). Rim tinted with the chapter palette grid color.
+  // Idempotent — safe to call on every new run. setVisible(true)
+  // covers the case where the player ran the tutorial first
+  // (which hides them) before starting a real run.
+  try {
+    initHeroHexagons();
+    setHeroHexagonsVisible(true);
+    updateHeroHexagons(0, CHAPTERS[0].full.grid1);
+  } catch (e) { console.warn('[hero-hexagons]', e); }
   startWave(1);
 }
 
@@ -2156,6 +2170,10 @@ function startTutorial() {
   const _playerPanel = document.getElementById('player-panel');
   if (_hudTop) _hudTop.style.display = 'none';
   if (_playerPanel) _playerPanel.style.display = 'none';
+  // Hero hexagons are chapter-themed; hide during tutorial (which
+  // isn't tied to any chapter). They'll be re-shown automatically
+  // when the player enters a real game run via startGame().
+  try { setHeroHexagonsVisible(false); } catch (e) {}
 
   resetGame();
 
@@ -3164,6 +3182,12 @@ function animate() {
         try {
           recolorGravestones(CHAPTERS[S.chapter % CHAPTERS.length].full.grid1);
         } catch (e) { console.warn('[gravestones] recolor', e); }
+        // Hero hexagons HUD — swap to the new chapter's portraits and
+        // retint the rim. updateHeroHexagons is no-op if the chapter
+        // hasn't actually changed, so safe to call here.
+        try {
+          updateHeroHexagons(S.chapter, CHAPTERS[S.chapter % CHAPTERS.length].full.grid1);
+        } catch (e) { console.warn('[hero-hexagons] update', e); }
         // Matrix-rain chapter transition. Brief full-screen translucent
         // cascade tinted with the incoming chapter's color. ~3s total
         // duration, self-disposing, pointer-events: none — pure flavor
