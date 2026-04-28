@@ -150,12 +150,54 @@ function injectStyles() {
       color: #888; text-align: center;
       margin-top: 6px;
     }
-    @media (max-width: 600px) {
-      .pause-row { grid-template-columns: 130px 1fr 40px; }
-      .pause-row-toggle { grid-template-columns: 130px 1fr; }
-      #pause-menu .pause-panel { padding: 24px 20px; }
-      #pause-menu h1 { font-size: 48px; }
-      #pause-menu .cta { font-size: 14px; padding: 8px 12px; }
+    @media (max-width: 900px), (pointer: coarse) {
+      /* Mobile pause menu — tighter than the desktop default per
+         playtester: "make the pause screen on main game and tutorial
+         a bit smaller." Compresses every dimension proportionally so
+         the menu fits comfortably on a phone without scrolling. */
+      #pause-menu .pause-panel {
+        padding: 16px 14px;
+        max-width: 360px;
+        gap: 10px;
+      }
+      #pause-menu h1 {
+        font-size: 36px;
+        letter-spacing: 4px;
+        margin-bottom: 2px;
+      }
+      #pause-menu h2 {
+        font-size: 12px;
+        letter-spacing: 3px;
+        margin-bottom: 8px;
+      }
+      .pause-row {
+        grid-template-columns: 110px 1fr 36px;
+        padding: 6px 10px;
+        gap: 8px;
+      }
+      .pause-row-toggle {
+        grid-template-columns: 110px 1fr;
+      }
+      .pause-row label {
+        font-size: 11px;
+        letter-spacing: 1.5px;
+      }
+      .pause-row .vol-readout {
+        font-size: 11px;
+      }
+      .pause-actions {
+        gap: 10px;
+        margin-top: 8px;
+      }
+      #pause-menu .cta {
+        font-size: 13px;
+        padding: 8px 12px;
+        letter-spacing: 2px;
+      }
+      .pause-hint {
+        font-size: 10px;
+        letter-spacing: 1.5px;
+      }
     }
   `;
   document.head.appendChild(s);

@@ -562,6 +562,33 @@ function showIncomingCall() {
         0%, 100% { opacity: 1; }
         50% { opacity: 0.7; }
       }
+      /* Mobile — push the title block UP by switching from center
+         flex alignment to a top-anchored layout. Without this, the
+         large pulsing INITIATE PROTOCOL title gets centered on the
+         viewport and the BEGIN button sits low on the screen. Per
+         playtester: "On the main screen before we BEGIN simulation
+         can we move BEGIN up?" */
+      @media (max-width: 900px), (pointer: coarse) {
+        #initiate-protocol {
+          justify-content: flex-start;
+          padding-top: 12vh;
+        }
+        #initiate-protocol .ip-title {
+          font-size: clamp(36px, 12vw, 80px);
+          letter-spacing: 6px;
+          margin-bottom: 8px;
+        }
+        #initiate-protocol .ip-sub {
+          font-size: 11px;
+          letter-spacing: 5px;
+          margin-bottom: 24px;
+        }
+        #initiate-protocol .ip-btn {
+          font-size: 18px;
+          letter-spacing: 4px;
+          padding: 14px 36px;
+        }
+      }
     </style>
     <div class="ip-title">INITIATE</div>
     <div class="ip-title">PROTOCOL</div>
