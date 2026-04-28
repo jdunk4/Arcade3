@@ -52,6 +52,8 @@ import { clearCockroachBoss } from './cockroachBoss.js';
 import { clearHiveLasers } from './hiveLasers.js';
 import { setCh2WarehouseSwap } from './waveProps.js';
 import { resetGalagaTargetCount, setGalagaOverdrive } from './hazardsGalaga.js';
+import { setTetrisOverdrive } from './hazardsTetris.js';
+import { resetMinesweeperTargetCount, setMinesweeperOverdrive } from './hazardsMinesweeper.js';
 import { setHazardRushMode } from './hazards.js';
 import { clearFactionPaint } from './factionPaint.js';
 import { clearAllPuddles } from './bossPuddles.js';
@@ -329,6 +331,13 @@ export function teardownChapter() {
   // Also reset wave-3 overdrive bias — back to default 70% targeting
   // so other chapters/waves get standard galaga behavior.
   setGalagaOverdrive(false);
+  // Same resets for the other hazard styles' wave-3 hive-wave overdrive.
+  // Without these, an overdrive flag set by chapter 1's wave-3 (tetris)
+  // or chapter 3's wave-3 (minesweeper) would persist into the next
+  // chapter and aggressively bias all hazard drops toward the player.
+  setTetrisOverdrive(false);
+  setMinesweeperOverdrive(false);
+  resetMinesweeperTargetCount();
   // Reset hazard rush mode (Turn 9) — ensures next chapter gets
   // default drop rate + no auto-shrink.
   setHazardRushMode(false);

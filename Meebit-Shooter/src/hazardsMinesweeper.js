@@ -49,7 +49,27 @@ const CELL_SIZE = 1.25;
 
 // More simultaneous pointers (was 6) since each pointer now tags a
 // smaller cell — need higher concurrency to maintain coverage pace.
-const POINTER_TARGET_COUNT = 12;
+let _pointerTargetCount = 12;
+const POINTER_TARGET_COUNT_BASE = 12;
+let _overdrive = false;       // wave 3 overdrive — tighter player bias
+
+/** Bump or restore active-pointer count. Used by chapter 3 wave 3 to
+ *  &quot;fill in around the player&quot; like galaga's chapter 2 wave 3 swarm. */
+export function setMinesweeperTargetCount(n) {
+  _pointerTargetCount = Math.max(1, Math.min(24, n | 0));
+}
+export function resetMinesweeperTargetCount() {
+  _pointerTargetCount = POINTER_TARGET_COUNT_BASE;
+}
+
+/** Toggle overdrive — pointers bias 95% toward player (was 70%) with
+ *  tighter ±4u spread. Used in chapter 3 wave 3 hive wave. */
+export function setMinesweeperOverdrive(v) {
+  _overdrive = !!v;
+}
+export function isMinesweeperOverdrive() {
+  return _overdrive;
+}
 
 // Tuning knobs.
 // Faster pointer cycle (was 0.4) — smaller cells mean we need to tile
@@ -361,10 +381,15 @@ function _chooseTargetCell(ctx) {
   const ringInner = ctx.ringInner;
   const ringOuter = ctx.ringOuter;
   // Bias toward the player's quadrant so pointer descent + tile placement
-  // happens onscreen. Same 70% bias as galaga bugs.
+  // happens onscreen. Same numbers as galaga: 70% normal / 95% overdrive,
+  // ±10u spread normal / ±4u spread overdrive. Overdrive is enabled by
+  // chapter 3 wave 3 hive wave to make this swarm feel like the chapter
+  // 2 wave 3 galaga swarm.
   const px = ctx.playerPos ? ctx.playerPos.x : 0;
   const pz = ctx.playerPos ? ctx.playerPos.z : 0;
-  const biasNearPlayer = Math.random() < 0.70;
+  const biasChance = _overdrive ? 0.95 : 0.70;
+  const playerSpread = _overdrive ? 8 : 20;
+  const biasNearPlayer = Math.random() < biasChance;
   const cheb = ringInner + Math.random() * (ringOuter - ringInner);
   let edge;
   if (biasNearPlayer && (Math.abs(px) > 1 || Math.abs(pz) > 1)) {
@@ -379,7 +404,7 @@ function _chooseTargetCell(ctx) {
   let along;
   if (biasNearPlayer && ctx.playerPos) {
     const playerAlong = (edge === 0 || edge === 1) ? px : pz;
-    along = Math.max(-cheb, Math.min(cheb, playerAlong + (Math.random() - 0.5) * 20));
+    along = Math.max(-cheb, Math.min(cheb, playerAlong + (Math.random() - 0.5) * playerSpread));
   } else {
     along = (Math.random() * 2 - 1) * cheb;
   }
@@ -439,7 +464,7 @@ function _spawnPointer(target) {
 // ---- Public API: tickDeliveries / tickSpawning / cleanup --------------
 
 export function tickSpawning(dt, ctx) {
-  if (_pointers.length < POINTER_TARGET_COUNT) {
+  if (_pointers.length < _pointerTargetCount) {
     _respawnTimer -= dt;
     if (_respawnTimer <= 0) {
       const target = _chooseTargetCell(ctx);

@@ -87,6 +87,8 @@ import {
 } from './bossFreeze.js';
 import { spawnSolarFlare, clearAllFlares } from './bossSolarFlare.js';
 import { setGalagaTargetCount, resetGalagaTargetCount, setGalagaOverdrive } from './hazardsGalaga.js';
+import { setTetrisOverdrive } from './hazardsTetris.js';
+import { setMinesweeperTargetCount, resetMinesweeperTargetCount, setMinesweeperOverdrive } from './hazardsMinesweeper.js';
 import { recolorCrowd } from './crowd.js';
 import {
   prepareChapter, teardownChapter, isChapterPrepared,
@@ -450,6 +452,29 @@ export function startWave(waveNum) {
     for (const s of spawners) {
       if (!s.destroyed) S.spawnersLive++;
     }
+    // Per-chapter hazard-style overdrive — replicates the chapter-2
+    // wave-3 galaga "swarm tightens around the player" feeling for the
+    // chapters that use other hazard styles. Player feedback: the
+    // chapter-2 wave-3 swarm is "very very nice" and should be
+    // mirrored on chapter 1 (tetris) and chapter 3 (minesweeper).
+    if (S.chapter === 0) {
+      // Tetris — flip overdrive flag so drops bias 95% / ±4u toward
+      // player. Drop interval is the standard one (already fast at
+      // 1.2s after the tuning bump). Combined with the passive
+      // ring-shrink already running, this produces the slow-trickle
+      // tightening swarm the user described.
+      setTetrisOverdrive(true);
+    } else if (S.chapter === 2) {
+      // Minesweeper — same overdrive pattern, plus a count bump
+      // (12 → 16) so more pointers descend near the player at once.
+      // Equivalent to galaga's wave-3 count bump (5 → 12) but
+      // proportionally smaller since minesweeper already runs hot.
+      setMinesweeperTargetCount(16);
+      setMinesweeperOverdrive(true);
+    }
+    // Note: Chapter 2 hive wave is handled by a separate code path
+    // further down (with the EMP laser drama), which already invokes
+    // setGalagaOverdrive + setGalagaTargetCount + setHazardRushMode.
     UI.showObjective(
       'DESTROY THE HIVES (' + S.spawnersLive + ')',
       'Shields down. Shoot the glowing rings — each has health.'

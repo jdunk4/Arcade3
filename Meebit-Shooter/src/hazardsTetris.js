@@ -75,6 +75,25 @@ function getBlockMat(tintHex) {
 // hazards.js when one finishes (so hazards.js can place its tile).
 const _incoming = [];
 
+// Overdrive state. When false: 70% chance to bias spawns toward the
+// player's quadrant, with ±10u along-axis spread (matches galaga's
+// default). When true: 95% bias + ±4u along-axis spread + faster
+// drop interval — same intensity as galaga's chapter-2-wave-3
+// "swarm tightens around player" mode. Toggled by waves.js for
+// chapter 1 wave 3 (hive wave) so tetris matches the swarm feel
+// of the chapter-2 hive wave.
+let _overdrive = false;
+
+/** Toggle overdrive mode. Used by waves.js hive-wave logic. */
+export function setTetrisOverdrive(v) {
+  _overdrive = !!v;
+}
+
+/** Diagnostic — current overdrive state. */
+export function isTetrisOverdrive() {
+  return _overdrive;
+}
+
 // Compute the list of cells a tetromino covers given its origin + rotation.
 function _cellsFor(shape, originX, originZ, rotation) {
   const cos = Math.cos(rotation), sin = Math.sin(rotation);
@@ -100,15 +119,51 @@ export function getCellSize() {
  *   - ringInner / ringOuter — the active concentric ring (Chebyshev distance)
  *   - validate(cells, originX, originZ) — returns true if the spot
  *     passes player/zone/edge/overlap checks
+ *   - playerPos {x, z} — used to bias spawns toward the player's
+ *     quadrant so action stays onscreen rather than always firing
+ *     at distant arena edges. Optional; uniform sampling if absent.
  *
  * Returns a `spot` object that spawnDelivery accepts, or null if no
  * valid spot found in this attempt.
  */
-export function chooseSpawnLocation(ringInner, ringOuter, validate) {
+export function chooseSpawnLocation(ringInner, ringOuter, validate, playerPos) {
   const shape = TETROMINOES[Math.floor(Math.random() * TETROMINOES.length)];
   const cheb = ringInner + Math.random() * (ringOuter - ringInner);
-  const edge = Math.floor(Math.random() * 4);
-  const along = (Math.random() * 2 - 1) * cheb;
+
+  // Player-quadrant bias — mirrors galaga's _chooseTargetCell. With a
+  // player position, default 70% bias toward the same edge; overdrive
+  // bumps to 95% with tighter along-axis spread for the "swarm
+  // tightens around the player" effect during hive waves.
+  const px = playerPos ? playerPos.x : 0;
+  const pz = playerPos ? playerPos.z : 0;
+  const biasChance = _overdrive ? 0.95 : 0.70;
+  const playerSpread = _overdrive ? 8 : 20;     // ±half this around player along-axis
+  const biasNearPlayer = playerPos && Math.random() < biasChance;
+
+  let edge;
+  if (biasNearPlayer && (Math.abs(px) > 1 || Math.abs(pz) > 1)) {
+    // Cardinal edge on the player's side. Edge convention matches
+    // the galaga + minesweeper modules:
+    //   0 = +Z (north), 1 = -Z (south), 2 = +X (east), 3 = -X (west)
+    if (Math.abs(pz) >= Math.abs(px)) {
+      edge = pz > 0 ? 0 : 1;
+    } else {
+      edge = px > 0 ? 2 : 3;
+    }
+  } else {
+    edge = Math.floor(Math.random() * 4);
+  }
+
+  // Along-edge offset — biased toward the player's projection on the
+  // chosen edge when biasNearPlayer is on, else uniform across the edge.
+  let along;
+  if (biasNearPlayer && playerPos) {
+    const playerAlong = (edge === 0 || edge === 1) ? px : pz;
+    along = Math.max(-cheb, Math.min(cheb, playerAlong + (Math.random() - 0.5) * playerSpread));
+  } else {
+    along = (Math.random() * 2 - 1) * cheb;
+  }
+
   let rawX, rawZ;
   if (edge === 0) { rawX = along;  rawZ = cheb; }
   else if (edge === 1) { rawX = along;  rawZ = -cheb; }

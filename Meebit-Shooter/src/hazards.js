@@ -27,14 +27,21 @@ const MIN_EDGE_PADDING = 6;
 const POWERUP_ZONE_CLEAR_RADIUS = 5.5;
 const PLAYER_CLEAR_RADIUS = 3.0;
 const EXISTING_OVERLAP_PAD = 0.6;
-const DROP_INTERVAL_SEC = 2.2;
-const DROP_INTERVAL_RUSH_SEC = 0.55;     // 4x faster when rush mode on
+const DROP_INTERVAL_SEC = 1.2;
+const DROP_INTERVAL_RUSH_SEC = 0.40;     // ~3x faster when rush mode on (was 0.55)
 const DROP_BATCH_SIZE = 1;
 const RING_SATURATION_THRESHOLD = 4;
 // Rush-mode auto ring-shrink: every N seconds the inner ring boundary
 // marches one cell-width inward (toward the player). Combined with the
 // 4x drop rate this creates a "walls closing in" feel.
-const RUSH_AUTO_SHRINK_SEC = 1.5;
+const RUSH_AUTO_SHRINK_SEC = 1.2;
+// PASSIVE auto-shrink (always on when spawning is active, even outside
+// rush mode). Slower than rush — every 5s we shave one ring-width off
+// the inner edge. Without this the active ring stayed pinned at the
+// outer arena edge for the whole wave, so blocks only ever fell along
+// the perimeter and the inner arena was completely safe. Player
+// feedback: "MOVE INWARD! Seems like we're stuck in that outer ring."
+const PASSIVE_AUTO_SHRINK_SEC = 5.0;
 
 const hazards = [];
 let _dropTimer = 0;
@@ -45,6 +52,7 @@ let _blockedZones = [];
 let _style = tetrisStyle;
 let _rushMode = false;
 let _rushAutoShrinkT = 0;
+let _passiveAutoShrinkT = 0;
 
 /** Toggle rush mode — drops 4x faster + active ring auto-shrinks
  *  inward over time. Used in chapter 2 wave 3 (and other intense
@@ -432,7 +440,7 @@ function _tryDropBatch(chapterIdx, playerPos) {
       if (cheb < _activeRingInner) return false;
       return _isValidPlacement(cells, ox, oz, playerPos);
     };
-    const spot = _style.chooseSpawnLocation(_activeRingInner, outerMax, validate);
+    const spot = _style.chooseSpawnLocation(_activeRingInner, outerMax, validate, playerPos);
     if (!spot) continue;
     _style.spawnDelivery(spot, tint);
     placed++;
@@ -514,10 +522,23 @@ export function tickHazardSpawning(dt, chapterIdx, playerPos, activeZones) {
     _style.tickSpawning(dt, ctx);
   }
   if (!_spawningEnabled) return;
-  // Rush mode: auto-shrink the inner ring inward on a timer. The
-  // active ring marches toward the player even before the style
-  // saturates and calls onRingSaturated. Combined with the 4x drop
-  // rate this creates the "walls closing in" feel.
+  // Passive auto-shrink — runs whenever spawning is enabled, even
+  // outside rush mode. Without this the inner ring stays pinned at
+  // the outer arena edge for the whole wave (it only advanced via
+  // saturation, which rarely triggered for tetris). Slow tick — one
+  // ring-width every PASSIVE_AUTO_SHRINK_SEC seconds — so the active
+  // band crawls inward over the wave duration. Player feedback:
+  // "MOVE INWARD! Seems like we're stuck in that outer ring."
+  _passiveAutoShrinkT += dt;
+  if (_passiveAutoShrinkT >= PASSIVE_AUTO_SHRINK_SEC) {
+    _passiveAutoShrinkT = 0;
+    const next = _activeRingInner - getRingWidth();
+    if (next >= SAFE_RADIUS_FROM_CENTER) _activeRingInner = next;
+  }
+  // Rush mode: auto-shrink the inner ring inward on a faster timer.
+  // The active ring marches toward the player even before the style
+  // saturates and calls onRingSaturated. Combined with the faster
+  // drop rate this creates the "walls closing in" feel.
   if (_rushMode) {
     _rushAutoShrinkT += dt;
     if (_rushAutoShrinkT >= RUSH_AUTO_SHRINK_SEC) {
@@ -544,6 +565,8 @@ export function clearHazards() {
   _dropTimer = 0;
   _activeRingInner = 0;
   _ringFailures = 0;
+  _passiveAutoShrinkT = 0;
+  _rushAutoShrinkT = 0;
 }
 
 export function isHazardAt(x, z) {
