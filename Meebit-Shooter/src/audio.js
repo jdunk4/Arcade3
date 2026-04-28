@@ -14,13 +14,14 @@
 //   AwakenArena.mp3 — opening track (intro / first wave start)
 //   Arena I.mp3, Arena II.mp3, Arena III.mp3, Arena IV.mp3 — core arena loop
 //   XIAN.mp3, YOMI.mp3, ZION.mp3 — boss faction tracks
+//   TheOtherSide.mp3 — penultimate track, slots in just before Underworld
 //   Underworld.mp3 — closing track (chapter 7 / late-game)
 //   PHONE RINGS.mp3
 //   C-drone.mp3   (ambient drone layered UNDER the phone ring during the
 //                  matrix-dive so the ring doesn't feel naked)
 //
 // Playlist order (loops indefinitely):
-//   AwakenArena → Arena I → II → III → IV → XIAN → YOMI → ZION → Underworld → AwakenArena → ...
+//   AwakenArena → Arena I → II → III → IV → XIAN → YOMI → ZION → TheOtherSide → Underworld → AwakenArena → ...
 
 const SOUNDTRACK_FILES = [
   'assets/AwakenArena.mp3',
@@ -31,6 +32,7 @@ const SOUNDTRACK_FILES = [
   'assets/XIAN.mp3',
   'assets/YOMI.mp3',
   'assets/ZION.mp3',
+  'assets/TheOtherSide.mp3',
   'assets/Underworld.mp3',
 ];
 // The phone-ring asset has shipped under several names in this project.
@@ -236,8 +238,8 @@ class AudioEngine {
 
   /**
    * Start the soundtrack in playlist mode. Tracks advance automatically:
-   *   AwakenArena → Arena I → II → III → IV → XIAN → YOMI → ZION → Underworld
-   *   → AwakenArena → ... (loops indefinitely)
+   *   AwakenArena → Arena I → II → III → IV → XIAN → YOMI → ZION
+   *   → TheOtherSide → Underworld → AwakenArena → ... (loops indefinitely)
    * The `wave` argument is kept for backward compatibility but no longer
    * tied to gameplay -- calling with no args (or wave=1) starts from
    * AwakenArena (the opening track).
