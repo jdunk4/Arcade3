@@ -1035,6 +1035,13 @@ function runMatrixDive(progressSource, onReady) {
       y: (Math.random() - 0.5) * 2,
       z: initial ? Math.random() * 1.0 + 0.1 : 1.0,
       speed: 0.15 + Math.random() * 0.35,
+      // Vertical fall speed — gives streams a classic Matrix-rain
+      // descending motion ON TOP OF the dive-toward-camera effect.
+      // World-space units per second. Randomized per stream so the
+      // overall cascade has natural variance instead of every column
+      // moving in lockstep. screenY = cy + s.y * H * 0.6 / s.z, so
+      // increasing s.y over time drives the stream down the screen.
+      fallSpeed: 0.20 + Math.random() * 0.35,
       length: 8 + Math.floor(Math.random() * 20),
       chars: Array.from({ length: 30 }, () => CHARS[Math.floor(Math.random() * CHARS.length)]),
       charOffset: Math.random() * 100,
@@ -1071,7 +1078,16 @@ function runMatrixDive(progressSource, onReady) {
     for (let i = 0; i < streams.length; i++) {
       const s = streams[i];
       s.z -= s.speed * accel * 0.016;
-      if (s.z <= 0.02) {
+      // Apply vertical fall — moves the stream's world-space y down.
+      // Same 0.016 dt approximation as the dive update for consistent
+      // motion. accel scales fall too so the rain "rushes" as load
+      // approaches 100%, matching the dive intensity.
+      s.y += s.fallSpeed * accel * 0.016;
+      if (s.z <= 0.02 || s.y > 4) {
+        // Reset: stream either reached the camera (z=0) or fell past
+        // the visible canvas (y too large). Respawn at the back. The
+        // y > 4 cap prevents streams with low z from drifting
+        // indefinitely off-screen without ever respawning.
         Object.assign(s, spawnStream(false));
         continue;
       }
