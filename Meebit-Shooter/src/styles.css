@@ -860,61 +860,130 @@ canvas { display: block; cursor: var(--matrix-cursor); }
   .mobile-only { display: block; }
   #controls { display: none; }
   /* Smaller score so it doesn't dominate the top of the screen */
-  #score { font-size: 32px; }
-  #stats-row { font-size: 11px; gap: 10px; }
-  /* Smaller weapon slot icons inside the wheel — wheel-specific
-     shrink is also applied by the revolver-css block injected at
-     runtime. This base value handles the chapter-7 charge port and
-     other places .slot is used outside the wheel context. */
-  .slot { width: 40px; height: 40px; font-size: 18px; }
-  .overlay h1 { font-size: 56px; letter-spacing: 4px; }
-  /* Smaller player avatar + tighter player info panel so the
-     bottom-left corner doesn't spill over the joystick */
-  #avatar { width: 44px; height: 44px; }
-  #player-info { min-width: 130px; font-size: 11px; }
-  #levelup { font-size: 48px; }
-  #wave-banner-countdown { font-size: 90px; }
-  #boss-bar { width: 90vw; top: 90px; }
-  /* Hero hexagons — already small but shrink the whole cluster
-     proportionally on narrow screens. transform: scale leaves the
-     anchor position intact. */
+  #score { font-size: 28px; }
+  #stats-row { font-size: 10px; gap: 8px; }
+  /* Slot baseline (used outside the wheel — chapter-7 charge port etc).
+     Wheel-specific slot size is handled by the runtime-injected CSS. */
+  .slot { width: 36px; height: 36px; font-size: 16px; }
+  .overlay h1 { font-size: 48px; letter-spacing: 4px; }
+
+  /* Player panel (bottom-left HP/XP/avatar) — aggressive shrink so it
+     stops spilling over the joystick. Per playtester request:
+     "Meebit health and hp" needs huge decrease. */
+  #player-panel { left: 12px; bottom: 12px; gap: 8px; }
+  #avatar { width: 36px !important; height: 36px !important; border-width: 1px !important; }
+  #player-info { min-width: 100px !important; font-size: 10px; gap: 2px !important; }
+  #player-name { font-size: 10px !important; letter-spacing: 2px !important; }
+  .bar-wrap { font-size: 9px !important; gap: 4px !important; }
+  .bar-label { width: 18px !important; font-size: 9px !important; }
+  .bar { height: 6px !important; }
+
+  /* Wave banner / level-up — smaller transitions so they don't take
+     over the screen on phones. */
+  #levelup { font-size: 40px; }
+  #wave-banner-countdown { font-size: 70px; }
+  #boss-bar { width: 88vw; top: 70px; }
+
+  /* Hero hexagons — was 78% (still too big). Down to 60% for mobile. */
   #hero-hexagons {
-    transform: scale(0.78);
-    transform-origin: top left;
+    transform: scale(0.60) !important;
+    transform-origin: top left !important;
   }
-  /* Killstreak counter — smaller font so it doesn't stretch across
-     multiple lines on narrow screens. */
-  #killstreak { font-size: 36px !important; }
-  /* Inventory chips (potions / grenades) — slightly smaller padding */
-  #inventory-widget {
-    transform: scale(0.85);
-    transform-origin: top left;
+
+  /* Killstreak — was huge top-left banner. Smaller font. */
+  #killstreak { font-size: 28px !important; }
+
+  /* Inventory widget (potions + grenades) — CORRECT id is #inv-widget
+     (the previous mobile rule used #inventory-widget which is the
+     revolver wheel container, so the rule did nothing). Shrink to 60%. */
+  #inv-widget {
+    transform: scale(0.60) !important;
+    transform-origin: top left !important;
+    top: 60px !important;
+    left: 8px !important;
   }
-  /* Tutorial / objective panel — keep readable but trim padding */
-  #objective-panel { font-size: 12px; padding: 8px 10px; }
-  /* Joystick — pull in slightly so the visible playable area doesn't
-     have a giant 130px circle eating the bottom-left corner. The
-     joystick still has a generous touch target inside the visible
-     ring; the visual just shrinks. */
+
+  /* Tutorial objectives panel — was 320px wide eating a big chunk
+     of the right side. Per playtester: "shrink the directions /
+     objectives top right" + "the textbox fills 3/4 of the screen".
+     Actual fix lives in tutorialLessons.js renderChecklist which
+     emits a compact 1-lesson view on mobile. CSS just keeps the
+     panel narrow so wrap doesn't extend it. */
+  #tutorial-checklist {
+    transform: scale(0.85) !important;
+    transform-origin: top right !important;
+    width: 180px !important;
+    max-width: 60vw !important;
+    padding: 8px 10px !important;
+    top: 60px !important;
+    right: 8px !important;
+    font-size: 11px !important;
+  }
+  /* Generic objective panel for non-tutorial waves */
+  #objective-panel { font-size: 11px; padding: 6px 8px; }
+
+  /* Joystick — smaller visible ring, pulled to corner */
   #joystick {
-    width: 110px !important;
-    height: 110px !important;
-    bottom: 24px !important;
-    left: 16px !important;
+    width: 100px !important;
+    height: 100px !important;
+    bottom: 18px !important;
+    left: 12px !important;
   }
   #joystick .knob {
-    width: 46px !important;
-    height: 46px !important;
+    width: 42px !important;
+    height: 42px !important;
   }
-  /* Big bottom-right fire button — keep at standard size but pull
-     toward the corner so it has clearance from the wheel which
-     now sits at right:140px. */
+
+  /* ============================================================
+     MOBILE FIRE BUTTON — RED + button-styled per playtester request:
+       "Fire button needs to be red not blue. Make it like a button."
+     Was cyan before. Smaller (80px) so it has clearance from the
+     revolver wheel without overlap. display:flex !important so
+     nothing hides it (this was the cause of "we lost the fire
+     button" — earlier shrink left it hidden behind the wheel on
+     narrow phones). Box shadow + inner highlight gives it a
+     physical-button look. :active drives the pressed state.
+     ============================================================ */
   #fire-btn {
-    bottom: 24px !important;
-    right: 16px !important;
-    width: 90px !important;
-    height: 90px !important;
+    display: flex !important;
+    position: fixed !important;
+    bottom: 20px !important;
+    right: 14px !important;
+    width: 80px !important;
+    height: 80px !important;
+    border-radius: 50% !important;
+    background: radial-gradient(circle at 35% 30%,
+      rgba(255, 140, 130, 0.95) 0%,
+      rgba(220, 30, 40, 0.95) 40%,
+      rgba(140, 10, 20, 0.95) 100%) !important;
+    border: 3px solid #ff4040 !important;
+    box-shadow:
+      0 4px 8px rgba(0, 0, 0, 0.65),
+      0 0 24px rgba(255, 40, 60, 0.7),
+      inset 0 -3px 6px rgba(80, 0, 10, 0.7),
+      inset 0 3px 4px rgba(255, 220, 220, 0.45) !important;
+    color: #fff !important;
+    font-family: 'Impact', monospace !important;
     font-size: 18px !important;
+    letter-spacing: 2px !important;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.7) !important;
+    z-index: 20 !important;
+    align-items: center !important;
+    justify-content: center !important;
+    touch-action: none !important;
+    user-select: none !important;
+    -webkit-user-select: none !important;
+    -webkit-tap-highlight-color: transparent !important;
+    transition: transform 0.06s ease-out, box-shadow 0.06s ease-out !important;
+  }
+  /* Pressed state — punches the button when the player holds it. */
+  #fire-btn:active {
+    transform: scale(0.94) !important;
+    box-shadow:
+      0 2px 4px rgba(0, 0, 0, 0.6),
+      0 0 16px rgba(255, 40, 60, 0.6),
+      inset 0 -2px 4px rgba(80, 0, 10, 0.7),
+      inset 0 4px 6px rgba(255, 220, 220, 0.55) !important;
   }
 }
 #joystick {

@@ -1168,6 +1168,42 @@ export function renderChecklist(_pulseLatestDone) {
   if (_lessons.length === 0) { el.style.display = 'none'; return; }
   el.style.display = '';
 
+  // Detect mobile (narrow viewport OR coarse pointer). On mobile we
+  // render a compact view: only the active lesson + a "X / Y"
+  // progress counter, so the panel doesn't cover most of the
+  // playscreen. Desktop keeps the full rolling checklist.
+  const isMobile = window.matchMedia('(max-width: 900px), (pointer: coarse)').matches;
+
+  if (isMobile) {
+    // Compact mobile view — single active lesson + progress count.
+    const total = _lessons.length;
+    const done = Math.min(_activeIdx, total);
+    const active = _lessons[_activeIdx];
+    let html = '<div style="font-size:10px;letter-spacing:2px;color:#ffd93d;margin-bottom:4px;">' +
+      'TUTORIAL · ' + done + ' / ' + total + '</div>';
+    if (active) {
+      html += '<div style="font-size:11px;letter-spacing:1.5px;color:#ffd93d;line-height:1.25;">';
+      html += '<span style="color:#ffd93d;">▶</span> ' + active.label;
+      if (active.progress) {
+        try {
+          const p = active.progress();
+          html += ' <span style="color:#fff;float:right;">' + p + '</span>';
+        } catch (e) {}
+      }
+      html += '</div>';
+      if (active.hint) {
+        html += '<div style="margin:4px 0 0 0;font-size:10px;color:#aaa;letter-spacing:0.5px;line-height:1.35;font-family:Arial,sans-serif;">';
+        html += active.hint;
+        html += '</div>';
+      }
+    } else if (_activeIdx >= total) {
+      html += '<div style="font-size:12px;color:#7af797;">TUTORIAL COMPLETE</div>';
+    }
+    el.innerHTML = html;
+    return;
+  }
+
+  // Desktop full view.
   let html = '<div style="font-size:12px;letter-spacing:3px;color:#ffd93d;margin-bottom:12px;">' +
     'TUTORIAL · OBJECTIVES</div>';
   for (let i = 0; i < _lessons.length; i++) {

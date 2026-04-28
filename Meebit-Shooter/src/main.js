@@ -55,7 +55,7 @@ import {
 } from './tutorialLessons.js';
 import { updateLifedrainBeams, applyLifedrainTick, fireLifedrainSwarm, updateLifedrainProjectiles, clearLifedrainEffects } from './lifedrainer.js';
 import { scatterCorpses, clearCorpses } from './corpses.js';
-import { S, keys, mouse, joyState, resetGame, getWeapon, shake } from './state.js';
+import { S, keys, mouse, joyState, aimJoyState, resetGame, getWeapon, shake } from './state.js';
 import { PLAYER, WEAPONS, CHAPTERS, ARENA, GOO_CONFIG, MINING_CONFIG, BLOCK_CONFIG, getChapterRangedMult, getChapterRangedRangeMult, PARADISE_FALLEN_CHAPTER_IDX, WAVES_PER_CHAPTER } from './config.js';
 import { Audio } from './audio.js';
 import { UI } from './ui.js';
@@ -1521,6 +1521,24 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 
+// Tap-select weapons from the revolver wheel — ui.js dispatches this
+// custom event when the user taps (or clicks) a weapon slot. Mirrors
+// the keyboard 1-6 path so wheel taps and number-key presses run the
+// exact same weapon-switch sequence (state update, gun recolor,
+// cursor sync, toast). Chapter-7 lifedrainer-only mode and pickaxe
+// state are respected by the same guards as the key handler.
+window.addEventListener('mw:select-weapon', (e) => {
+  const w = e.detail;
+  if (S.chapter === PARADISE_FALLEN_CHAPTER_IDX) return;
+  if (!w || !S.ownedWeapons.has(w)) return;
+  S.currentWeapon = w;
+  S.previousCombatWeapon = w;
+  UI.updateWeaponSlots();
+  recolorGun(WEAPONS[w].color);
+  _syncWeaponCursor();
+  UI.toast(WEAPONS[w].name, '#' + WEAPONS[w].color.toString(16).padStart(6, '0'));
+});
+
 const raycaster = new THREE.Raycaster();
 const aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const mouseNDC = new THREE.Vector2();
@@ -1617,8 +1635,54 @@ joystick.addEventListener('touchstart', startJoy, { passive: false });
 joystick.addEventListener('touchmove', moveJoy, { passive: false });
 joystick.addEventListener('touchend', endJoy);
 const fireBtn = document.getElementById('fire-btn');
-fireBtn.addEventListener('touchstart', e => { mouse.down = true; Audio.resume(); e.preventDefault(); });
-fireBtn.addEventListener('touchend', e => { mouse.down = false; });
+// Mobile fire button doubles as an aim joystick. Touchstart captures
+// the button center; touchmove computes a drag vector from center
+// that drives aim direction. While touching: fire AND aim with one
+// thumb. Release: clear both. Inside a small deadzone (no drag) the
+// existing auto-aim takes over so a tap-fire still snaps to nearest
+// enemy — only a meaningful drag overrides the aim.
+function _fireBtnStart(clientX, clientY) {
+  mouse.down = true;
+  aimJoyState.active = true;
+  const r = fireBtn.getBoundingClientRect();
+  aimJoyState.cx = r.left + r.width / 2;
+  aimJoyState.cy = r.top + r.height / 2;
+  aimJoyState.dx = 0;
+  aimJoyState.dy = 0;
+  fireBtn.classList.add('firing');
+  Audio.resume();
+}
+function _fireBtnMove(clientX, clientY) {
+  if (!aimJoyState.active) return;
+  let dx = clientX - aimJoyState.cx;
+  let dy = clientY - aimJoyState.cy;
+  // Normalize against the same 50px radius the movement stick uses
+  // so the dead-zone and full-tilt thresholds feel consistent.
+  const m = Math.sqrt(dx * dx + dy * dy);
+  const max = 50;
+  if (m > max) { dx = (dx / m) * max; dy = (dy / m) * max; }
+  aimJoyState.dx = dx / max;
+  aimJoyState.dy = dy / max;
+}
+function _fireBtnEnd() {
+  mouse.down = false;
+  aimJoyState.active = false;
+  aimJoyState.dx = 0;
+  aimJoyState.dy = 0;
+  fireBtn.classList.remove('firing');
+}
+fireBtn.addEventListener('touchstart', e => {
+  const t = e.touches[0];
+  _fireBtnStart(t.clientX, t.clientY);
+  e.preventDefault();
+}, { passive: false });
+fireBtn.addEventListener('touchmove', e => {
+  const t = e.touches[0];
+  _fireBtnMove(t.clientX, t.clientY);
+  e.preventDefault();
+}, { passive: false });
+fireBtn.addEventListener('touchend', e => { _fireBtnEnd(); });
+fireBtn.addEventListener('touchcancel', e => { _fireBtnEnd(); });
 
 const pickBtn = document.getElementById('pick-btn');
 if (pickBtn) {
@@ -3523,6 +3587,31 @@ function updatePlayer(dt) {
   if (S.hp <= 0) { S.hp = 0; UI.updateHUD(); gameOver(); return; }
 
   let targetX = mouse.worldX, targetZ = mouse.worldZ;
+  // Mobile twin-stick aim: when the player is holding the fire
+  // button AND has dragged it past the dead-zone, use that drag as
+  // the aim direction instead of auto-aim. Lets the player choose
+  // exactly which target to engage rather than always snapping to
+  // the nearest enemy. Within the dead-zone (a barely-touched fire
+  // button) we fall through to auto-aim so a quick tap-fire still
+  // works without forcing the player to drag.
+  const aimMag = Math.sqrt(aimJoyState.dx * aimJoyState.dx + aimJoyState.dy * aimJoyState.dy);
+  const aimEngaged = aimJoyState.active && aimMag > 0.10;
+  if (aimEngaged) {
+    // Project a virtual aim point ~30u in front of the player along
+    // the joystick direction. We only need the direction; the
+    // distance is arbitrary as long as it's > 0.
+    // Screen Y grows DOWN, world Z grows AWAY-FROM-CAMERA (which is
+    // generally toward the back of the arena from the camera's
+    // perspective). dy > 0 (thumb dragged down on screen) → player
+    // wants to aim toward NEGATIVE world Z. So we negate dy.
+    const dirX = aimJoyState.dx;
+    const dirZ = -aimJoyState.dy;
+    const m = Math.sqrt(dirX * dirX + dirZ * dirZ);
+    if (m > 0.001) {
+      targetX = player.pos.x + (dirX / m) * 30;
+      targetZ = player.pos.z + (dirZ / m) * 30;
+    }
+  }
   // Auto-aim-to-nearest-enemy runs when the player is driving movement
   // with a joystick (touch joyState OR gamepad left-stick/d-pad) AND is
   // NOT actively aiming with a gamepad right stick. The _gamepadAiming
@@ -3530,7 +3619,10 @@ function updatePlayer(dt) {
   // (or in a short hold window right after release) — when it's set,
   // respect the player's chosen aim direction instead of snapping to
   // the nearest enemy.
+  // Mobile aim-joystick (aimEngaged above) ALSO disables auto-aim so
+  // the player's chosen direction wins.
   const autoAimEligible =
+    !aimEngaged &&
     (joyState.active || ('ontouchstart' in window && !mouse.down)) &&
     !mouse._gamepadAiming;
   if (autoAimEligible) {

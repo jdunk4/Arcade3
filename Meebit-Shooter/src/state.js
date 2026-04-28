@@ -203,6 +203,14 @@ export const S = {
 export const keys = {};
 export const mouse = { worldX: 0, worldZ: 0, down: false };
 export const joyState = { active: false, dx: 0, dy: 0, cx: 0, cy: 0 };
+// Aim joystick state — companion to joyState. Engages when the player
+// holds the mobile fire button; the touch position relative to the
+// button center drives an aim direction so the player can both fire
+// AND aim with one thumb without lifting. dx/dy are normalized to
+// [-1, 1] in screen space (right/down positive). When inactive
+// the player falls back to the existing aim path (auto-aim or
+// mouse).
+export const aimJoyState = { active: false, dx: 0, dy: 0, cx: 0, cy: 0 };
 
 export function resetGame() {
   S.phase = 'playing';
