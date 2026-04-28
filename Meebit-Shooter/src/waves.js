@@ -84,6 +84,7 @@ import {
   triggerFreezeCycle, isInsideAnyPod, getFreezePhase,
   didFreezeFireThisFrame, clearFreeze,
 } from './bossFreeze.js';
+import { spawnSolarFlare, clearAllFlares } from './bossSolarFlare.js';
 import { setGalagaTargetCount, resetGalagaTargetCount, setGalagaOverdrive } from './hazardsGalaga.js';
 import { recolorCrowd } from './crowd.js';
 import {
@@ -2171,6 +2172,34 @@ function updateBossPattern(dt, boss) {
   }
   // ---------------------------------------------------------------
 
+  // ---------------------------------------------------------------
+  // SOLAR_TYRANT unique mechanic — predictive AOE solar flares. Per
+  // spec: every 4s, predict where the player will be 2s in the
+  // future based on their current velocity, drop a 4u-radius flare
+  // there. 1.5s telegraph then 0.5s active damage window.
+  //
+  // Gameplay teaching: punishes constant-velocity kiting. A player
+  // moving in a straight line will land at the predicted point on
+  // schedule and eat 35 damage. Standing still also gets punished
+  // (zero velocity → flare drops on top of the player). Survival
+  // requires changing direction OR speed during the 1.5s telegraph.
+  if (boss.type === 'SOLAR_TYRANT') {
+    boss.solarFlareCooldown = (boss.solarFlareCooldown == null) ? 3.0 : boss.solarFlareCooldown - dt;
+    if (boss.solarFlareCooldown <= 0) {
+      boss.solarFlareCooldown = 4.0;
+      // Project 2s ahead from current velocity. player.vel is set
+      // each frame in main.js's player update. Standing still →
+      // velocity zero → AOE drops on the player's current position.
+      const LEAD_TIME = 2.0;
+      const px = player.pos.x + player.vel.x * LEAD_TIME;
+      const pz = player.pos.z + player.vel.z * LEAD_TIME;
+      try {
+        spawnSolarFlare(px, pz);
+      } catch (e) { console.warn('[SOLAR_TYRANT flare]', e); }
+    }
+  }
+  // ---------------------------------------------------------------
+
   // Trigger at 50% HP one-time "panic" summon
   if (!boss.halfHpTriggered && boss.hp / boss.hpMax < 0.5) {
     boss.halfHpTriggered = true;
@@ -2934,6 +2963,8 @@ export function onEnemyKilled(enemy, killedInZone = false) {
     // Wipe GLACIER_WRAITH freeze pods + flash overlay. Idempotent
     // for non-glacier bosses.
     try { clearFreeze(); } catch (e) {}
+    // Wipe SOLAR_TYRANT flares. Idempotent for non-solar bosses.
+    try { clearAllFlares(); } catch (e) {}
     S.bossRef = null;
     S.bossFightStartTime = null;
     grantBossReward();

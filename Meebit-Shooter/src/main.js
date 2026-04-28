@@ -118,6 +118,9 @@ import {
   triggerFreezeCycle, isInsideAnyPod, getFreezePhase,
   didFreezeFireThisFrame, clearFreeze, updateFreeze,
 } from './bossFreeze.js';
+import {
+  spawnSolarFlare, clearAllFlares, updateFlares,
+} from './bossSolarFlare.js';
 import * as tetrisStyle from './hazardsTetris.js';
 import * as galagaStyle from './hazardsGalaga.js';
 import * as minesweeperStyle from './hazardsMinesweeper.js';
@@ -3426,6 +3429,9 @@ function updatePlayer(dt) {
   // alongside paint so all the "before HP-die check" hazard sources
   // process in the same window.
   updatePuddles(dt, player.pos, S, UI, Audio, shake);
+  // SOLAR_TYRANT predictive AOE flares. Telegraph then damage if
+  // player is in radius. Same hazard-update window as paint/puddles.
+  updateFlares(dt, player.pos, S, UI, Audio, shake);
   // GLACIER_WRAITH freeze cycle. Drives the telegraph→frozen→thaw
   // phase machine + pod animation. Damage application happens in
   // the boss pattern dispatch (waves.js) which checks

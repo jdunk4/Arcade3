@@ -56,6 +56,7 @@ import { setHazardRushMode } from './hazards.js';
 import { clearFactionPaint } from './factionPaint.js';
 import { clearAllPuddles } from './bossPuddles.js';
 import { clearFreeze } from './bossFreeze.js';
+import { clearAllFlares } from './bossSolarFlare.js';
 import { getCompound } from './waveProps.js';
 
 // Which chapter the current dormant-prop set belongs to. -1 means no set
@@ -321,6 +322,7 @@ export function teardownChapter() {
   try { clearFactionPaint(); } catch (e) {}
   try { clearAllPuddles(); } catch (e) {}
   try { clearFreeze(); } catch (e) {}
+  try { clearAllFlares(); } catch (e) {}
   // Reset galaga active-bug count back to default (chapter 2 wave 3
   // bumps it; restore for clean state on chapter switch).
   resetGalagaTargetCount();
