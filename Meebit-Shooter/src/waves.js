@@ -4,7 +4,7 @@ import { mouse, keys } from './state.js';
 import {
   getWaveDef, WEAPONS, CHAPTERS, WAVES_PER_CHAPTER, MEEBIT_CONFIG,
   CAPTURE_RADIUS, CAPTURE_ENEMY_SLOWDOWN, CAPTURE_KILL_BONUS,
-  SPAWNER_CONFIG, HIVE_CONFIG,
+  SPAWNER_CONFIG, HIVE_CONFIG, ARENA,
 } from './config.js';
 import { Audio } from './audio.js';
 import { UI } from './ui.js';
@@ -79,6 +79,7 @@ import { clearAllOres, updateOres, updateDepot, depotStatus, setDepotActive, set
 import * as OresModule from './ores.js';
 import { spawnHazardsForWave, clearHazards, setHazardSpawningEnabled, tickHazardSpawning, setHazardRushMode } from './hazards.js';
 import { paintFactionHazard, clearFactionPaint, getActivePaintCount } from './factionPaint.js';
+import { spawnPuddle, clearAllPuddles } from './bossPuddles.js';
 import { setGalagaTargetCount, resetGalagaTargetCount, setGalagaOverdrive } from './hazardsGalaga.js';
 import { recolorCrowd } from './crowd.js';
 import {
@@ -2021,6 +2022,36 @@ function updateBossPattern(dt, boss) {
       }
     }
   }
+
+  // ---------------------------------------------------------------
+  // TOXIC_MAW unique mechanic — toxic puddles. Per spec: puddles
+  // damage on touch, cap of 6 alive at once (FIFO eviction inside
+  // bossPuddles.spawnPuddle so the cadence stays smooth), shrink
+  // over time (built into the puddle lifecycle).
+  //
+  // Cadence: every ~4-5s drop a puddle 6-15u from the boss at a
+  // random angle. Far enough that the player has space to engage
+  // the boss without immediately stepping in fresh acid; close
+  // enough that retreating to the arena edge doesn't escape it.
+  if (boss.type === 'TOXIC_MAW') {
+    boss.puddleCooldown = (boss.puddleCooldown == null) ? 2.0 : boss.puddleCooldown - dt;
+    if (boss.puddleCooldown <= 0) {
+      boss.puddleCooldown = 4.0 + Math.random() * 1.0;
+      // Random position in a ring around the boss
+      const angle = Math.random() * Math.PI * 2;
+      const dist  = 6 + Math.random() * 9;
+      const px = boss.pos.x + Math.cos(angle) * dist;
+      const pz = boss.pos.z + Math.sin(angle) * dist;
+      // Clamp inside arena (puddle radius 3, leave 1u safety margin)
+      const lim = ARENA - 4;
+      try {
+        spawnPuddle(
+          Math.max(-lim, Math.min(lim, px)),
+          Math.max(-lim, Math.min(lim, pz)),
+        );
+      } catch (e) { console.warn('[TOXIC_MAW puddle]', e); }
+    }
+  }
   // ---------------------------------------------------------------
 
   // Trigger at 50% HP one-time "panic" summon
@@ -2777,6 +2808,8 @@ export function onEnemyKilled(enemy, killedInZone = false) {
     // that landed earlier) shouldn't persist into the wave-end
     // celebration. Idempotent — chapter 7 boss has no paint, no-op.
     try { clearFactionPaint(); } catch (e) {}
+    // Wipe TOXIC_MAW puddles too. Idempotent for other bosses.
+    try { clearAllPuddles(); } catch (e) {}
     S.bossRef = null;
     S.bossFightStartTime = null;
     grantBossReward();

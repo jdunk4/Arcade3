@@ -111,6 +111,9 @@ import {
 import {
   paintFactionHazard, clearFactionPaint, updateFactionPaint, getActivePaintCount,
 } from './factionPaint.js';
+import {
+  spawnPuddle, clearAllPuddles, updatePuddles,
+} from './bossPuddles.js';
 import * as tetrisStyle from './hazardsTetris.js';
 import * as galagaStyle from './hazardsGalaga.js';
 import * as minesweeperStyle from './hazardsMinesweeper.js';
@@ -3414,6 +3417,11 @@ function updatePlayer(dt) {
   // process the death pipeline this frame just like a fatal lethal
   // tile would.
   updateFactionPaint(dt, player.pos, S, UI, Audio, shake);
+  // TOXIC_MAW puddle hazards. Same per-frame pattern as faction
+  // paint — DOT damage when player is in puddle radius. Updated
+  // alongside paint so all the "before HP-die check" hazard sources
+  // process in the same window.
+  updatePuddles(dt, player.pos, S, UI, Audio, shake);
   if (S.tutorialMode && S.hp < _hpBeforeHazard) {
     tutorialOnHazardHit();
     if (_hpBeforeHazard > 0 && S.hp <= 0) {
