@@ -225,7 +225,27 @@ function buildRainbowTexture() {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, TEX_W, TEX_H);
 
-  // Build the color cells.
+  // Build the color cells. Each tile is rendered as a rounded rect
+  // with a soft inner bevel — top-left highlight, bottom-right
+  // shadow — so each color reads as its own raised tile rather
+  // than a flat fill. Gap between rounded shapes shows the black
+  // background as natural grout, eliminating the need for a
+  // separate grid-line pass.
+  //
+  // Tile geometry:
+  //   inset:  small margin so the rounded corners have visible
+  //           gap (the grout) between adjacent tiles.
+  //   radius: 12% of the cell size — gentle round-over, not a pill.
+  //
+  // Bevel layers (drawn in order, top of the stack last):
+  //   1. Tile color fill inside the rounded path
+  //   2. Diagonal gradient overlay: bright at top-left (~12% white),
+  //      transparent in the middle, dark at bottom-right (~22% black)
+  //   3. Top-left highlight stroke (1.5px, white at 40% alpha)
+  //   4. Bottom-right shadow stroke (1.5px, black at 35% alpha)
+  // Together these read as a tile catching light from above-left.
+  const TILE_INSET = Math.max(2, Math.floor(CELL_PX * 0.025));    // ~3px grout
+  const TILE_RADIUS = Math.max(6, Math.floor(CELL_PX * 0.12));    // ~16px corner
   for (let row = 0; row < GRID_ROWS; row++) {
     for (let col = 0; col < GRID_COLS; col++) {
       const u = col / (GRID_COLS - 1);   // horizontal: 0=left, 1=right
@@ -252,10 +272,86 @@ function buildRainbowTexture() {
       const rr = Math.round(color.r);
       const gg = Math.round(color.g);
       const bb = Math.round(color.b);
+
+      // Tile bounds — outer cell is CELL_PX × CELL_PX, with the
+      // rounded tile inset by TILE_INSET on every side.
+      const cellX = BORDER_PX + col * CELL_PX;
+      const cellY = BORDER_PX + row * CELL_PX;
+      const tx = cellX + TILE_INSET;
+      const ty = cellY + TILE_INSET;
+      const tw = CELL_PX - TILE_INSET * 2;
+      const th = CELL_PX - TILE_INSET * 2;
+
+      // ----- Step 1: Fill rounded rect with tile color -----
+      ctx.beginPath();
+      ctx.moveTo(tx + TILE_RADIUS, ty);
+      ctx.arcTo(tx + tw, ty,           tx + tw, ty + th,      TILE_RADIUS);
+      ctx.arcTo(tx + tw, ty + th,      tx,      ty + th,      TILE_RADIUS);
+      ctx.arcTo(tx,      ty + th,      tx,      ty,           TILE_RADIUS);
+      ctx.arcTo(tx,      ty,           tx + tw, ty,           TILE_RADIUS);
+      ctx.closePath();
       ctx.fillStyle = `rgb(${rr},${gg},${bb})`;
-      const px = BORDER_PX + col * CELL_PX;
-      const py = BORDER_PX + row * CELL_PX;
-      ctx.fillRect(px, py, CELL_PX, CELL_PX);
+      ctx.fill();
+
+      // ----- Step 2: Diagonal bevel gradient (light → shadow) -----
+      // Linear gradient from top-left to bottom-right. Translucent
+      // white near the top-left, transparent through the middle,
+      // translucent black at the bottom-right. Clipped to the
+      // rounded tile path so the overlay doesn't bleed into the
+      // grout. We re-build the path as a clip region.
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(tx + TILE_RADIUS, ty);
+      ctx.arcTo(tx + tw, ty,           tx + tw, ty + th,      TILE_RADIUS);
+      ctx.arcTo(tx + tw, ty + th,      tx,      ty + th,      TILE_RADIUS);
+      ctx.arcTo(tx,      ty + th,      tx,      ty,           TILE_RADIUS);
+      ctx.arcTo(tx,      ty,           tx + tw, ty,           TILE_RADIUS);
+      ctx.closePath();
+      ctx.clip();
+      const grad = ctx.createLinearGradient(tx, ty, tx + tw, ty + th);
+      grad.addColorStop(0.00, 'rgba(255,255,255,0.18)');
+      grad.addColorStop(0.45, 'rgba(255,255,255,0.00)');
+      grad.addColorStop(0.55, 'rgba(0,0,0,0.00)');
+      grad.addColorStop(1.00, 'rgba(0,0,0,0.22)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(tx, ty, tw, th);
+      ctx.restore();
+
+      // ----- Step 3: Inner bevel highlight (top + left edges) -----
+      // Trace just the top + left arcs to get a "lit edge" effect.
+      // We use a short stroke that only covers the upper-left
+      // quadrant of the rounded rect. Drawn at 40% white so the
+      // edge looks lit without becoming chalky.
+      ctx.save();
+      ctx.lineWidth = Math.max(1.5, CELL_PX * 0.012);
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(255,255,255,0.40)';
+      ctx.beginPath();
+      // Left edge
+      ctx.moveTo(tx, ty + th - TILE_RADIUS);
+      ctx.lineTo(tx, ty + TILE_RADIUS);
+      // Top-left corner arc (quarter)
+      ctx.arcTo(tx, ty, tx + TILE_RADIUS, ty, TILE_RADIUS);
+      // Top edge
+      ctx.lineTo(tx + tw - TILE_RADIUS, ty);
+      ctx.stroke();
+      ctx.restore();
+
+      // ----- Step 4: Inner bevel shadow (right + bottom edges) -----
+      ctx.save();
+      ctx.lineWidth = Math.max(1.5, CELL_PX * 0.012);
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath();
+      // Right edge
+      ctx.moveTo(tx + tw, ty + TILE_RADIUS);
+      ctx.lineTo(tx + tw, ty + th - TILE_RADIUS);
+      // Bottom-right corner arc (quarter)
+      ctx.arcTo(tx + tw, ty + th, tx + tw - TILE_RADIUS, ty + th, TILE_RADIUS);
+      // Bottom edge
+      ctx.lineTo(tx + TILE_RADIUS, ty + th);
+      ctx.stroke();
+      ctx.restore();
     }
   }
 
@@ -285,24 +381,10 @@ function buildRainbowTexture() {
     ctx.fillText(ch, TEX_W - BORDER_PX / 2, cy);
   }
 
-  // Thin grid lines between cells so the tiles still read as a grid
-  // even in low-light wave themes.
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
-  ctx.lineWidth = 2;
-  for (let i = 0; i <= GRID_COLS; i++) {
-    const x = BORDER_PX + i * CELL_PX;
-    ctx.beginPath();
-    ctx.moveTo(x, BORDER_PX);
-    ctx.lineTo(x, TEX_H - BORDER_PX);
-    ctx.stroke();
-  }
-  for (let i = 0; i <= GRID_ROWS; i++) {
-    const y = BORDER_PX + i * CELL_PX;
-    ctx.beginPath();
-    ctx.moveTo(BORDER_PX, y);
-    ctx.lineTo(TEX_W - BORDER_PX, y);
-    ctx.stroke();
-  }
+  // Grid-line pass removed — the rounded-corner tiles with their
+  // grout gap and bevel strokes already separate visually. Adding
+  // explicit grid lines on top would compete with the bevel
+  // highlight/shadow lines and clutter the floor.
 
   const tex = new THREE.CanvasTexture(c);
   // Color space MUST be sRGB so the renderer (which outputs sRGB)
