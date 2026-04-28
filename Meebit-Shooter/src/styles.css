@@ -884,10 +884,15 @@ canvas { display: block; cursor: var(--matrix-cursor); }
   #wave-banner-countdown { font-size: 70px; }
   #boss-bar { width: 88vw; top: 70px; }
 
-  /* Hero hexagons — was 78% (still too big). Down to 60% for mobile. */
+  /* Hero hexagons — was 78% (still too big). Down to 60% for mobile.
+     Also pulled left from the desktop default (left:160) since the
+     inv-widget shrinks to 60% width on mobile, freeing horizontal
+     space. Per playtester: "move the hexagon pictures a bit more
+     to the left." */
   #hero-hexagons {
     transform: scale(0.60) !important;
     transform-origin: top left !important;
+    left: 90px !important;
   }
 
   /* Killstreak — was huge top-left banner. Smaller font. */
@@ -915,7 +920,7 @@ canvas { display: block; cursor: var(--matrix-cursor); }
     width: 180px !important;
     max-width: 60vw !important;
     padding: 8px 10px !important;
-    top: 60px !important;
+    top: 12px !important;
     right: 8px !important;
     font-size: 11px !important;
   }
@@ -937,20 +942,28 @@ canvas { display: block; cursor: var(--matrix-cursor); }
   /* ============================================================
      MOBILE FIRE BUTTON — RED + button-styled per playtester request:
        "Fire button needs to be red not blue. Make it like a button."
-     Was cyan before. Smaller (80px) so it has clearance from the
-     revolver wheel without overlap. display:flex !important so
-     nothing hides it (this was the cause of "we lost the fire
-     button" — earlier shrink left it hidden behind the wheel on
-     narrow phones). Box shadow + inner highlight gives it a
-     physical-button look. :active drives the pressed state.
+     POSITIONING: sits at the CENTER of the revolver wheel — the
+     wheel slots arrange radially around it. Per playtester:
+       "the fire button should be the centerpiece of the revolver."
+     Wheel container is at bottom:115 right:14 with size 130×130, so
+     its center is at bottom:180 right:79. A 70px fire button
+     centered there sits at bottom:145 right:44.
+
+     z-index 25 puts the button above the slot ring (slots at ~2)
+     and above the wheel container (40) so the player's finger
+     hits the fire button rather than a slot when they touch the
+     center.
+
+     Touch handlers in main.js convert the button into a directional
+     aim joystick — drag thumb around the button to aim while firing.
      ============================================================ */
   #fire-btn {
     display: flex !important;
     position: fixed !important;
-    bottom: 20px !important;
-    right: 14px !important;
-    width: 80px !important;
-    height: 80px !important;
+    bottom: 145px !important;
+    right: 44px !important;
+    width: 70px !important;
+    height: 70px !important;
     border-radius: 50% !important;
     background: radial-gradient(circle at 35% 30%,
       rgba(255, 140, 130, 0.95) 0%,
@@ -964,10 +977,10 @@ canvas { display: block; cursor: var(--matrix-cursor); }
       inset 0 3px 4px rgba(255, 220, 220, 0.45) !important;
     color: #fff !important;
     font-family: 'Impact', monospace !important;
-    font-size: 18px !important;
-    letter-spacing: 2px !important;
+    font-size: 14px !important;
+    letter-spacing: 1.5px !important;
     text-shadow: 0 2px 4px rgba(0, 0, 0, 0.7) !important;
-    z-index: 20 !important;
+    z-index: 50 !important;        /* above slots (2) and wheel container (40) */
     align-items: center !important;
     justify-content: center !important;
     touch-action: none !important;
@@ -976,8 +989,13 @@ canvas { display: block; cursor: var(--matrix-cursor); }
     -webkit-tap-highlight-color: transparent !important;
     transition: transform 0.06s ease-out, box-shadow 0.06s ease-out !important;
   }
-  /* Pressed state — punches the button when the player holds it. */
-  #fire-btn:active {
+  /* Pressed state — punches the button when the player holds it.
+     The .firing class is also added by the touchstart handler so the
+     pressed look starts immediately and persists through the entire
+     fire-and-aim drag (CSS :active alone wouldn't cover the long
+     press-and-drag pattern). */
+  #fire-btn:active,
+  #fire-btn.firing {
     transform: scale(0.94) !important;
     box-shadow:
       0 2px 4px rgba(0, 0, 0, 0.6),

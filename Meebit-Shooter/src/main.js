@@ -1607,16 +1607,38 @@ window.addEventListener('wheel', e => {
 // Mobile controls (unchanged)
 const joystick = document.getElementById('joystick');
 const knob = document.getElementById('knob');
+// Track the touch identifier that started this joystick. Without
+// this, e.touches[0] returns the FIRST touch in the global list —
+// which can be the FIRE BUTTON's touch when the player has two
+// fingers down. That cross-talk caused the left joystick to read
+// thumb position from the fire button thumb. Identifier tracking
+// makes each control only respond to ITS OWN touch.
+let _joyTouchId = null;
+function _findTouchById(touchList, id) {
+  for (let i = 0; i < touchList.length; i++) {
+    if (touchList[i].identifier === id) return touchList[i];
+  }
+  return null;
+}
 function startJoy(e) {
+  // Latch onto the FIRST touch that hits the joystick element. If
+  // we already have one tracked (e.g., second finger added inside
+  // the joystick), ignore the new touch.
+  if (_joyTouchId !== null) return;
+  const t = e.changedTouches[0];
+  if (!t) return;
+  _joyTouchId = t.identifier;
   const r = joystick.getBoundingClientRect();
   joyState.active = true;
   joyState.cx = r.left + r.width / 2;
   joyState.cy = r.top + r.height / 2;
-  moveJoy(e); e.preventDefault();
+  // Run the move logic using the captured touch coordinates so the
+  // initial press registers a 0,0 position (the new control center)
+  // instead of a snap based on touches[0].
+  _applyJoyTouch(t);
+  e.preventDefault();
 }
-function moveJoy(e) {
-  if (!joyState.active) return;
-  const t = e.touches[0];
+function _applyJoyTouch(t) {
   let dx = t.clientX - joyState.cx;
   let dy = t.clientY - joyState.cy;
   const m = Math.sqrt(dx * dx + dy * dy);
@@ -1624,9 +1646,26 @@ function moveJoy(e) {
   if (m > max) { dx = dx / m * max; dy = dy / m * max; }
   joyState.dx = dx / max; joyState.dy = dy / max;
   knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+}
+function moveJoy(e) {
+  if (!joyState.active || _joyTouchId === null) return;
+  // Find OUR touch by identifier. If it's not in this event's
+  // touches (touchmove only includes touches that actually moved),
+  // bail — there's no update for us this frame.
+  const t = _findTouchById(e.changedTouches, _joyTouchId)
+         || _findTouchById(e.touches, _joyTouchId);
+  if (!t) return;
+  _applyJoyTouch(t);
   e.preventDefault();
 }
-function endJoy() {
+function endJoy(e) {
+  // Only release on the touch that owns the joystick — a different
+  // touch ending (e.g., fire button thumb lifting) shouldn't
+  // release the joystick if the joystick thumb is still down.
+  if (_joyTouchId === null) return;
+  const t = e ? _findTouchById(e.changedTouches, _joyTouchId) : null;
+  if (e && !t) return;
+  _joyTouchId = null;
   joyState.active = false;
   joyState.dx = 0; joyState.dy = 0;
   knob.style.transform = 'translate(-50%, -50%)';
@@ -1634,6 +1673,8 @@ function endJoy() {
 joystick.addEventListener('touchstart', startJoy, { passive: false });
 joystick.addEventListener('touchmove', moveJoy, { passive: false });
 joystick.addEventListener('touchend', endJoy);
+joystick.addEventListener('touchcancel', endJoy);
+
 const fireBtn = document.getElementById('fire-btn');
 // Mobile fire button doubles as an aim joystick. Touchstart captures
 // the button center; touchmove computes a drag vector from center
@@ -1641,7 +1682,14 @@ const fireBtn = document.getElementById('fire-btn');
 // thumb. Release: clear both. Inside a small deadzone (no drag) the
 // existing auto-aim takes over so a tap-fire still snaps to nearest
 // enemy — only a meaningful drag overrides the aim.
-function _fireBtnStart(clientX, clientY) {
+//
+// Same touch-identifier tracking as the movement joystick so a
+// thumb on the joystick doesn't accidentally drive the fire
+// button's aim direction.
+let _fireTouchId = null;
+function _fireBtnStart(t) {
+  if (_fireTouchId !== null) return;
+  _fireTouchId = t.identifier;
   mouse.down = true;
   aimJoyState.active = true;
   const r = fireBtn.getBoundingClientRect();
@@ -1652,12 +1700,10 @@ function _fireBtnStart(clientX, clientY) {
   fireBtn.classList.add('firing');
   Audio.resume();
 }
-function _fireBtnMove(clientX, clientY) {
+function _fireBtnMove(t) {
   if (!aimJoyState.active) return;
-  let dx = clientX - aimJoyState.cx;
-  let dy = clientY - aimJoyState.cy;
-  // Normalize against the same 50px radius the movement stick uses
-  // so the dead-zone and full-tilt thresholds feel consistent.
+  let dx = t.clientX - aimJoyState.cx;
+  let dy = t.clientY - aimJoyState.cy;
   const m = Math.sqrt(dx * dx + dy * dy);
   const max = 50;
   if (m > max) { dx = (dx / m) * max; dy = (dy / m) * max; }
@@ -1665,6 +1711,7 @@ function _fireBtnMove(clientX, clientY) {
   aimJoyState.dy = dy / max;
 }
 function _fireBtnEnd() {
+  _fireTouchId = null;
   mouse.down = false;
   aimJoyState.active = false;
   aimJoyState.dx = 0;
@@ -1672,17 +1719,28 @@ function _fireBtnEnd() {
   fireBtn.classList.remove('firing');
 }
 fireBtn.addEventListener('touchstart', e => {
-  const t = e.touches[0];
-  _fireBtnStart(t.clientX, t.clientY);
+  const t = e.changedTouches[0];
+  if (t) _fireBtnStart(t);
   e.preventDefault();
 }, { passive: false });
 fireBtn.addEventListener('touchmove', e => {
-  const t = e.touches[0];
-  _fireBtnMove(t.clientX, t.clientY);
+  if (_fireTouchId === null) return;
+  const t = _findTouchById(e.changedTouches, _fireTouchId)
+         || _findTouchById(e.touches, _fireTouchId);
+  if (!t) return;
+  _fireBtnMove(t);
   e.preventDefault();
 }, { passive: false });
-fireBtn.addEventListener('touchend', e => { _fireBtnEnd(); });
-fireBtn.addEventListener('touchcancel', e => { _fireBtnEnd(); });
+fireBtn.addEventListener('touchend', e => {
+  if (_fireTouchId === null) return;
+  const t = _findTouchById(e.changedTouches, _fireTouchId);
+  if (!t) return;
+  _fireBtnEnd();
+});
+fireBtn.addEventListener('touchcancel', e => {
+  if (_fireTouchId === null) return;
+  _fireBtnEnd();
+});
 
 const pickBtn = document.getElementById('pick-btn');
 if (pickBtn) {

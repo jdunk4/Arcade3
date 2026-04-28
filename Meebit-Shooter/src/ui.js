@@ -696,13 +696,12 @@ export const UI = {
               scale(1.35) !important;
           }
 
-          /* Center fire — sits in the wheel hub. Smaller now to
-             match the tighter wheel. */
+          /* Center fire button stub — REPLACED by the main #fire-btn
+             which now sits as the wheel centerpiece on mobile. The
+             stub element is hidden so it doesn't render an extra
+             control on top of the actual fire button. */
           #revolver-fire {
-            width: 38px !important;
-            height: 38px !important;
-            font-size: 10px !important;
-            letter-spacing: 1px !important;
+            display: none !important;
           }
         }
       `;
