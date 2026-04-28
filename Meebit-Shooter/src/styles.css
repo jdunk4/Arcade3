@@ -806,13 +806,19 @@ canvas { display: block; cursor: var(--matrix-cursor); }
   touch-action: none;
 }
 #pick-btn {
+  /* Pickaxe button HIDDEN on mobile per playtester request — the
+     mobile control surface (joystick + fire + weapon wheel) covers
+     primary play; pickaxe takes screen real estate without earning
+     it on touch. Game logic for pickaxe is unchanged (Q key still
+     works on desktop) — this just removes the on-screen button. */
+  display: none !important;
   position: fixed; bottom: 210px; right: 20px;
   width: 70px; height: 70px; z-index: 15;
   border-radius: 50%;
   background: radial-gradient(circle, rgba(255,217,61,0.25), rgba(0,0,0,0.6));
   border: 3px solid var(--xp-yellow);
   box-shadow: 0 0 14px rgba(255,217,61,0.5);
-  display: flex; align-items: center; justify-content: center;
+  align-items: center; justify-content: center;
   color: var(--xp-yellow); font-size: 30px;
   touch-action: none;
 }
