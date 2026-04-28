@@ -2770,8 +2770,16 @@ registerBlockExplosionHandler((centerVec3, radius, color) => {
       const dist = Math.sqrt(d2);
       const falloff = 1 - (dist / radius) * 0.4; // 100% at center, 60% at edge
       const dmg = BLOCK_CONFIG.explosionDamageEnemy * falloff;
-      e.hp -= dmg;
-      e.hitFlash = 0.25;
+      // Shielded bosses (NIGHT_HERALD pre-50%-HP) absorb damage via
+      // shield. Show feedback so the player knows the hit landed but
+      // didn't penetrate.
+      if (e.shielded) {
+        e.hitFlash = 0.15;
+        try { Audio.shieldHit && Audio.shieldHit(); } catch (err) {}
+      } else {
+        e.hp -= dmg;
+        e.hitFlash = 0.25;
+      }
       hitBurst(e.pos, color, 6);
       if (e.hp <= 0) {
         // Use existing kill pipeline so score/XP/pickups fire correctly
@@ -3747,6 +3755,20 @@ function applyBeamDamage(w, dmgBoost) {
     const perp = Math.abs(dx * dirZ - dz * dirX);
     const hitRadius = e.bossHitRadius || (e.isBoss ? 1.6 : 0.9);
     if (perp < hitRadius + w.beamWidth) {
+      // Shield guard for shielded bosses (NIGHT_HERALD pre-50%-HP).
+      if (e.shielded) {
+        e.hitFlash = 0.10;
+        // Beam fires every frame so throttle the shield-hit SFX via
+        // the same _beamShieldSfxT cooldown the existing shielded-hive
+        // beam-hit code uses (see line ~3836). Without this the audio
+        // would stack to nasty.
+        const _now = performance.now();
+        if (_now - _beamShieldSfxT > 200) {
+          _beamShieldSfxT = _now;
+          try { Audio.shieldHit && Audio.shieldHit(); } catch (err) {}
+        }
+        continue;
+      }
       e.hp -= dmg;
       e.hitFlash = 0.15;
       if (Math.random() < 0.4) {
@@ -3920,6 +3942,17 @@ function applyFlameDamage(w, dmgBoost) {
       const eddx = e.pos.x - dome.x;
       const eddz = e.pos.z - dome.z;
       if (eddx * eddx + eddz * eddz < domeR2) continue;
+    }
+    // Shield guard for shielded bosses. Flame is per-frame so use
+    // the same throttled shield-hit audio cooldown as the beam.
+    if (e.shielded) {
+      e.hitFlash = 0.12;
+      const _now = performance.now();
+      if (_now - _beamShieldSfxT > 200) {
+        _beamShieldSfxT = _now;
+        try { Audio.shieldHit && Audio.shieldHit(); } catch (err) {}
+      }
+      continue;
     }
     e.hp -= dmg;
     e.hitFlash = 0.15;
@@ -4143,9 +4176,17 @@ function updateRockets(dt) {
       const dz = e.pos.z - r.position.z;
       const hitRange = e.bossHitRadius || (e.isBoss ? 2.2 : 1.1);
       if (dx * dx + dz * dz < hitRange) {
-        // Direct damage
-        e.hp -= ud.damage;
-        e.hitFlash = 0.18;
+        // Shield guard — rocket still detonates on the shield (player
+        // doesn't get to "tunnel" rockets through), but doesn't deal
+        // damage. The explodeRocket() call below still fires its AOE,
+        // which has its own shield check at line ~4177.
+        if (e.shielded) {
+          e.hitFlash = 0.18;
+          try { Audio.shieldHit && Audio.shieldHit(); } catch (err) {}
+        } else {
+          e.hp -= ud.damage;
+          e.hitFlash = 0.18;
+        }
         explodeRocket(r);
         scene.remove(r);
         rockets.splice(i, 1);
@@ -4174,8 +4215,14 @@ function explodeRocket(r) {
     const dz = e.pos.z - pos.z;
     const d2 = dx * dx + dz * dz;
     if (d2 < radius * radius) {
-      e.hp -= ud.explosionDamage * (1 - Math.sqrt(d2) / radius);
-      e.hitFlash = 0.15;
+      // Shield guard — shielded enemies in blast radius take no HP
+      // damage but flash to show the hit landed.
+      if (e.shielded) {
+        e.hitFlash = 0.15;
+      } else {
+        e.hp -= ud.explosionDamage * (1 - Math.sqrt(d2) / radius);
+        e.hitFlash = 0.15;
+      }
       if (e.hp <= 0) killEnemy(j);
     }
   }
@@ -4725,6 +4772,17 @@ function updateBullets(dt) {
       const dx = e.pos.x - b.position.x;
       const dz = e.pos.z - b.position.z;
       if (dx*dx + dz*dz < hitRange) {
+        // Shield guard — bullet detonates on shield (consumed) but
+        // does no damage. shieldHit visual + audio.
+        if (e.shielded) {
+          e.hitFlash = 0.15;
+          hitBurst(b.position, 0xffffff, 4);
+          try { Audio.shieldHit && Audio.shieldHit(); } catch (err) {}
+          scene.remove(b);
+          bullets.splice(i, 1);
+          hitEnemy = true;
+          break;
+        }
         e.hp -= b.userData.damage;
         e.hitFlash = 0.15;
         hitBurst(b.position, 0xffffff, 4);

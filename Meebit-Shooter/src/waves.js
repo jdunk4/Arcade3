@@ -67,7 +67,7 @@ import {
 } from './queenHive.js';
 import {
   spawners, spawnAllPortals, updateSpawners, livePortalCount,
-  pickActivePortal, clearAllPortals,
+  pickActivePortal, clearAllPortals, spawnPortal,
 } from './spawners.js';
 import { spawnOrbs, updateOrbs, clearAllOrbs } from './orbs.js';
 import { Save } from './save.js';
@@ -2200,6 +2200,107 @@ function updateBossPattern(dt, boss) {
   }
   // ---------------------------------------------------------------
 
+  // ---------------------------------------------------------------
+  // NIGHT_HERALD unique mechanic — shielded phase at 50% HP. Per
+  // spec: "shield + summon hives at 50% HP - 3 hives - when hives
+  // are destroyed so is their shield."
+  //
+  // Phase flow:
+  //   1. Fight starts: boss takes damage normally
+  //   2. Boss HP drops below 50%: enter SHIELDED phase. Spawn 3
+  //      hives in a triangle around the boss. Boss becomes
+  //      invulnerable (boss.shielded = true) — damage sites in
+  //      main.js gate on this flag and play shield-hit feedback
+  //      instead of dropping HP.
+  //   3. Player kills hives one by one. Each kill is checked via
+  //      livePortalCount() per frame.
+  //   4. Last hive dies: shield drops, boss takes damage again.
+  //
+  // The shield is a translucent magenta sphere parented to boss.obj
+  // so it follows the boss's position automatically. Created on
+  // shield activation, disposed on shield break.
+  if (boss.type === 'NIGHT_HERALD') {
+    // Activation trigger — fires once when the boss first drops
+    // below 50% HP.
+    if (!boss.heraldShieldStarted && boss.hp / boss.hpMax < 0.5) {
+      boss.heraldShieldStarted = true;
+      boss.shielded = true;
+
+      // Spawn 3 hives in a triangle around the boss (8u from boss,
+      // 120° apart). Each hive is pushed to the spawners array so
+      // it integrates with the existing hive update/damage system.
+      const chapterIdx = (S.chapter || 0) % CHAPTERS.length;
+      const triangleR = 8;
+      const baseAngle = Math.random() * Math.PI * 2;
+      for (let i = 0; i < 3; i++) {
+        const angle = baseAngle + (i * (Math.PI * 2 / 3));
+        const hx = boss.pos.x + Math.cos(angle) * triangleR;
+        const hz = boss.pos.z + Math.sin(angle) * triangleR;
+        // Clamp inside arena
+        const lim = ARENA - 4;
+        const cx = Math.max(-lim, Math.min(lim, hx));
+        const cz = Math.max(-lim, Math.min(lim, hz));
+        try {
+          const hive = spawnPortal(cx, cz, chapterIdx);
+          spawners.push(hive);
+        } catch (e) { console.warn('[NIGHT_HERALD hive]', e); }
+      }
+
+      // Build the shield visual — translucent magenta sphere wrapping
+      // the boss. Parent to boss.obj so it inherits position. Mesh
+      // is stored on boss._heraldShield so the break path can dispose it.
+      try {
+        const shieldGeom = new THREE.SphereGeometry(3.5, 32, 24);
+        const shieldMat = new THREE.MeshBasicMaterial({
+          color: 0xe63aff,        // chapter-6 magenta
+          transparent: true,
+          opacity: 0.30,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          toneMapped: false,
+        });
+        const shieldMesh = new THREE.Mesh(shieldGeom, shieldMat);
+        shieldMesh.position.y = 1.5;     // center at boss torso height
+        boss.obj.add(shieldMesh);
+        boss._heraldShield = { mesh: shieldMesh, geom: shieldGeom, mat: shieldMat };
+      } catch (e) { console.warn('[NIGHT_HERALD shield mesh]', e); }
+
+      UI.toast && UI.toast('SHIELD UP · DESTROY THE 3 HIVES', '#e63aff', 2500);
+      try { Audio.shieldHit && Audio.shieldHit(); } catch (e) {}
+      shake(0.3, 0.3);
+    }
+
+    // While shielded, animate the shield (gentle pulse) and watch
+    // for hive count to hit zero so we can break the shield.
+    if (boss.shielded && boss._heraldShield) {
+      const tNow = performance.now() / 1000;
+      const pulse = 0.5 + 0.5 * Math.sin(tNow * 2.0);
+      boss._heraldShield.mat.opacity = 0.25 + 0.20 * pulse;
+      // Slight breathing-scale on the shield for life
+      const sc = 1.0 + 0.04 * Math.sin(tNow * 1.5);
+      boss._heraldShield.mesh.scale.set(sc, sc, sc);
+
+      if (livePortalCount() === 0) {
+        // All 3 hives down — drop the shield.
+        boss.shielded = false;
+        // Dispose the shield mesh
+        try {
+          if (boss._heraldShield.mesh.parent) {
+            boss._heraldShield.mesh.parent.remove(boss._heraldShield.mesh);
+          }
+          if (boss._heraldShield.geom) boss._heraldShield.geom.dispose();
+          if (boss._heraldShield.mat)  boss._heraldShield.mat.dispose();
+        } catch (e) {}
+        boss._heraldShield = null;
+        UI.toast && UI.toast('SHIELD DOWN · ATTACK!', '#ffffff', 2200);
+        try { Audio.bigBoom && Audio.bigBoom(); } catch (e) {}
+        shake(0.5, 0.5);
+      }
+    }
+  }
+  // ---------------------------------------------------------------
+
   // Trigger at 50% HP one-time "panic" summon
   if (!boss.halfHpTriggered && boss.hp / boss.hpMax < 0.5) {
     boss.halfHpTriggered = true;
@@ -2965,6 +3066,18 @@ export function onEnemyKilled(enemy, killedInZone = false) {
     try { clearFreeze(); } catch (e) {}
     // Wipe SOLAR_TYRANT flares. Idempotent for non-solar bosses.
     try { clearAllFlares(); } catch (e) {}
+    // Wipe NIGHT_HERALD shield mesh if the boss died while shielded
+    // (shouldn't happen since damage is gated, but defensive).
+    try {
+      if (enemy._heraldShield) {
+        if (enemy._heraldShield.mesh && enemy._heraldShield.mesh.parent) {
+          enemy._heraldShield.mesh.parent.remove(enemy._heraldShield.mesh);
+        }
+        if (enemy._heraldShield.geom) enemy._heraldShield.geom.dispose();
+        if (enemy._heraldShield.mat)  enemy._heraldShield.mat.dispose();
+        enemy._heraldShield = null;
+      }
+    } catch (e) {}
     S.bossRef = null;
     S.bossFightStartTime = null;
     grantBossReward();
