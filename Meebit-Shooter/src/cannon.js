@@ -781,6 +781,22 @@ export function hasCannon() {
   return !!_cannon;
 }
 
+/** Returns the cannon's collision circle for the dynamic-props pass.
+ *  Used by waveProps to block bullets + the player from passing
+ *  through the cannon body. Skipped during the sink animation so the
+ *  player can walk over where the cannon used to be. */
+export function getCannonCollisionCircles() {
+  if (!_cannon) return [];
+  // Skip if the cannon has sunk (triggered by triggerCannonSink at
+  // wave 2 end). y < -0.5 means the group is mid-sink or below floor.
+  if (_cannon.group.position.y < -0.5) return [];
+  return [{
+    x: _cannon.group.position.x,
+    z: _cannon.group.position.z,
+    r: 2.0,                      // base cylinder ~1.8 + small buffer
+  }];
+}
+
 /** Remove the cannon from the scene. Called on chapter exit / reset. */
 export function clearCannon() {
   if (!_cannon) return;

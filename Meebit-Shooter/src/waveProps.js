@@ -1819,68 +1819,75 @@ export function getCh2WarehouseSwap() { return _ch2WarehouseSwap; }
  * no-ops when the compound isn't built or when props have retracted.
  */
 export function resolveCompoundCollision(pos, entityRadius, isEnemy) {
-  if (!_current) return;
-
-  // Silo — only solid while its group is at normal y (retraction sinks it).
-  // NOTE: For chapter 1 the silo mesh is HIDDEN but the cannon prop sits
-  // at the same world position with a similar footprint. We keep the
-  // silo collision active even when _collideHidden so the cannon still
-  // blocks bullets/players. Skipping silo collision would cause bullets
-  // to pass through the cannon visually.
-  // EXCEPT: once chapter 1 wave 2 ends and the cannon has sunk, we
-  // explicitly skip silo collision so the player/enemies aren't bumping
-  // into invisible silo geometry where the cannon used to be.
-  if (_current.silo && _current.silo.obj && _current.silo.obj.parent && !_ch1Wave2PropsRemoved && !_ch2WarehouseSwap) {
-    if (_current.silo.obj.position.y > -0.5) {
-      _pushOutCircle(pos, entityRadius, LAYOUT.silo.x, LAYOUT.silo.z, _SILO_COLLIDE_R);
+  // Compound-specific collision (silo / turrets / powerplant / radio /
+  // depot) runs only when a chapter has been prepared. Tutorial mode
+  // never calls prepareChapter so _current is null there — but we
+  // still want dynamic-props collision (truck, etc.) and any other
+  // standalone collidables to work, so the early-return is gated to
+  // ONLY skip the compound-specific section, not the entire function.
+  if (_current) {
+    // Silo — only solid while its group is at normal y (retraction sinks it).
+    // NOTE: For chapter 1 the silo mesh is HIDDEN but the cannon prop sits
+    // at the same world position with a similar footprint. We keep the
+    // silo collision active even when _collideHidden so the cannon still
+    // blocks bullets/players. Skipping silo collision would cause bullets
+    // to pass through the cannon visually.
+    // EXCEPT: once chapter 1 wave 2 ends and the cannon has sunk, we
+    // explicitly skip silo collision so the player/enemies aren't bumping
+    // into invisible silo geometry where the cannon used to be.
+    if (_current.silo && _current.silo.obj && _current.silo.obj.parent && !_ch1Wave2PropsRemoved && !_ch2WarehouseSwap) {
+      if (_current.silo.obj.position.y > -0.5) {
+        _pushOutCircle(pos, entityRadius, LAYOUT.silo.x, LAYOUT.silo.z, _SILO_COLLIDE_R);
+      }
     }
-  }
 
-  // Turrets. Use live turret objects (from turrets.js) so we respect any
-  // retraction their groups perform — but fall back to LAYOUT positions
-  // when the getter isn't wired yet (init race).
-  // Skip the LAYOUT fallback once chapter 1 wave 2 ends — turrets are
-  // cleared at that moment and the fallback would otherwise leave
-  // invisible collision blocks at the LAYOUT positions.
-  const liveTurrets = _turretsGetter ? _turretsGetter() : null;
-  if (liveTurrets && liveTurrets.length) {
-    for (const t of liveTurrets) {
-      if (!t || !t.obj || !t.obj.parent) continue;
-      if (t.obj.position.y < -0.5) continue;   // already sunk
-      _pushOutCircle(pos, entityRadius, t.pos.x, t.pos.z, _TURRET_COLLIDE_R);
+    // Turrets. Use live turret objects (from turrets.js) so we respect any
+    // retraction their groups perform — but fall back to LAYOUT positions
+    // when the getter isn't wired yet (init race).
+    // Skip the LAYOUT fallback once chapter 1 wave 2 ends — turrets are
+    // cleared at that moment and the fallback would otherwise leave
+    // invisible collision blocks at the LAYOUT positions.
+    const liveTurrets = _turretsGetter ? _turretsGetter() : null;
+    if (liveTurrets && liveTurrets.length) {
+      for (const t of liveTurrets) {
+        if (!t || !t.obj || !t.obj.parent) continue;
+        if (t.obj.position.y < -0.5) continue;   // already sunk
+        _pushOutCircle(pos, entityRadius, t.pos.x, t.pos.z, _TURRET_COLLIDE_R);
+      }
+    } else if (!_ch1Wave2PropsRemoved) {
+      for (const tp of LAYOUT.turrets) {
+        _pushOutCircle(pos, entityRadius, tp.x, tp.z, _TURRET_COLLIDE_R);
+      }
     }
-  } else if (!_ch1Wave2PropsRemoved) {
-    for (const tp of LAYOUT.turrets) {
-      _pushOutCircle(pos, entityRadius, tp.x, tp.z, _TURRET_COLLIDE_R);
-    }
-  }
 
-  // Power plant — large pad in front of the silo. Skipped when hidden
-  // (chapter 1 reflow hides the entire compound). Otherwise solid.
-  if (_current.powerplant && _current.powerplant.obj && _current.powerplant.obj.parent && !_current.powerplant._collideHidden) {
-    if (_current.powerplant.obj.position.y > -0.5) {
-      _pushOutCircle(pos, entityRadius, LAYOUT.powerplant.x, LAYOUT.powerplant.z, _POWERPLANT_COLLIDE_R);
+    // Power plant — large pad in front of the silo. Skipped when hidden
+    // (chapter 1 reflow hides the entire compound). Otherwise solid.
+    if (_current.powerplant && _current.powerplant.obj && _current.powerplant.obj.parent && !_current.powerplant._collideHidden) {
+      if (_current.powerplant.obj.position.y > -0.5) {
+        _pushOutCircle(pos, entityRadius, LAYOUT.powerplant.x, LAYOUT.powerplant.z, _POWERPLANT_COLLIDE_R);
+      }
     }
-  }
 
-  // Radio tower — narrower footprint, lattice base. Skipped when hidden.
-  if (_current.radioTower && _current.radioTower.obj && _current.radioTower.obj.parent && !_current.radioTower._collideHidden) {
-    if (_current.radioTower.obj.position.y > -0.5) {
-      _pushOutCircle(pos, entityRadius, LAYOUT.radioTower.x, LAYOUT.radioTower.z, _RADIO_COLLIDE_R);
+    // Radio tower — narrower footprint, lattice base. Skipped when hidden.
+    if (_current.radioTower && _current.radioTower.obj && _current.radioTower.obj.parent && !_current.radioTower._collideHidden) {
+      if (_current.radioTower.obj.position.y > -0.5) {
+        _pushOutCircle(pos, entityRadius, LAYOUT.radioTower.x, LAYOUT.radioTower.z, _RADIO_COLLIDE_R);
+      }
     }
-  }
 
-  // Depot — central drop-off where ores converge. Lazy-resolved via
-  // getter so this module doesn't have to import ores.js (avoiding any
-  // circular-import risk). Skip if no getter wired or depot null.
-  if (_depotGetter) {
-    const d = _depotGetter();
-    if (d && d.pos) {
-      _pushOutCircle(pos, entityRadius, d.pos.x, d.pos.z, _DEPOT_COLLIDE_R);
+    // Depot — central drop-off where ores converge. Lazy-resolved via
+    // getter so this module doesn't have to import ores.js (avoiding any
+    // circular-import risk). Skip if no getter wired or depot null.
+    if (_depotGetter) {
+      const d = _depotGetter();
+      if (d && d.pos) {
+        _pushOutCircle(pos, entityRadius, d.pos.x, d.pos.z, _DEPOT_COLLIDE_R);
+      }
     }
   }
   // Dynamic props (moving collision circles registered by other
-  // modules — escort truck, etc).
+  // modules — escort truck, etc). Runs regardless of compound state
+  // so the truck blocks the player in tutorial mode too.
   if (_dynamicPropsGetter) {
     const arr = _dynamicPropsGetter();
     if (arr && arr.length) {

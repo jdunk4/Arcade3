@@ -220,29 +220,101 @@ const FRAG = /* glsl */ `
     // ============================================================
     // 4. VERTICAL SCROLLING LINES — subtle bright stripes scroll up
     //    the shield over time. Adds an "energy" feel to the surface
-    //    between hex pulses.
+    //    between hex pulses. Bumped strength from 0.05 to 0.10 so
+    //    the lines stay visible at distance.
     // ============================================================
-    float linesStrength = (sin(vWorldPos.y * 3.0 - uTime) + 1.0) * 0.5 * 0.05;
+    float linesStrength = (sin(vWorldPos.y * 3.0 - uTime) + 1.0) * 0.5 * 0.10;
     float lines = pow(fract(vWorldPos.y * 20.0 + uTime), 3.0) * linesStrength;
 
     // ============================================================
-    // 5. COMBINE — emissiveStrength = (hexagons + fresnel^5 + lines) * strength.
-    //    Mix between colorA (chapter tint) and colorB (brighter accent)
-    //    based on emissive strength: dim regions stay close to A,
-    //    peak emissive shifts toward B for the rim pop.
+    // 5. COMBINE.
+    //    The shield needs to be visible at any camera distance — a
+    //    pure Fresnel + hex pulse setup goes nearly invisible when
+    //    the player walks back because Fresnel is direction-dependent
+    //    and the hex pulses are time-gated. We add a CONSTANT base
+    //    term (0.22) so every fragment has a minimum chapter-tinted
+    //    glow regardless of angle, time, or impact state. Tuned so
+    //    the shield reads as a soft tinted bubble even at idle, with
+    //    the hex/Fresnel/lines piling on top for the "active force
+    //    field" feel.
     // ============================================================
-    float emissiveStrength = (hexagons + pow(fresnel, 5.0) + lines) * uStrength;
+    float baseGlow = 0.22;
+    float emissiveStrength = (hexagons + pow(fresnel, 5.0) + lines + baseGlow) * uStrength;
     vec3 emissive = mix(uColorA, uColorB, clamp(emissiveStrength, 0.0, 1.0)) * emissiveStrength;
 
-    // Alpha: tied to emissive brightness so dark regions go fully
-    // transparent. With additive blending the absolute alpha is less
-    // important, but keeping it tied to brightness gives nicer
-    // results when transparency stacks.
-    float alpha = clamp(emissiveStrength, 0.0, 1.0);
+    // Alpha: tied to emissive brightness with a small floor so the
+    // shield never fully disappears. With additive blending the
+    // absolute alpha mostly affects how the shield reads against
+    // bright backgrounds; the floor keeps the silhouette always
+    // showing at least a hint.
+    float alpha = clamp(emissiveStrength, 0.05, 1.0);
 
     gl_FragColor = vec4(emissive, alpha);
   }
 `;
+
+// ---- Halo overlay material ----
+//
+// A simpler shader that produces a chapter-tinted Fresnel halo around
+// the shield. Renders on a slightly-larger sphere so the silhouette
+// extends beyond the hex shield, giving the appearance of a tinted
+// glow surrounding the surface. Pure additive blend; no hex pattern.
+// This is what makes the shield read at distance — the hex pattern
+// alone goes nearly invisible far from camera, but the halo's smooth
+// gradient stays.
+
+const HALO_VERT = /* glsl */ `
+  uniform float uRadius;
+  varying vec3 vViewNormal;
+  varying vec3 vViewDir;
+  void main() {
+    vec3 scaledPos = position * uRadius;
+    vec4 viewPos = viewMatrix * modelMatrix * vec4(scaledPos, 1.0);
+    vViewNormal = normalize(normalMatrix * normal);
+    vViewDir = normalize(-viewPos.xyz);
+    gl_Position = projectionMatrix * viewPos;
+  }
+`;
+
+const HALO_FRAG = /* glsl */ `
+  uniform float uTime;
+  uniform vec3 uColorA;
+  uniform float uStrength;
+  varying vec3 vViewNormal;
+  varying vec3 vViewDir;
+  void main() {
+    // Strong rim Fresnel — peaks at silhouette, falls off toward
+    // surface front. Higher exponent = tighter rim.
+    float fresnel = 1.0 - abs(dot(vViewDir, vViewNormal));
+    float rim = pow(fresnel, 2.5);
+    // Slight breathing pulse on the rim brightness so the halo feels
+    // alive even when no impacts are active.
+    float pulse = 0.8 + 0.2 * (sin(uTime * 1.4) * 0.5 + 0.5);
+    float intensity = rim * pulse * uStrength * 0.18;
+    gl_FragColor = vec4(uColorA * intensity, intensity);
+  }
+`;
+
+function _buildHaloMesh(radius, colorAUniform, strengthUniform) {
+  const haloMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uColorA: colorAUniform,           // SHARED ref with main shield
+      uStrength: strengthUniform,        // SHARED ref with main shield
+      uRadius: { value: radius * 1.12 },
+    },
+    vertexShader: HALO_VERT,
+    fragmentShader: HALO_FRAG,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    side: THREE.BackSide,           // render only back face — looks like a glow ring
+    depthWrite: false,
+    toneMapped: false,
+  });
+  // Same unit sphere geometry as the shield; uRadius scales it.
+  const geo = new THREE.SphereGeometry(1, 24, 16);
+  return new THREE.Mesh(geo, haloMat);
+}
 
 // ---- Builder ----
 //
@@ -298,6 +370,14 @@ export function buildShield(tintHex, opts = {}) {
   const geo = new THREE.SphereGeometry(1, 32, 32);
   const mesh = new THREE.Mesh(geo, material);
 
+  // Chapter-tint halo overlay — slightly larger sphere with pure
+  // Fresnel rim glow. Parented to the shield so it inherits position
+  // + scale automatically. Shares the colorA + strength uniforms so
+  // breathing/drop animations on the strength uniform affect both.
+  const haloMesh = _buildHaloMesh(radius, uniforms.uColorA, uniforms.uStrength);
+  mesh.add(haloMesh);
+  const haloMaterial = haloMesh.material;
+
   // ---- Impact API ----
   let impactIndex = 0;
   const impactSlots = [];
@@ -329,6 +409,8 @@ export function buildShield(tintHex, opts = {}) {
 
   const tracker = {
     material,
+    haloMaterial,
+    haloMesh,
     impactSlots,
   };
   _activeShields.push(tracker);
@@ -360,6 +442,11 @@ export function updateShieldsTick(elapsed, dt) {
   for (const sh of _activeShields) {
     // Bump time uniform — drives hex pulse + line scroll.
     sh.material.uniforms.uTime.value = elapsed;
+    // Halo also has a uTime uniform (drives breathing pulse on the
+    // rim). Same elapsed value keeps them in phase.
+    if (sh.haloMaterial) {
+      sh.haloMaterial.uniforms.uTime.value = elapsed;
+    }
 
     // Advance any active impact ramps.
     for (const imp of sh.impactSlots) {
@@ -405,6 +492,12 @@ export function disposeShield(handle) {
   if (tracker) {
     const idx = _activeShields.indexOf(tracker);
     if (idx >= 0) _activeShields.splice(idx, 1);
+    // Halo material + geometry — allocated per-shield in _buildHaloMesh
+    // so they need to be disposed alongside the main shield.
+    if (tracker.haloMesh) {
+      if (tracker.haloMesh.geometry) tracker.haloMesh.geometry.dispose();
+    }
+    if (tracker.haloMaterial) tracker.haloMaterial.dispose();
   }
   if (handle.mesh) {
     if (handle.mesh.parent) handle.mesh.parent.remove(handle.mesh);
