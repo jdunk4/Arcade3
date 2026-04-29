@@ -86,10 +86,45 @@ const _TRACER_GEO    = new THREE.CylinderGeometry(0.04, 0.04, 1.0, 6);
 
 const _activeMechs = [];
 
+// Mech variant catalog. Each entry describes which weapons appear on
+// the left and right arms and which fire-mode functions are bound to
+// the primary/secondary trigger inputs.
+//
+//   id          — variant id, also displayed in the picker UI
+//   label       — short label
+//   icon        — single-char shorthand
+//   buildLeft   — function(armGroup, mats) — populates left arm
+//   buildRight  — function(armGroup, mats) — populates right arm
+//   onPrimary   — function(mech, dt)       — called every frame while
+//                                             firePrimary input is held
+//   onSecondary — function(mech)           — called once on rising
+//                                             edge of fireSecondary
+const _MECH_VARIANTS = {
+  minigun: {
+    id: 'minigun',
+    label: 'MINIGUN',
+    icon: '⚡',
+  },
+  rocket: {
+    id: 'rocket',
+    label: 'ROCKET',
+    icon: '☄',
+  },
+  flame: {
+    id: 'flame',
+    label: 'FLAME',
+    icon: '🔥',
+  },
+};
+// Default variant if none specified — minigun (closest to the
+// previous "default mech" behavior).
+const _DEFAULT_VARIANT = 'minigun';
+
 // =====================================================================
 // SPAWN
 // =====================================================================
-export function spawnMech(pos, tint) {
+export function spawnMech(pos, tint, variantId) {
+  const variant = _MECH_VARIANTS[variantId] || _MECH_VARIANTS[_DEFAULT_VARIANT];
   const root = new THREE.Group();
   // Drop from height; tickMechDrop animates Y down to 0 over MECH_DROP_DURATION.
   root.position.set(pos.x, MECH_DROP_HEIGHT, pos.z);
@@ -171,7 +206,10 @@ export function spawnMech(pos, tint) {
   glass.position.set(0, 1.05, 0.65);
   torso.add(glass);
 
-  // ---- LEFT ARM: MG ----
+  // ---- ARMS ----
+  // Build groups; the variant decides what hangs off them. Each arm
+  // exposes a Group with optional .userData.muzzle group used as the
+  // weapon fire origin.
   const armL = new THREE.Group();
   armL.position.set(-1.40, 0.2, 0);
   torso.add(armL);
@@ -180,20 +218,7 @@ export function spawnMech(pos, tint) {
   const shoulderL = new THREE.Mesh(_SHOULDER_GEO, trimMat);
   shoulderL.position.y = 0.7;
   armL.add(shoulderL);
-  // MG housing at the wrist.
-  const mgHousing = new THREE.Mesh(_MG_HOUSING_GEO, trimMat);
-  mgHousing.position.set(0, -1.0, 0.2);
-  armL.add(mgHousing);
-  const mgBarrel = new THREE.Mesh(_MG_BARREL_GEO, trimMat);
-  mgBarrel.position.set(0, -1.0, 1.0);
-  mgBarrel.rotation.x = Math.PI / 2;
-  armL.add(mgBarrel);
-  // Muzzle marker — empty group at barrel tip used as MG fire origin.
-  const mgMuzzle = new THREE.Group();
-  mgMuzzle.position.set(0, -1.0, 1.7);
-  armL.add(mgMuzzle);
 
-  // ---- RIGHT ARM: MISSILE POD ----
   const armR = new THREE.Group();
   armR.position.set(1.40, 0.2, 0);
   torso.add(armR);
@@ -202,23 +227,16 @@ export function spawnMech(pos, tint) {
   const shoulderR = new THREE.Mesh(_SHOULDER_GEO, trimMat);
   shoulderR.position.y = 0.7;
   armR.add(shoulderR);
-  const missilePod = new THREE.Mesh(_MISSILE_POD_GEO, trimMat);
-  missilePod.position.set(0, -1.0, 0.3);
-  armR.add(missilePod);
-  // Visible rocket tubes — 4 in a 2x2 grid on the front of the pod.
-  const tubeOffsets = [
-    [-0.25,  0.18], [ 0.25,  0.18],
-    [-0.25, -0.18], [ 0.25, -0.18],
-  ];
-  for (const [tx, ty] of tubeOffsets) {
-    const tube = new THREE.Mesh(_MISSILE_TUBE_GEO, hullMat);
-    tube.position.set(tx, -1.0 + ty, 1.0);
-    tube.rotation.x = Math.PI / 2;
-    armR.add(tube);
-  }
-  const rocketMuzzle = new THREE.Group();
-  rocketMuzzle.position.set(0, -1.0, 1.6);
-  armR.add(rocketMuzzle);
+
+  // Build variant-specific arm content. Each builder returns
+  // { primaryMuzzle, secondaryMuzzle } — Groups whose getWorldPosition
+  // gives the world-space fire origin for primary/secondary weapons.
+  const armBuild = _buildArmsForVariant(variant, armL, armR, hullMat, trimMat, tintColor);
+  const mgMuzzle = armBuild.primaryMuzzle;
+  const rocketMuzzle = armBuild.secondaryMuzzle;
+  // Spinning minigun barrel cluster (only the minigun variant uses
+  // this; null for others). Updated every frame while firing.
+  const minigunBarrels = armBuild.minigunBarrels || null;
 
   // ---- ENTER PROMPT ----
   // Floating sprite above the mech that says "PRESS E TO ENTER" when
@@ -250,10 +268,12 @@ export function spawnMech(pos, tint) {
     legL, legR,
     armL, armR,
     mgMuzzle, rocketMuzzle,
+    minigunBarrels,
     glass, glassMat,
     hullMat, trimMat, accentMat,
     prompt,
     tint, tintColor,
+    variant: variant.id,
     hp: MECH_HP_MAX, hpMax: MECH_HP_MAX,
     pos: new THREE.Vector3(pos.x, 0, pos.z),
     facing: 0,
@@ -273,11 +293,165 @@ export function spawnMech(pos, tint) {
     rockets: [],
     // Active MG tracers
     tracers: [],
+    // Flame state — only used by 'flame' variant
+    flameParticles: [],
+    flameLastFireT: 0,
+    napalmCooldown: 0,
+    minigunSpinAngle: 0,
     destroyed: false,
     deathT: 0,
   };
   _activeMechs.push(mech);
   return mech;
+}
+
+// =====================================================================
+// VARIANT ARM BUILDERS
+// =====================================================================
+// Each builder mounts arm content under armL / armR and returns
+// { primaryMuzzle, secondaryMuzzle, [minigunBarrels] }.
+//
+// MINIGUN: 6-barrel rotating cluster on the LEFT arm (replaces single
+// MG barrel). Right arm keeps the missile pod for secondary fire.
+//
+// ROCKET: BOTH arms get missile pods. Primary = single rocket from
+// alternating arms; secondary = full salvo from both pods.
+//
+// FLAME: Left arm gets a flame nozzle (continuous DoT cone). Right
+// arm gets a fuel tank + napalm grenade launcher (secondary).
+
+function _buildArmsForVariant(variant, armL, armR, hullMat, trimMat, tintColor) {
+  if (variant.id === 'minigun') {
+    return _buildArmsMinigun(armL, armR, hullMat, trimMat, tintColor);
+  }
+  if (variant.id === 'rocket') {
+    return _buildArmsRocket(armL, armR, hullMat, trimMat, tintColor);
+  }
+  if (variant.id === 'flame') {
+    return _buildArmsFlame(armL, armR, hullMat, trimMat, tintColor);
+  }
+  // Fallback: minigun.
+  return _buildArmsMinigun(armL, armR, hullMat, trimMat, tintColor);
+}
+
+// ----- MINIGUN VARIANT -----
+// Left arm: 6-barrel rotating cluster. Right arm: missile pod (kept
+// for secondary fire).
+const _MINIGUN_BARREL_GEO = new THREE.CylinderGeometry(0.07, 0.07, 1.4, 8);
+const _MINIGUN_HUB_GEO    = new THREE.CylinderGeometry(0.32, 0.32, 0.20, 12);
+function _buildArmsMinigun(armL, armR, hullMat, trimMat, tintColor) {
+  // Left: minigun cluster.
+  const housing = new THREE.Mesh(_MG_HOUSING_GEO, trimMat);
+  housing.position.set(0, -1.0, 0.2);
+  armL.add(housing);
+  // Hub at the front of the housing — barrels rotate around it.
+  const hub = new THREE.Group();
+  hub.position.set(0, -1.0, 1.0);
+  armL.add(hub);
+  const hubMesh = new THREE.Mesh(_MINIGUN_HUB_GEO, trimMat);
+  hubMesh.rotation.x = Math.PI / 2;
+  hub.add(hubMesh);
+  // 6 barrels around the hub at radius 0.18.
+  const barrelCluster = new THREE.Group();
+  hub.add(barrelCluster);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const barrel = new THREE.Mesh(_MINIGUN_BARREL_GEO, trimMat);
+    barrel.position.set(Math.cos(a) * 0.18, Math.sin(a) * 0.18, 0.7);
+    barrel.rotation.x = Math.PI / 2;
+    barrelCluster.add(barrel);
+  }
+  const muzzle = new THREE.Group();
+  muzzle.position.set(0, -1.0, 1.9);
+  armL.add(muzzle);
+
+  // Right: same missile pod as before.
+  const pod = new THREE.Mesh(_MISSILE_POD_GEO, trimMat);
+  pod.position.set(0, -1.0, 0.3);
+  armR.add(pod);
+  const tubeOffsets = [
+    [-0.25,  0.18], [ 0.25,  0.18],
+    [-0.25, -0.18], [ 0.25, -0.18],
+  ];
+  for (const [tx, ty] of tubeOffsets) {
+    const tube = new THREE.Mesh(_MISSILE_TUBE_GEO, hullMat);
+    tube.position.set(tx, -1.0 + ty, 1.0);
+    tube.rotation.x = Math.PI / 2;
+    armR.add(tube);
+  }
+  const rMuzzle = new THREE.Group();
+  rMuzzle.position.set(0, -1.0, 1.6);
+  armR.add(rMuzzle);
+
+  return { primaryMuzzle: muzzle, secondaryMuzzle: rMuzzle, minigunBarrels: barrelCluster };
+}
+
+// ----- ROCKET VARIANT -----
+// Both arms have missile pods. Primary = single rocket, alternating
+// arms; secondary = full 8-rocket salvo from both pods.
+function _buildArmsRocket(armL, armR, hullMat, trimMat, tintColor) {
+  const tubeOffsets = [
+    [-0.25,  0.18], [ 0.25,  0.18],
+    [-0.25, -0.18], [ 0.25, -0.18],
+  ];
+  for (const arm of [armL, armR]) {
+    const pod = new THREE.Mesh(_MISSILE_POD_GEO, trimMat);
+    pod.position.set(0, -1.0, 0.3);
+    arm.add(pod);
+    for (const [tx, ty] of tubeOffsets) {
+      const tube = new THREE.Mesh(_MISSILE_TUBE_GEO, hullMat);
+      tube.position.set(tx, -1.0 + ty, 1.0);
+      tube.rotation.x = Math.PI / 2;
+      arm.add(tube);
+    }
+  }
+  const lMuz = new THREE.Group(); lMuz.position.set(0, -1.0, 1.6); armL.add(lMuz);
+  const rMuz = new THREE.Group(); rMuz.position.set(0, -1.0, 1.6); armR.add(rMuz);
+  // Primary uses lMuz; secondary uses both (we pass rMuz; salvo code
+  // alternates internally). Keep both refs accessible via mech.armL/armR.
+  return { primaryMuzzle: lMuz, secondaryMuzzle: rMuz };
+}
+
+// ----- FLAME VARIANT -----
+// Left arm: flame nozzle. Right arm: fuel tank + napalm launcher.
+const _FLAME_NOZZLE_GEO  = new THREE.ConeGeometry(0.30, 0.55, 12);
+const _FUEL_TANK_GEO     = new THREE.CylinderGeometry(0.40, 0.40, 1.10, 14);
+const _NAPALM_TUBE_GEO   = new THREE.CylinderGeometry(0.18, 0.20, 0.85, 10);
+function _buildArmsFlame(armL, armR, hullMat, trimMat, tintColor) {
+  // Left: nozzle.
+  const housing = new THREE.Mesh(_MG_HOUSING_GEO, trimMat);
+  housing.position.set(0, -1.0, 0.2);
+  armL.add(housing);
+  const nozzle = new THREE.Mesh(_FLAME_NOZZLE_GEO, trimMat);
+  nozzle.position.set(0, -1.0, 1.0);
+  nozzle.rotation.x = Math.PI / 2;
+  armL.add(nozzle);
+  // Glowing tip — additive sphere at the nozzle exit so the flame
+  // arm reads as "always lit pilot light" even when not firing.
+  const pilot = new THREE.Mesh(new THREE.SphereGeometry(0.10, 10, 8), new THREE.MeshBasicMaterial({
+    color: 0xff5520, transparent: true, opacity: 0.9,
+    blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
+  }));
+  pilot.position.set(0, -1.0, 1.4);
+  armL.add(pilot);
+  const muzzle = new THREE.Group();
+  muzzle.position.set(0, -1.0, 1.4);
+  armL.add(muzzle);
+
+  // Right: fuel tank + napalm tube.
+  const tank = new THREE.Mesh(_FUEL_TANK_GEO, trimMat);
+  tank.position.set(0, -1.0, 0.0);
+  tank.rotation.x = Math.PI / 2;
+  armR.add(tank);
+  const napalmTube = new THREE.Mesh(_NAPALM_TUBE_GEO, hullMat);
+  napalmTube.position.set(0, -1.0, 0.9);
+  napalmTube.rotation.x = Math.PI / 2;
+  armR.add(napalmTube);
+  const rMuzzle = new THREE.Group();
+  rMuzzle.position.set(0, -1.0, 1.4);
+  armR.add(rMuzzle);
+
+  return { primaryMuzzle: muzzle, secondaryMuzzle: rMuzzle };
 }
 
 // =====================================================================
@@ -306,11 +480,13 @@ export function updateMechs(dt) {
     // Rocket projectile tick (always — even when piloted).
     _tickMechRockets(m, dt);
     _tickMechTracers(m, dt);
+    _tickMechFlame(m, dt);
 
     // Cooldown countdowns.
     if (m.dashCooldown > 0) m.dashCooldown -= dt;
     if (m.stompCooldown > 0) m.stompCooldown -= dt;
     if (m.dashLeft > 0) m.dashLeft = Math.max(0, m.dashLeft - dt);
+    if (m.napalmCooldown > 0) m.napalmCooldown -= dt;
 
     // Salvo timer — fires queued rockets on interval (whether piloted
     // or not; we'll just stop queueing when not piloted).
@@ -330,6 +506,14 @@ export function updateMechs(dt) {
         _fireMechMG(m);
         m.mgTimer = MECH_MG_INTERVAL;
       }
+      // Spin minigun barrels visibly while firing.
+      if (m.minigunBarrels) {
+        m.minigunSpinAngle += dt * 30;
+        m.minigunBarrels.rotation.z = m.minigunSpinAngle;
+      }
+    } else if (m.minigunBarrels) {
+      // Decelerate spin when not firing.
+      m.minigunBarrels.rotation.z += dt * 4;
     }
 
     // Death sequence.
@@ -345,6 +529,9 @@ export function updateMechs(dt) {
       continue;
     }
   }
+  // Fire patches outlive their mech — tick globally after the
+  // per-mech loop. Cheap when no patches exist.
+  _tickFirePatches(dt);
 }
 
 // =====================================================================
@@ -487,9 +674,30 @@ export function tickPilotedMech(inputs, dt) {
     m.root.rotation.y = cur + dy * Math.min(1, dt * 8);
   }
 
-  // Weapons.
-  if (inputs.fireSecondary) _requestRocketSalvo(m);
-  m.mgFiring = !!inputs.firePrimary;
+  // Weapons — dispatch by variant.
+  // Primary (held LMB):
+  //   minigun → continuous MG pulses (mgFiring flag → tickMechMG)
+  //   rocket  → rapid single rockets, alternating arms
+  //   flame   → continuous flame stream particles + DoT cone
+  // Secondary (SHIFT tap or hold):
+  //   minigun → 4-rocket salvo from right-arm pod
+  //   rocket  → 8-rocket salvo from BOTH pods
+  //   flame   → napalm grenade (lobbed AoE that leaves a fire patch)
+  if (m.variant === 'minigun') {
+    m.mgFiring = !!inputs.firePrimary;
+    m.flameFiring = false;
+    if (inputs.fireSecondary) _requestRocketSalvo(m, 4);
+  } else if (m.variant === 'rocket') {
+    m.mgFiring = false;
+    m.flameFiring = false;
+    // Primary held: fire single rockets at MG-like cadence.
+    if (inputs.firePrimary) _requestRocketSingle(m, dt);
+    if (inputs.fireSecondary) _requestRocketSalvo(m, 8);
+  } else if (m.variant === 'flame') {
+    m.mgFiring = false;
+    m.flameFiring = !!inputs.firePrimary;
+    if (inputs.fireSecondary) _fireNapalm(m);
+  }
   if (inputs.stomp) _doStomp(m);
   if (inputs.dash) _startDash(m, inputs.mx, inputs.mz);
 
@@ -499,16 +707,12 @@ export function tickPilotedMech(inputs, dt) {
 // =====================================================================
 // WEAPONS
 // =====================================================================
-// Rocket salvo — queue MECH_ROCKET_SALVO rockets to fire on interval.
-function _requestRocketSalvo(m) {
+// Rocket salvo — queue `count` rockets to fire on interval. Defaults
+// to MECH_ROCKET_SALVO for back-compat.
+function _requestRocketSalvo(m, count) {
   if (m.rocketSalvoLeft > 0) return;       // already firing
-  m.rocketSalvoLeft = MECH_ROCKET_SALVO;
+  m.rocketSalvoLeft = count || MECH_ROCKET_SALVO;
   m.rocketSalvoTimer = 0;     // first rocket fires immediately
-  // Rocket target = current aim direction × range. Computed at
-  // salvo start; subsequent rockets in the salvo all target the
-  // same vector (so the player can re-aim mid-salvo for the next
-  // salvo, but the current salvo's rockets fly along the vector
-  // they were fired along).
   const ang = m.facing;
   m.rocketTargetWorld.set(
     m.pos.x + Math.sin(ang) * 50,
@@ -517,11 +721,68 @@ function _requestRocketSalvo(m) {
   );
 }
 
-function _fireMechRocket(m, target) {
-  // Spawn a rocket at the muzzle world position, velocity along
-  // (target - muzzle).
+// Rocket primary fire (rocket variant) — single rocket from
+// alternating arms at MG-like cadence (faster than salvo).
+const _ROCKET_SINGLE_INTERVAL = 0.18;
+function _requestRocketSingle(m, dt) {
+  m.singleRocketTimer = (m.singleRocketTimer || 0) - dt;
+  if (m.singleRocketTimer > 0) return;
+  m.singleRocketTimer = _ROCKET_SINGLE_INTERVAL;
+  // Aim point.
+  const ang = m.facing;
+  const target = new THREE.Vector3(
+    m.pos.x + Math.sin(ang) * 50,
+    1.5,
+    m.pos.z + Math.cos(ang) * 50,
+  );
+  // Alternate left/right arm muzzles. We tagged primaryMuzzle as
+  // left-arm in the ROCKET variant builder; secondaryMuzzle is
+  // right-arm. Toggle each shot.
+  m._altArm = !m._altArm;
+  const muz = m._altArm ? m.mgMuzzle : m.rocketMuzzle;
+  _fireMechRocket(m, target, muz);
+}
+
+// Napalm grenade (flame variant secondary). Lobs an arcing projectile
+// that explodes on impact, leaving a fire patch that damages enemies
+// who walk through it.
+const _NAPALM_GEO = new THREE.SphereGeometry(0.30, 12, 8);
+const _NAPALM_COOLDOWN_DUR = 0.70;
+function _fireNapalm(m) {
+  if (m.napalmCooldown > 0) return;
+  m.napalmCooldown = _NAPALM_COOLDOWN_DUR;
   const muzzleWorld = new THREE.Vector3();
   m.rocketMuzzle.getWorldPosition(muzzleWorld);
+  const ang = m.facing;
+  // Arcing trajectory: forward velocity + upward kick. Lands ~14u away.
+  const vx = Math.sin(ang) * 16;
+  const vz = Math.cos(ang) * 16;
+  const vy = 8.0;
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x331100, emissive: 0xff5520, emissiveIntensity: 2.0, roughness: 0.6,
+  });
+  const mesh = new THREE.Mesh(_NAPALM_GEO, mat);
+  mesh.position.copy(muzzleWorld);
+  scene.add(mesh);
+  m.rockets.push({
+    mesh, mat,
+    pos: muzzleWorld.clone(),
+    vel: new THREE.Vector3(vx, vy, vz),
+    life: 0,
+    maxLife: 3.0,
+    isNapalm: true,
+  });
+  hitBurst(muzzleWorld, 0xff5520, 4);
+}
+
+function _fireMechRocket(m, target, muzzleOverride) {
+  // Spawn a rocket at the muzzle world position, velocity along
+  // (target - muzzle). muzzleOverride lets the rocket variant
+  // alternate between left and right pods; default uses the right-arm
+  // muzzle (the missile pod for the minigun variant).
+  const muzzleWorld = new THREE.Vector3();
+  const muz = muzzleOverride || m.rocketMuzzle;
+  muz.getWorldPosition(muzzleWorld);
 
   const rocketMat = new THREE.MeshStandardMaterial({
     color: 0xfff3d0,
@@ -554,6 +815,13 @@ function _fireMechRocket(m, target) {
 function _tickMechRockets(m, dt) {
   for (let i = m.rockets.length - 1; i >= 0; i--) {
     const r = m.rockets[i];
+    // Napalm grenades obey gravity; rockets fly straight.
+    if (r.isNapalm) {
+      r.vel.y -= 18 * dt;
+      // Tumble for visual flair.
+      r.mesh.rotation.x += dt * 6;
+      r.mesh.rotation.z += dt * 4;
+    }
     r.pos.x += r.vel.x * dt;
     r.pos.y += r.vel.y * dt;
     r.pos.z += r.vel.z * dt;
@@ -576,11 +844,103 @@ function _tickMechRockets(m, dt) {
     // Detonate on hit, on lifetime expiry, or on ground impact.
     const groundHit = r.pos.y < 0.4;
     if (hitTarget || groundHit || r.life >= r.maxLife) {
-      _detonateMechRocket(m, r.pos);
+      if (r.isNapalm) {
+        _detonateNapalm(m, r.pos);
+      } else {
+        _detonateMechRocket(m, r.pos);
+      }
       _disposeRocket(r);
       m.rockets.splice(i, 1);
     }
   }
+}
+
+// Napalm detonation — smaller AoE than a rocket, but spawns a fire
+// patch that lingers for ~4s and damages anything that walks through.
+const _NAPALM_RADIUS = 3.5;
+const _NAPALM_DAMAGE = 110;
+const _NAPALM_PATCH_DUR = 4.0;
+const _NAPALM_PATCH_DPS = 60;
+function _detonateNapalm(m, pos) {
+  const r2 = _NAPALM_RADIUS * _NAPALM_RADIUS;
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i];
+    if (!e || !e.pos || e.dying) continue;
+    const dx = e.pos.x - pos.x;
+    const dz = e.pos.z - pos.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < r2) {
+      const falloff = 1 - Math.sqrt(d2) / _NAPALM_RADIUS;
+      e.hp -= _NAPALM_DAMAGE * falloff;
+      e.hitFlash = 0.18;
+    }
+  }
+  hitBurst(pos, 0xff5520, 18);
+  hitBurst(pos, 0xffaa00, 14);
+  // Fire patch — flat disc + rising flame puffs that tick DPS.
+  _spawnFirePatch(pos);
+}
+
+// Active fire patches — global list, ticked per frame inside
+// updateMechs. We don't attach them to a specific mech because the
+// patch outlives any specific mech instance + the player can stomp
+// or dash and leave patches behind that should keep ticking.
+const _activeFirePatches = [];
+const _FIRE_PATCH_GEO = new THREE.CircleGeometry(_NAPALM_RADIUS, 28);
+function _spawnFirePatch(pos) {
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xff5520,
+    transparent: true,
+    opacity: 0.55,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+  });
+  const disc = new THREE.Mesh(_FIRE_PATCH_GEO, mat);
+  disc.rotation.x = -Math.PI / 2;
+  disc.position.set(pos.x, 0.06, pos.z);
+  scene.add(disc);
+  _activeFirePatches.push({
+    disc, mat,
+    pos: pos.clone(),
+    life: 0,
+    ttl: _NAPALM_PATCH_DUR,
+  });
+}
+function _tickFirePatches(dt) {
+  for (let i = _activeFirePatches.length - 1; i >= 0; i--) {
+    const p = _activeFirePatches[i];
+    p.life += dt;
+    const f = p.life / p.ttl;
+    if (f >= 1) {
+      if (p.disc.parent) p.disc.parent.remove(p.disc);
+      if (p.mat) p.mat.dispose();
+      _activeFirePatches.splice(i, 1);
+      continue;
+    }
+    // Pulse + fade.
+    const pulse = 0.5 + 0.5 * Math.sin(p.life * 7);
+    p.mat.opacity = (0.55 + pulse * 0.20) * (1 - f * 0.6);
+    // Damage enemies inside the patch.
+    const r2 = _NAPALM_RADIUS * _NAPALM_RADIUS;
+    for (let j = 0; j < enemies.length; j++) {
+      const e = enemies[j];
+      if (!e || !e.pos || e.dying) continue;
+      const dx = e.pos.x - p.pos.x;
+      const dz = e.pos.z - p.pos.z;
+      if (dx * dx + dz * dz < r2) {
+        e.hp -= _NAPALM_PATCH_DPS * dt;
+      }
+    }
+  }
+}
+function _clearFirePatches() {
+  for (const p of _activeFirePatches) {
+    if (p.disc.parent) p.disc.parent.remove(p.disc);
+    if (p.mat) p.mat.dispose();
+  }
+  _activeFirePatches.length = 0;
 }
 
 function _detonateMechRocket(m, pos) {
@@ -787,6 +1147,94 @@ function _startDash(m, mx, mz) {
 }
 
 // =====================================================================
+// FLAME STREAM (flame variant primary fire)
+// =====================================================================
+// Continuous particle stream from the nozzle muzzle. Each particle is
+// a small additive-blended sphere with a randomized lifetime; the
+// stream applies DPS damage to any enemy within a forward cone.
+const _FLAME_PARTICLE_GEO = new THREE.SphereGeometry(0.20, 8, 6);
+const FLAME_RANGE         = 9.0;
+const FLAME_CONE_HALF     = 0.40;
+const FLAME_DPS           = 220;
+const FLAME_PARTICLE_RATE = 80;
+const FLAME_PARTICLE_TTL  = 0.35;
+function _tickMechFlame(m, dt) {
+  if (m.flameFiring) {
+    const ang = m.facing;
+    const dirX = Math.sin(ang), dirZ = Math.cos(ang);
+    for (let i = 0; i < enemies.length; i++) {
+      const e = enemies[i];
+      if (!e || !e.pos || e.dying) continue;
+      const ex = e.pos.x - m.pos.x;
+      const ez = e.pos.z - m.pos.z;
+      const along = ex * dirX + ez * dirZ;
+      if (along < 0 || along > FLAME_RANGE) continue;
+      const perp = Math.sqrt(Math.max(0, (ex * ex + ez * ez) - along * along));
+      if (perp / Math.max(0.5, along) > FLAME_CONE_HALF) continue;
+      const falloff = 1 - 0.7 * (along / FLAME_RANGE);
+      e.hp -= FLAME_DPS * falloff * dt;
+      e.hitFlash = 0.10;
+    }
+    m.flameLastFireT = (m.flameLastFireT || 0) + dt;
+    const interval = 1 / FLAME_PARTICLE_RATE;
+    while (m.flameLastFireT >= interval) {
+      m.flameLastFireT -= interval;
+      _spawnFlameParticle(m);
+    }
+  } else {
+    m.flameLastFireT = 0;
+  }
+  for (let i = m.flameParticles.length - 1; i >= 0; i--) {
+    const p = m.flameParticles[i];
+    p.life += dt;
+    const f = p.life / FLAME_PARTICLE_TTL;
+    if (f >= 1) {
+      if (p.mesh.parent) p.mesh.parent.remove(p.mesh);
+      if (p.mat) p.mat.dispose();
+      m.flameParticles.splice(i, 1);
+      continue;
+    }
+    p.pos.x += p.vel.x * dt;
+    p.pos.y += p.vel.y * dt;
+    p.pos.z += p.vel.z * dt;
+    p.mesh.position.copy(p.pos);
+    const s = 0.5 + f * 1.4;
+    p.mesh.scale.setScalar(s);
+    if (f < 0.3) p.mat.color.setHex(0xfff3a0);
+    else if (f < 0.6) p.mat.color.setHex(0xffaa30);
+    else p.mat.color.setHex(0xff5520);
+    p.mat.opacity = 0.95 * (1 - f);
+  }
+}
+function _spawnFlameParticle(m) {
+  const muzzleWorld = new THREE.Vector3();
+  m.mgMuzzle.getWorldPosition(muzzleWorld);
+  const ang = m.facing;
+  const dirX = Math.sin(ang), dirZ = Math.cos(ang);
+  const speed = 16 + Math.random() * 6;
+  const spread = (Math.random() - 0.5) * 0.55;
+  const sx = dirX * Math.cos(spread) - dirZ * Math.sin(spread);
+  const sz = dirX * Math.sin(spread) + dirZ * Math.cos(spread);
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xfff3a0,
+    transparent: true,
+    opacity: 0.95,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const mesh = new THREE.Mesh(_FLAME_PARTICLE_GEO, mat);
+  mesh.position.copy(muzzleWorld);
+  scene.add(mesh);
+  m.flameParticles.push({
+    mesh, mat,
+    pos: muzzleWorld.clone(),
+    vel: new THREE.Vector3(sx * speed, (Math.random() - 0.5) * 1.2, sz * speed),
+    life: 0,
+  });
+}
+
+// =====================================================================
 // DAMAGE
 // =====================================================================
 export function damagePilotedMech(dmg) {
@@ -832,10 +1280,19 @@ function _disposeMech(m) {
     if (t.mat) t.mat.dispose();
   }
   m.tracers.length = 0;
+  // Flame particles too.
+  for (const p of m.flameParticles || []) {
+    if (p.mesh.parent) p.mesh.parent.remove(p.mesh);
+    if (p.mat) p.mat.dispose();
+  }
+  if (m.flameParticles) m.flameParticles.length = 0;
 }
 
 export function clearMechs() {
   _pilotedMech = null;
   for (const m of _activeMechs) _disposeMech(m);
   _activeMechs.length = 0;
+  // Fire patches outlive their mech, but on game reset we want
+  // everything gone.
+  _clearFirePatches();
 }

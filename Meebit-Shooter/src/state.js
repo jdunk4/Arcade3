@@ -39,8 +39,18 @@ export const S = {
   // game reset (resetGame zeros the entries).
   //
   // Keys are the stratagem ids in stratagems.js _STRATAGEMS catalog:
-  //   'bomb500kg', 'mech', 'mines'
+  //   'bomb500kg', 'mech', 'mines_explosion', 'mines_fire',
+  //   'mines_poison', 'turret'
   stratagemArtifacts: {},
+
+  // Sticky variant selections. The catalog has a single 'mech' code
+  // (with 3 weapon types) and a single 'turret' code (with 4 types);
+  // the player picks variant via the in-menu 1-4 digit keys before
+  // releasing RMB. The pick persists across calls — fire-and-forget
+  // unless the player explicitly cycles. Defaults set lazily by
+  // stratagems.js if these are still null at fire time.
+  stratagemMechVariant: null,         // 'minigun' | 'rocket' | 'flame'
+  stratagemTurretVariant: null,       // 'mg' | 'tesla' | 'flame' | 'antitank'
 
   tutorialMode: false,
 
@@ -358,6 +368,8 @@ export function resetGame() {
   // Stratagem inventory zeroed every run — chapter-7+ pickups and
   // tutorial bonus waves are responsible for re-granting.
   S.stratagemArtifacts = {};
+  S.stratagemMechVariant = null;
+  S.stratagemTurretVariant = null;
 }
 
 export function getWeapon() {

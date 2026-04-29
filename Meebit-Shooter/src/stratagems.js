@@ -41,12 +41,18 @@ import { spawnMech, updateMechs, clearMechs } from './mech.js';
 // STRATAGEM CATALOG
 // =====================================================================
 // Each entry:
-//   id        — unique key, also used as artifact key in S.stratagemArtifacts
+//   id        — unique key, also used as artifact key in
+//               S.stratagemArtifacts
 //   label     — display name in menu / HUD
 //   code      — array of arrow direction strings; matched left-to-right
 //   payload   — function(beaconPos, tint) called on deploy completion
 //   armTime   — seconds between beacon landing and payload firing
 //   icon      — single-char shorthand for the menu (cheap visual)
+//   variant   — when truthy, this stratagem has multiple variants
+//               selectable via UI sub-pick or in-menu cycle keys.
+//               Catalog entry stores the *list* of variants for HUD
+//               rendering; live selection is in S (mech) or local
+//               state (turret).
 const _STRATAGEMS = [
   {
     id: 'bomb500kg',
@@ -57,20 +63,56 @@ const _STRATAGEMS = [
     payload: (pos, tint) => _firePayloadBomb500kg(pos, tint),
   },
   {
+    // Single MECH stratagem; variant chosen via the sticky
+    // S.stratagemMechVariant flag set by the picker UI (digit keys
+    // 1/2/3 while menu is open). Default = 'minigun'.
     id: 'mech',
     label: 'EXOSUIT',
     code: ['down', 'up', 'right', 'right', 'up'],
     armTime: 10.0,
     icon: '⚙',
+    variant: ['minigun', 'rocket', 'flame'],
     payload: (pos, tint) => _firePayloadMech(pos, tint),
   },
+  // ---- MINE VARIANTS ----
+  // Three separate codes / artifacts. Each drops a 12-mine field of
+  // its damage type at the beacon location.
   {
-    id: 'mines',
-    label: 'MINE FIELD',
+    id: 'mines_explosion',
+    label: 'HE MINES',
     code: ['down', 'right', 'right', 'down'],
-    armTime: 10.0,
+    armTime: 8.0,
     icon: '◆',
-    payload: (pos, tint) => _firePayloadMines(pos, tint),
+    payload: (pos, tint) => _firePayloadMines(pos, tint, 'explosion'),
+  },
+  {
+    id: 'mines_fire',
+    label: 'INCEND. MINES',
+    code: ['down', 'right', 'right', 'up'],
+    armTime: 8.0,
+    icon: '🔥',
+    payload: (pos, tint) => _firePayloadMines(pos, tint, 'fire'),
+  },
+  {
+    id: 'mines_poison',
+    label: 'TOX MINES',
+    code: ['down', 'right', 'right', 'left'],
+    armTime: 8.0,
+    icon: '☠',
+    payload: (pos, tint) => _firePayloadMines(pos, tint, 'poison'),
+  },
+  // ---- TURRET ----
+  // Single code; variant cycled by digit keys 1/2/3/4 while menu is
+  // open. Live selection is local (_turretVariantIdx); the in-menu
+  // HUD shows the current pick + cycle hint.
+  {
+    id: 'turret',
+    label: 'SENTRY TURRET',
+    code: ['down', 'up', 'right', 'down', 'up'],
+    armTime: 6.0,
+    icon: '⊞',
+    variant: ['mg', 'tesla', 'flame', 'antitank'],
+    payload: (pos, tint) => _firePayloadTurret(pos, tint),
   },
 ];
 
@@ -105,6 +147,37 @@ export function endStratagemInput() {
   _menuOpen = false;
   _enteredCode = [];
   _matchedStratagem = null;
+}
+
+// Variant selection while menu is open. Digit keys 1-4 cycle the
+// variant of whichever stratagem is currently matched, OR — if no
+// match yet — they cycle the LAST-MATCHED stratagem's variant
+// (sticky between calls). Only respects digits within the variant
+// list length.
+//
+// Routed from main.js's keydown handler when isStratagemMenuOpen().
+export function pushStratagemVariantKey(digit) {
+  if (!_menuOpen) return;
+  // Determine which stratagem the player is selecting variants for.
+  // If they've matched a code mid-typing, use that. Otherwise default
+  // to whichever variant-supporting stratagem they have artifacts for
+  // — preferring 'mech' first, then 'turret'.
+  let target = _matchedStratagem;
+  if (!target || !target.variant) {
+    const arts = S.stratagemArtifacts || {};
+    for (const s of _STRATAGEMS) {
+      if (!s.variant) continue;
+      if ((arts[s.id] || 0) > 0) { target = s; break; }
+    }
+  }
+  if (!target || !target.variant) return;
+  const idx = digit - 1;
+  if (idx < 0 || idx >= target.variant.length) return;
+  if (target.id === 'mech') {
+    S.stratagemMechVariant = target.variant[idx];
+  } else if (target.id === 'turret') {
+    S.stratagemTurretVariant = target.variant[idx];
+  }
 }
 
 export function pushStratagemArrow(dir) {
@@ -204,17 +277,25 @@ function _firePayloadBomb500kg(pos, tint) {
 }
 
 function _firePayloadMech(pos, tint) {
-  // Spawn a mech for the player to walk up to and pilot.
-  spawnMech(pos, tint);
+  // Variant chosen by the in-menu picker (digit keys 1/2/3 while
+  // menu was open). Default to 'minigun' if no pick was made.
+  const variant = S.stratagemMechVariant || 'minigun';
+  spawnMech(pos, tint, variant);
 }
 
-function _firePayloadMines(pos, tint) {
-  // Scatter ~12 mines in a ring around the beacon point. Mines are
-  // proximity-triggered; collision logic lives in mineField.js (also
-  // delegated to the global hook for the same dependency reason as
-  // the 500kg bomb).
+function _firePayloadMines(pos, tint, kind) {
+  // kind = 'explosion' | 'fire' | 'poison'
   if (typeof window !== 'undefined' && window.__stratagemDeployMines) {
-    window.__stratagemDeployMines(pos, tint);
+    window.__stratagemDeployMines(pos, tint, kind || 'explosion');
+  }
+}
+
+function _firePayloadTurret(pos, tint) {
+  // Variant chosen by the in-menu cycle (digit keys 1-4). Default
+  // to 'mg' if nothing was set (the picker defaults to mg too).
+  const variant = S.stratagemTurretVariant || 'mg';
+  if (typeof window !== 'undefined' && window.__stratagemDeployTurret) {
+    window.__stratagemDeployTurret(pos, tint, variant);
   }
 }
 
@@ -266,6 +347,28 @@ export function stratagemHudHtml() {
     }
     line2 = `<div style="font-size:11px;line-height:1.6;letter-spacing:1px;">${hints.join('<br>')}</div>`;
   }
+  // Variant picker — shown for any variant-supporting stratagem the
+  // player has artifacts for. Lists "1 ▸ minigun · 2 ▸ rocket · 3 ▸ flame"
+  // with the active pick highlighted. Player presses 1/2/3/4 while
+  // the menu is open to cycle.
+  const arts = S.stratagemArtifacts || {};
+  let picker = '';
+  for (const s of _STRATAGEMS) {
+    if (!s.variant) continue;
+    if ((arts[s.id] || 0) <= 0) continue;
+    const liveKey = s.id === 'mech' ? 'stratagemMechVariant'
+                  : s.id === 'turret' ? 'stratagemTurretVariant'
+                  : null;
+    if (!liveKey) continue;
+    const active = S[liveKey] || s.variant[0];
+    const opts = s.variant.map((v, i) => {
+      const isActive = v === active;
+      const color = isActive ? '#7af797' : '#aaa';
+      const weight = isActive ? 'bold' : 'normal';
+      return `<span style="color:${color};font-weight:${weight};">${i + 1}▸${v}</span>`;
+    }).join(' · ');
+    picker += `<div style="margin-top:6px;font-size:11px;color:#888;letter-spacing:1px;">${s.icon} ${s.label}: ${opts}</div>`;
+  }
   return `
     <div style="
       position: fixed; right: 20px; bottom: 80px;
@@ -281,6 +384,7 @@ export function stratagemHudHtml() {
       <div style="font-size:11px;color:#ffd93d;letter-spacing:3px;margin-bottom:6px;">STRATAGEM</div>
       <div style="font-size:22px;letter-spacing:6px;color:#ffd93d;margin-bottom:8px;min-height:26px;">${entered || '_'}</div>
       ${line2}
+      ${picker}
     </div>`;
 }
 

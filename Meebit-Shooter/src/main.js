@@ -102,6 +102,7 @@ import { Save } from './save.js';
 import { Wallet } from './wallet.js';
 import {
   beginStratagemInput, endStratagemInput, pushStratagemArrow,
+  pushStratagemVariantKey,
   updateStratagems, isStratagemMenuOpen, stratagemHudHtml,
   resetStratagems,
 } from './stratagems.js';
@@ -110,6 +111,10 @@ import {
   tickPilotedMech, damagePilotedMech, updateMechPrompts, clearMechs,
 } from './mech.js';
 import { deployMineField, updateMines, clearAllMines } from './mineField.js';
+import {
+  spawnTurret, updateTurrets as updateStratagemTurrets,
+  clearStratagemTurrets,
+} from './stratagemTurret.js';
 import {
   armSecretListener, disarmSecretListener, pushSecretArrow,
 } from './tutorialSecret.js';
@@ -262,9 +267,18 @@ window.__stratagemFire500kg = function(pos, tint) {
   }
 };
 
-// Mine field payload — delegate to mineField.js.
-window.__stratagemDeployMines = function(pos, tint) {
-  deployMineField(pos, tint);
+// Mine field payload — delegate to mineField.js. The kind argument
+// chooses between 'explosion' / 'fire' / 'poison'; the catalog has
+// three separate stratagem codes that route here with different kinds.
+window.__stratagemDeployMines = function(pos, tint, kind) {
+  deployMineField(pos, tint, kind || 'explosion');
+};
+
+// Turret payload — delegate to stratagemTurret.js. The variant
+// argument chooses between 'mg' / 'tesla' / 'flame' / 'antitank',
+// driven by the in-menu 1/2/3/4 cycle key.
+window.__stratagemDeployTurret = function(pos, tint, variant) {
+  spawnTurret(pos, tint, variant || 'mg');
 };
 
 // No-artifact feedback toast.
@@ -1592,6 +1606,18 @@ window.addEventListener('keydown', e => {
   }
 
   if (['1', '2', '3', '4', '5', '6'].includes(e.key)) {
+    // When the stratagem menu is open, 1-4 cycle the variant on the
+    // currently-matched (or only-available) variant-supporting
+    // stratagem (mech/turret) instead of swapping weapons. Suppress
+    // the weapon swap so the player doesn't accidentally lose their
+    // gun while picking a mech variant.
+    if (isStratagemMenuOpen()) {
+      const d = parseInt(e.key, 10);
+      if (d >= 1 && d <= 4) {
+        pushStratagemVariantKey(d);
+        return;
+      }
+    }
     // Chapter 7 locks the player into the lifedrainer — no other weapons
     // are available, no swapping. The rainbow charge port replaces the
     // revolver wheel UI and weapon-swap keys are inert.
@@ -2904,6 +2930,7 @@ function _exitTutorialIfActive() {
   // the title screen the inventory is clean.
   try { resetStratagems(); } catch (e) {}
   try { clearAllMines(); } catch (e) {}
+  try { clearStratagemTurrets(); } catch (e) {}
   try { disarmSecretListener(); } catch (e) {}
   // Re-show the player avatar in case the player was piloting a
   // mech when they bailed.
@@ -3471,6 +3498,11 @@ function animate() {
     }
     updateStratagems(dt);
     updateMines(dt);
+    // Stratagem turrets — separate from the existing turrets.js
+    // module (which handles enemy compound turrets in waveProps).
+    // Aliased on import as updateStratagemTurrets to avoid the
+    // collision.
+    updateStratagemTurrets(dt);
     // Refresh the "PRESS E TO ENTER" prompts on any deployed mechs
     // based on the player's current distance. No-op when no mechs.
     updateMechPrompts(player.pos);

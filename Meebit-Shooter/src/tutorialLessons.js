@@ -1257,19 +1257,27 @@ export function appendBonusStratagemLessons() {
   });
 
   // ---- 14. SCATTER A MINE FIELD ----
+  // Three separate mine codes; lesson grants all three so the player
+  // can experiment, but completion fires on ANY mine detonation.
   _lessons.push({
     id: 'strat_mines',
     label: 'STRATAGEM · MINE FIELD',
-    hint: 'Hold RIGHT MOUSE · enter ↓→→↓ · release. Scatter a minefield in front of the next swarm.',
+    hint: 'Hold RIGHT MOUSE · enter ↓→→↓ (HE), ↓→→↑ (incendiary), or ↓→→← (toxic) · release.',
     _called: false,
     _detonated: false,
     onActivate() {
       this._called = false;
       this._detonated = false;
-      grantArtifact('mines', 2);
+      grantArtifact('mines_explosion', 2);
+      grantArtifact('mines_fire', 2);
+      grantArtifact('mines_poison', 2);
       if (typeof window !== 'undefined') {
         window.__bonusObserve = window.__bonusObserve || {};
-        window.__bonusObserve.onCall = (id) => { if (id === 'mines') this._called = true; };
+        window.__bonusObserve.onCall = (id) => {
+          if (id === 'mines_explosion' || id === 'mines_fire' || id === 'mines_poison') {
+            this._called = true;
+          }
+        };
         window.__bonusObserve.onMineDetonate = () => { this._detonated = true; };
       }
     },
@@ -1283,7 +1291,35 @@ export function appendBonusStratagemLessons() {
     progress() {
       if (this._detonated) return '✓ MINES TRIGGERED';
       if (this._called) return 'WAIT FOR ENEMY TO STEP ON A MINE';
-      return '↓→→↓';
+      return '↓→→↓ · ↓→→↑ · ↓→→←';
+    },
+  });
+
+  // ---- 15. DEPLOY A SENTRY TURRET ----
+  // Single turret code; player picks variant via 1/2/3/4 in the
+  // stratagem menu before releasing RMB.
+  _lessons.push({
+    id: 'strat_turret',
+    label: 'STRATAGEM · TURRET',
+    hint: 'Hold RIGHT MOUSE · press 1-4 to pick MG/TESLA/FLAME/ANTITANK · enter ↓↑→↓↑ · release.',
+    _called: false,
+    onActivate() {
+      this._called = false;
+      grantArtifact('turret', 2);
+      if (typeof window !== 'undefined') {
+        window.__bonusObserve = window.__bonusObserve || {};
+        window.__bonusObserve.onCall = (id) => { if (id === 'turret') this._called = true; };
+      }
+    },
+    onComplete() {
+      if (typeof window !== 'undefined' && window.__bonusObserve) {
+        window.__bonusObserve.onCall = null;
+      }
+    },
+    isComplete() { return this._called; },
+    progress() {
+      if (this._called) return '✓ TURRET DEPLOYED';
+      return '↓↑→↓↑';
     },
   });
 }
