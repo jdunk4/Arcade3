@@ -41,6 +41,7 @@ import {
   boostTutorialLighting, restoreTutorialLighting,
   getTutorialFloorColorAt, getTutorialCellInfo,
   getTileBevelMaskTexture,
+  buildTutorialFloorCubes, updateTutorialFloorCubes, clearTutorialFloorCubes,
 } from './tutorial.js';
 import {
   startTutorialController, stopTutorialController,
@@ -96,7 +97,7 @@ import { updateSafetyPod, clearSafetyPod, getPodCollisionCircles, getPodPos, get
 import { updateHiveLasers, clearHiveLasers } from './hiveLasers.js';
 import { updateCockroach, clearCockroachBoss } from './cockroachBoss.js';
 import { initFogRing, updateFogRing, clearFogRing, setFogVisible } from './fogRing.js';
-import { spawners, damageSpawner, updateSpawners } from './spawners.js';
+import { spawners, damageSpawner, updateSpawners, spawnPortal, clearAllPortals } from './spawners.js';
 import { getShieldedHiveAt, shieldHitVisual, hiveShieldsIter } from './dormantProps.js';
 import { Save } from './save.js';
 import { Wallet } from './wallet.js';
@@ -2469,6 +2470,11 @@ function startTutorial() {
   // Swap the floor to the rainbow tile texture AFTER applyTheme so the
   // theme's lamp tint doesn't multiply the rainbow colors.
   applyTutorialFloor();
+  // Build the 3D color-cube grid that magnets up to the player's
+  // position. Sits on top of (and aligned with) the rainbow texture
+  // floor — sunken by default, rises within MAGNET_RADIUS of the
+  // player. Updated each frame in the animate loop.
+  buildTutorialFloorCubes();
 
   // Tutorial mode is bare-bones: no shadows, no fog (flat, calm look)
   // and our own dedicated music. Both visuals are restored in
@@ -2500,6 +2506,20 @@ function startTutorial() {
   UI.updateHUD();
   UI.updateWeaponSlots();
   UI.toast('TUTORIAL · FOLLOW THE CHECKLIST', '#ffd93d', 3000);
+
+  // Decorative hives — three at the back of the arena, one of each
+  // portal variant (hive / pyramid / UFO). Not part of any lesson;
+  // they're targets a curious player can shoot to see how hives
+  // respond and break apart. spawnPortal's chapterIdx % 3 dispatch
+  // selects the variant: 0 = wasp-hive, 1 = pyramid, 2 = UFO.
+  // Pushed onto the shared `spawners[]` array so the bullet/beam/
+  // rocket/flame collision paths in the per-frame loop pick them
+  // up automatically — those paths are loosened to fire when
+  // S.tutorialMode is true, so damage flows straight into the
+  // existing damageSpawner / destroySpawner pipeline.
+  spawners.push(spawnPortal(-12,  10, 0));     // hive variant (idx 0 % 3 = 0)
+  spawners.push(spawnPortal(  0,  14, 1));     // pyramid variant
+  spawners.push(spawnPortal( 12,  10, 2));     // UFO variant
 
   // Start the lesson controller. We do NOT call startWave(1) — the
   // tutorial controller drives all spawns and props. waves.js
@@ -2697,6 +2717,12 @@ function _exitTutorialIfActive() {
   _tutHazIdx = 0;
   _tutHazTimer = 0;
   try { clearHazards(); } catch (e) {}
+  // Despawn the decorative hives we placed at tutorial start. Idempotent
+  // — clearAllPortals iterates spawners[] and is a no-op when empty.
+  try { clearAllPortals(); } catch (e) {}
+  // Tear down the floor cube magnet grid (400 boxes). Idempotent —
+  // no-op if there's nothing to clear.
+  try { clearTutorialFloorCubes(); } catch (e) {}
   // Hide cell-glow + both meebit lights on exit so they don't
   // reappear at their last position the next time the player runs
   // a normal game.
@@ -3309,6 +3335,11 @@ function animate() {
       // frame; tracks player.pos every frame; recolors using the
       // tutorial floor's bilinear sampler.
       _updateTutorialFloorGlow(dt);
+      // Floor cube magnet — 3D color tiles rise from below the floor
+      // to walkable level when the player approaches, sink back when
+      // they leave. Adds 3D dimensionality on top of the flat rainbow
+      // texture floor.
+      try { updateTutorialFloorCubes(player, dt); } catch (e) {}
       // Tutorial overdrive request — the OVERDRIVE lesson sets this
       // flag the moment the player's streak crosses 25 (vs the usual
       // 100 in the main game). We honor it once and clear; the lesson
@@ -4235,8 +4266,9 @@ function applyBeamDamage(w, dmgBoost) {
   }
   // Also damage portals along the beam (for spawner waves OR
   // NIGHT_HERALD's shielded phase, when the boss spawns 3 hives the
-  // player must destroy to break the shield).
-  if (S.spawnerWaveActive || (S.bossRef && S.bossRef.shielded)) {
+  // player must destroy to break the shield). Also active in tutorial
+  // so curious players can melt the decorative hives.
+  if (S.spawnerWaveActive || (S.bossRef && S.bossRef.shielded) || S.tutorialMode) {
     for (const s of spawners) {
       if (s.destroyed) continue;
       const dx = s.pos.x - origin.x;
@@ -4364,7 +4396,8 @@ function applyFlameDamage(w, dmgBoost) {
   }
 
   // Hives (spawner wave) in the cone — same flat 0.5/tick as raygun.
-  if (S.spawnerWaveActive || (S.bossRef && S.bossRef.shielded)) {
+  // Tutorial mode also lights up so flame can scorch decorative hives.
+  if (S.spawnerWaveActive || (S.bossRef && S.bossRef.shielded) || S.tutorialMode) {
     for (const s of spawners) {
       if (s.destroyed) continue;
       const dx = s.pos.x - origin.x;
@@ -4618,7 +4651,8 @@ function explodeRocket(r) {
   }
   // AoE can hurt portals too (spawner waves OR NIGHT_HERALD's shielded
   // phase, where the player must destroy 3 hives to break the shield).
-  if (S.spawnerWaveActive || (S.bossRef && S.bossRef.shielded)) {
+  // Also active in tutorial so the decorative hives respond to rockets.
+  if (S.spawnerWaveActive || (S.bossRef && S.bossRef.shielded) || S.tutorialMode) {
     for (const s of spawners) {
       if (s.destroyed) continue;
       const dx = s.pos.x - pos.x;
@@ -5097,7 +5131,7 @@ function updateBullets(dt) {
         scene.remove(b); bullets.splice(i, 1); continue;
       }
     }
-    if (S.spawnerWaveActive || (S.bossRef && S.bossRef.shielded)) {
+    if (S.spawnerWaveActive || (S.bossRef && S.bossRef.shielded) || S.tutorialMode) {
       let portalHit = null;
       for (const s of spawners) {
         if (s.destroyed) continue;
