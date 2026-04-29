@@ -1556,6 +1556,53 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 
+// ---------------------------------------------------------------------
+// FOCUS LOSS — clear stuck input state.
+// ---------------------------------------------------------------------
+// When the player alt-tabs / switches tab / minimizes WHILE holding W
+// or LMB, the browser stops delivering keyup/mouseup to this page —
+// they fire on whatever window is now focused. The result on return
+// is "character walks one direction forever" or "gun keeps firing"
+// until the player presses and releases the same key/button to
+// re-emit the state. Phone interruptions (incoming call, lock screen)
+// trigger the same bug for touch joysticks.
+//
+// Fix: on any focus-loss event, zero every transient input variable
+// the game polls each frame. Player has to actively press something
+// again on return — but that's the correct behavior, since the game
+// has no way to know whether the key is still actually held down.
+function _resetTransientInput() {
+  // Keyboard — wipe every key the game polls.
+  for (const k in keys) keys[k] = false;
+  // Mouse — drop the held-fire state so the gun stops firing.
+  mouse.down = false;
+  // Touch joysticks (mobile) — disengage both move and aim joysticks.
+  // Without this, an active joystick that the user wasn't touching
+  // when the tab became hidden would still register motion.
+  if (joyState) {
+    joyState.active = false;
+    joyState.dx = 0; joyState.dy = 0;
+  }
+  if (aimJoyState) {
+    aimJoyState.active = false;
+    aimJoyState.dx = 0; aimJoyState.dy = 0;
+  }
+  // Touch identifier tracking — if a touch was active when focus
+  // was lost, the touchend may never fire. Reset so the next touch
+  // is treated fresh.
+  _joyTouchId = null;
+  _fireTouchId = null;
+}
+// Three events catch every "user looked away" case:
+//   blur            — window lost focus (alt-tab, click outside)
+//   visibilitychange — tab hidden (switched tabs, minimized)
+//   pagehide        — page suspended (bfcache, mobile background)
+window.addEventListener('blur', _resetTransientInput);
+window.addEventListener('pagehide', _resetTransientInput);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) _resetTransientInput();
+});
+
 // Tap-select weapons from the revolver wheel — ui.js dispatches this
 // custom event when the user taps (or clicks) a weapon slot. Mirrors
 // the keyboard 1-6 path so wheel taps and number-key presses run the
@@ -4823,6 +4870,21 @@ function updateEnemies(dt) {
         const leg = e.spiderLegs[k];
         leg.rotation.x = Math.sin(e.walkPhase + k * 0.8) * 0.5;
       }
+    }
+
+    // Ant wing flutter. Only the GLB ant has wings — antWings is null
+    // on every other enemy. Wings flap on their Z axis at ~22Hz with
+    // a ±0.55 rad swing. Each ant has its own randomized phase
+    // (antWingPhase) so a swarm doesn't beat in unison. Left wing
+    // and right wing flap mirrored so the body stays aerodynamically
+    // centered while the tips travel up and down.
+    if (e.antWings) {
+      e.antWingPhase = (e.antWingPhase || 0) + dt * 22;
+      const flap = Math.sin(e.antWingPhase) * 0.55;
+      // wings[0] is the LEFT wing, wings[1] is the RIGHT.
+      // Both rotate on Z; we negate one so they mirror.
+      e.antWings[0].rotation.z = flap;
+      e.antWings[1].rotation.z = -flap;
     }
 
     let moveTargetX = player.pos.x, moveTargetZ = player.pos.z;
