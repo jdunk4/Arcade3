@@ -45,6 +45,7 @@
   <div id="title-row">
     <div class="mode-card" id="mode-card-tutorial" data-target="tutorial-btn">
       <div class="mode-card-img" style="background-image:url('assets/title_card_tutorial.png');"></div>
+      <div class="mode-card-rain"></div>
       <div class="mode-card-label">TUTORIAL</div>
     </div>
 
@@ -67,6 +68,7 @@
 
     <div class="mode-card" id="mode-card-game" data-target="start-btn">
       <div class="mode-card-img" style="background-image:url('assets/title_card_game.png');"></div>
+      <div class="mode-card-rain"></div>
       <div class="mode-card-label">ATTACK THE AI</div>
     </div>
   </div>
@@ -113,6 +115,59 @@
     // featured card, mirroring Fortnite's BATTLE ROYALE focus.
     const def = document.getElementById('mode-card-game');
     if (def) select(def);
+
+    // -------------------------------------------------------------
+    // First-hover matrix rain on each card.
+    // -------------------------------------------------------------
+    // The first time the player hovers a card, we cascade bright
+    // green matrix-style columns through the .mode-card-rain container
+    // for ~1.6 seconds (the BURST), then the rain dims and stays
+    // running quietly forever (the AMBIENT). Re-hovering the same
+    // card later just re-triggers the rain ambient state — the
+    // bright burst only fires once per card per page-load, so it
+    // reads as a "discovery" moment, not a recurring effect.
+    const _firstHoverFired = new Set();
+    const RAIN_CHARS = 'アイウエオカキクケコサシスセソタチツテト01MEEBIT';
+    function _populateCardRain(rainEl, cardWidth) {
+      // Roughly one column every 18px — denser than the global
+      // backdrop rain (which uses 16px) since the foreground rain
+      // sits inside a much smaller box and needs to read clearly.
+      const colCount = Math.max(8, Math.floor(cardWidth / 18));
+      for (let i = 0; i < colCount; i++) {
+        const col = document.createElement('div');
+        col.className = 'matrix-col';
+        col.style.left = (i * 18) + 'px';
+        col.style.animationDuration = (2.5 + Math.random() * 4) + 's';
+        col.style.animationDelay = (-Math.random() * 4) + 's';
+        let text = '';
+        for (let j = 0; j < 25 + Math.random() * 18; j++) {
+          text += RAIN_CHARS[Math.floor(Math.random() * RAIN_CHARS.length)] + '\n';
+        }
+        col.textContent = text;
+        rainEl.appendChild(col);
+      }
+    }
+    cards.forEach(card => {
+      card.addEventListener('mouseenter', () => {
+        if (_firstHoverFired.has(card)) return;
+        _firstHoverFired.add(card);
+        const rainEl = card.querySelector('.mode-card-rain');
+        if (!rainEl) return;
+        // Build columns matched to the card's actual width so the
+        // density is correct on every viewport size (PC has wider
+        // cards than laptop/tablet).
+        _populateCardRain(rainEl, card.clientWidth || 480);
+        // Bright cascade burst — opacity 0.85 for ~1.6s, then dim
+        // to ambient (opacity 0.22) and stay there. Two-step CSS
+        // class transition is smoother than a single keyframe and
+        // lets us tweak each level independently.
+        rainEl.classList.add('active');
+        setTimeout(() => {
+          rainEl.classList.remove('active');
+          rainEl.classList.add('ambient');
+        }, 1600);
+      });
+    });
   })();
   </script>
 </div>
