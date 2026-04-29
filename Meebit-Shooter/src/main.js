@@ -41,7 +41,6 @@ import {
   boostTutorialLighting, restoreTutorialLighting,
   getTutorialFloorColorAt, getTutorialCellInfo,
   getTileBevelMaskTexture,
-  buildTutorialFloorCubes, updateTutorialFloorCubes, clearTutorialFloorCubes,
 } from './tutorial.js';
 import {
   startTutorialController, stopTutorialController,
@@ -2470,11 +2469,6 @@ function startTutorial() {
   // Swap the floor to the rainbow tile texture AFTER applyTheme so the
   // theme's lamp tint doesn't multiply the rainbow colors.
   applyTutorialFloor();
-  // Build the 3D color-cube grid that magnets up to the player's
-  // position. Sits on top of (and aligned with) the rainbow texture
-  // floor — sunken by default, rises within MAGNET_RADIUS of the
-  // player. Updated each frame in the animate loop.
-  buildTutorialFloorCubes();
 
   // Tutorial mode is bare-bones: no shadows, no fog (flat, calm look)
   // and our own dedicated music. Both visuals are restored in
@@ -2720,9 +2714,6 @@ function _exitTutorialIfActive() {
   // Despawn the decorative hives we placed at tutorial start. Idempotent
   // — clearAllPortals iterates spawners[] and is a no-op when empty.
   try { clearAllPortals(); } catch (e) {}
-  // Tear down the floor cube magnet grid (400 boxes). Idempotent —
-  // no-op if there's nothing to clear.
-  try { clearTutorialFloorCubes(); } catch (e) {}
   // Hide cell-glow + both meebit lights on exit so they don't
   // reappear at their last position the next time the player runs
   // a normal game.
@@ -3335,11 +3326,6 @@ function animate() {
       // frame; tracks player.pos every frame; recolors using the
       // tutorial floor's bilinear sampler.
       _updateTutorialFloorGlow(dt);
-      // Floor cube magnet — 3D color tiles rise from below the floor
-      // to walkable level when the player approaches, sink back when
-      // they leave. Adds 3D dimensionality on top of the flat rainbow
-      // texture floor.
-      try { updateTutorialFloorCubes(player, dt); } catch (e) {}
       // Tutorial overdrive request — the OVERDRIVE lesson sets this
       // flag the moment the player's streak crosses 25 (vs the usual
       // 100 in the main game). We honor it once and clear; the lesson
