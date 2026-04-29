@@ -353,7 +353,12 @@ canvas { display: block; cursor: var(--matrix-cursor); }
   justify-content: center;
   gap: 36px;
   width: 100%;
-  max-width: 1500px;
+  /* Bumped 1500 → 1700px to accommodate the larger PC cards
+     (480px each) + the 540px center column + 72px of gaps =
+     1572px total. The previous 1500px cap clamped the row and
+     forced the cards to wrap below the title text on wide
+     screens. */
+  max-width: 1700px;
   margin-top: 10px;
   flex-wrap: wrap;
 }
@@ -520,13 +525,21 @@ canvas { display: block; cursor: var(--matrix-cursor); }
 /* Responsive scaling for the title row.
    At narrower viewports the cards shrink and eventually wrap below
    the center text so the title remains the focal point. */
-@media (max-width: 1400px) {
+/* Wide PC (≥1700px): keep the 480px default. */
+/* Standard PC / wide laptop (1500-1700px): step down so both cards
+   plus center column comfortably fit in one row. The math:
+       420 + 36 + 540 + 36 + 420 = 1452, fits within 1500.       */
+@media (max-width: 1700px) {
+  .mode-card { width: 420px; height: 545px; }
+  .mode-card-label { font-size: 44px; letter-spacing: 5.5px; }
+}
+@media (max-width: 1500px) {
   #title-row { gap: 24px; }
-  .mode-card { width: 380px; height: 510px; }
-  .mode-card-label { font-size: 40px; letter-spacing: 5px; }
+  .mode-card { width: 360px; height: 480px; }
+  .mode-card-label { font-size: 38px; letter-spacing: 5px; }
   #title-center h1 { font-size: 60px; }
 }
-@media (max-width: 1100px) {
+@media (max-width: 1320px) {
   .mode-card { width: 300px; height: 410px; }
   .mode-card-label {
     font-size: 30px;
