@@ -1197,7 +1197,7 @@ export function makeEnemy(typeKey, tintHex, pos) {
 
   let built;
   if (_useAntForChapter1) {
-    built = hasAntLoaded() ? makeAntFromGLB(scale) : null;
+    built = hasAntLoaded() ? makeAntFromGLB(scale, !!(S && S.tutorialMode)) : null;
     if (!built) built = makeAnt(tintHex, scale);
   }
   else if (typeKey === 'infector') {

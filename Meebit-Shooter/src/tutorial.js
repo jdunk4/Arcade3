@@ -608,6 +608,77 @@ export function tutorialEnemyColor(_defaultTint) {
 }
 
 // ---------------------------------------------------------------------
+// Tutorial ant texture — black-and-white spotted dazzle pattern that
+// replaces the GLB ant's baked orange figurine texture during tutorial.
+// One shared CanvasTexture across all tutorial ants (consistent
+// pattern, zero per-instance allocation). Spots are scattered with a
+// fixed random seed so the pattern is reproducible — same ants every
+// time, not regenerated on each tutorial start.
+//
+// Background: slightly off-white (#f2f0ec) so it doesn't blow out under
+// the bright rainbow floor lighting. Spots: pure black ovals at random
+// positions, sizes, and slight rotation. ~25 spots covers the body
+// without crowding.
+// ---------------------------------------------------------------------
+let _antSpottedTexture = null;
+export function getAntSpottedTexture() {
+  if (_antSpottedTexture) return _antSpottedTexture;
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  // Off-white base — never pure 0xffffff so emissive lighting doesn't
+  // saturate the highlights. Eggshell reads as natural cloth/skin.
+  ctx.fillStyle = '#f2f0ec';
+  ctx.fillRect(0, 0, size, size);
+
+  // Deterministic-ish random — tiny LCG so we get the same spot
+  // layout across reloads but still feel organically scattered.
+  let seed = 0x4a4f1c;
+  const rng = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0xffffffff;
+  };
+
+  ctx.fillStyle = '#0a0a0a';
+  // ~25 spots at varied sizes
+  for (let i = 0; i < 25; i++) {
+    const x = rng() * size;
+    const y = rng() * size;
+    const r = 8 + rng() * 18;          // 8 to 26 px radius
+    const stretch = 0.7 + rng() * 0.7; // 0.7 to 1.4 ovality
+    const angle = rng() * Math.PI;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.scale(1, stretch);
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  // A few tiny dots scattered between for organic variation
+  for (let i = 0; i < 30; i++) {
+    const x = rng() * size;
+    const y = rng() * size;
+    const r = 1.5 + rng() * 3;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.anisotropy = 4;
+  tex.needsUpdate = true;
+  _antSpottedTexture = tex;
+  return tex;
+}
+
+// ---------------------------------------------------------------------
 // Spawn rate clamp — keep tutorial chill at 1..2 spawns/sec regardless
 // of what the underlying wave def asks for.
 // ---------------------------------------------------------------------

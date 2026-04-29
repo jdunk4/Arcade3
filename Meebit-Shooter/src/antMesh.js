@@ -20,6 +20,7 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { getAntSpottedTexture } from './tutorial.js';
 
 const GLB_PATH = 'assets/enemies/ant.glb';
 
@@ -88,7 +89,7 @@ export function hasAntLoaded() {
  *
  * Returns null if the GLB hasn't loaded yet — caller falls back.
  */
-export function makeAntFromGLB(scale) {
+export function makeAntFromGLB(scale, tutorialMode = false) {
   if (!_cachedScene) return null;
   // Clone the entire scene tree. Three.js's clone() shares geometry
   // and materials by default, so this is cheap — a few hundred bytes
@@ -136,19 +137,113 @@ export function makeAntFromGLB(scale) {
   if (body) body.castShadow = true;
   for (const leg of legs) leg.castShadow = true;
 
-  // Cache the body's material so flash-on-hit etc. can mutate it.
-  // Three.js shared the material across clones, so we clone it here
-  // to give each enemy instance its own material — otherwise hitting
-  // ONE ant would flash ALL ants white.
+  // Material setup. Two paths depending on whether the ant is being
+  // built for the tutorial or a normal chapter-1 wave.
+  //
+  // Normal: clone ONLY the body's material so each ant instance owns
+  // its own bodyMat (lets hit-flash etc. mutate one ant without
+  // affecting all of them). Legs continue to share the GLB's original
+  // material — they don't need per-instance state.
+  //
+  // Tutorial: walk all 7 sub-meshes (body + 6 legs) and replace each
+  // material with a fresh clone whose `map` is the spotted texture
+  // and whose color is white. This swaps the entire ant from the
+  // baked orange-figurine look to a uniform black-and-white spotted
+  // dazzle pattern — body, head, and legs all match. Per-mesh clones
+  // mean tinting / hit-flash on one ant doesn't bleed to others.
   let bodyMat = null;
-  if (body && body.material) {
-    bodyMat = body.material.clone();
-    body.material = bodyMat;
+  if (tutorialMode) {
+    const spottedTex = getAntSpottedTexture();
+    const allMeshes = [body, ...legs].filter(Boolean);
+    for (const mesh of allMeshes) {
+      if (!mesh.material) continue;
+      const m = mesh.material.clone();
+      // Override the GLB's baked orange colors with the spotted
+      // texture. Color stays white so the texture shows true (no
+      // multiply tint).
+      m.map = spottedTex;
+      m.color = new THREE.Color(0xffffff);
+      // Also clear emissive so the spots don't get washed by the
+      // chapter tint emissive that may have been baked in.
+      if (m.emissive) m.emissive.setHex(0x000000);
+      m.emissiveIntensity = 0;
+      m.needsUpdate = true;
+      mesh.material = m;
+      // Capture the body's material specifically so hit-flash and
+      // other systems can find it via enemy.bodyMat.
+      if (mesh === body) bodyMat = m;
+    }
+  } else {
+    // Normal path: clone only the body's material.
+    if (body && body.material) {
+      bodyMat = body.material.clone();
+      body.material = bodyMat;
+    }
   }
+
+  // ---- WINGS ----
+  // Two translucent insect-style wings on the upper back. Each wing
+  // is a teardrop shape (two triangles forming a leaf) attached to
+  // a small Group "hinge" at the wing's root. Rotating the hinge
+  // on its Z axis flaps the wing — outer tip swings up/down while
+  // the root stays fixed at the body, the natural flap motion.
+  //
+  // Geometry uses ShapeGeometry from a 2D path swept once — gives
+  // a flat wing without billboard tricks. Material is double-sided
+  // translucent with low opacity so the wings catch the chapter
+  // light without dominating the silhouette.
+  //
+  // The wings ride INSIDE antRoot (the GLB's coordinate space)
+  // BEFORE we apply FEET_LIFT and group.scale — that way they sit
+  // attached to the body geometry and scale with the rest of the
+  // model. Wing positions are in the GLB's normalized 1u-tall
+  // coordinate space.
+  const wingShape = new THREE.Shape();
+  // Teardrop / leaf path. Origin is at the root (wing hinge).
+  // Tip extends along +X (the wing's "out" direction).
+  wingShape.moveTo(0, 0);
+  wingShape.bezierCurveTo(0.05, 0.06, 0.20, 0.05, 0.32, 0);
+  wingShape.bezierCurveTo(0.20, -0.05, 0.05, -0.04, 0, 0);
+  const wingGeo = new THREE.ShapeGeometry(wingShape);
+  const wingMat = new THREE.MeshStandardMaterial({
+    color: 0xffeedd,            // warm pearlescent base
+    transparent: true,
+    opacity: 0.42,
+    roughness: 0.30,
+    metalness: 0.10,
+    side: THREE.DoubleSide,
+    depthWrite: false,           // don't z-block other wings or body bits
+  });
+
+  // Wing hinges — small empty groups, one per wing. The hinge
+  // anchors at the wing's root on the back of the thorax. Rotating
+  // the hinge group on Z flaps the wing.
+  // Position is in the GLB's normalized space:
+  //   y = +0.20  → just above the thorax top (body Y range -0.5..+0.5)
+  //   z = -0.05  → slightly behind body center, where wings naturally sit
+  //   x = ±0.05  → small offset from spine
+  const wingL = new THREE.Group();
+  wingL.position.set(-0.05, 0.20, -0.05);
+  // Wing tilts up slightly at rest so the leaf sits at a natural
+  // resting angle rather than perfectly flat horizontal.
+  wingL.rotation.set(-0.30, 0, 0);
+  const wingLMesh = new THREE.Mesh(wingGeo, wingMat);
+  // Mirror the leaf to face left — negate X scale on the mesh.
+  wingLMesh.scale.x = -1;
+  wingL.add(wingLMesh);
+  antRoot.add(wingL);
+
+  const wingR = new THREE.Group();
+  wingR.position.set(0.05, 0.20, -0.05);
+  wingR.rotation.set(-0.30, 0, 0);
+  const wingRMesh = new THREE.Mesh(wingGeo, wingMat);
+  antRoot.add(wingR);
+  wingR.add(wingRMesh);
 
   // Return shape mirrors makeSpider's. The walk-anim path in main.js
   // reads spiderLegs[] when isSpider=true, so the corner + axial legs
   // all animate. armL/armR/legL/legR aliases are defensive defaults.
+  // wings[] is consumed by the per-frame flutter loop in main.js.
   return {
     group,
     body,
@@ -159,5 +254,6 @@ export function makeAntFromGLB(scale) {
     legR: legs[3],
     head: body,           // no separate head mesh — body is the head+thorax+abdomen fused
     spiderLegs: legs,
+    wings: [wingL, wingR],
   };
 }
