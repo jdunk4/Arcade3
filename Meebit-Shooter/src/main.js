@@ -43,9 +43,6 @@ import {
   getTileBevelMaskTexture,
 } from './tutorial.js';
 import {
-  buildMagnetTiles, updateMagnetTiles, destroyMagnetTiles,
-} from './tutorialMagnetTiles.js';
-import {
   startTutorialController, stopTutorialController,
   tickTutorialController,
   getActiveLessonIdx as getActiveTutorialLessonIdx,
@@ -2480,14 +2477,6 @@ function startTutorial() {
   // theme's lamp tint doesn't multiply the rainbow colors.
   applyTutorialFloor();
 
-  // Spawn the 3D magnet tile grid — 400 colored cubes that sit below
-  // the floor at rest and rise up toward the player as they walk near.
-  // Reads as the player magnetically pulling the tile colors up to
-  // walking level. The black grout/border on the rainbow texture
-  // beneath stays flush with the ground, so unraised areas show the
-  // bordered texture and raised areas show floating colored cubes.
-  try { buildMagnetTiles(); } catch (e) { console.warn('[tutorial] magnet tiles', e); }
-
   // Tutorial mode is bare-bones: no shadows, no fog (flat, calm look)
   // and our own dedicated music. Both visuals are restored in
   // restoreNormalFloor() / on quit-to-title via the same flow.
@@ -2719,10 +2708,6 @@ function _exitTutorialIfActive() {
   S.tutorialMode = false;
   S.tutorialHazardCycle = false;
   restoreNormalFloor();
-  // Tear down the 400-cube magnet grid before any other restore work
-  // so we don't leak meshes/materials between runs. Idempotent — safe
-  // to call even if the grid was never built (early-return inside).
-  try { destroyMagnetTiles(); } catch (e) {}
   restoreShadows(renderer);
   restoreFog();
   restoreTutorialLighting();
@@ -3362,10 +3347,6 @@ function animate() {
       // frame; tracks player.pos every frame; recolors using the
       // tutorial floor's bilinear sampler.
       _updateTutorialFloorGlow(dt);
-      // Magnet tile grid — colored 3D cubes rise toward the player
-      // as they walk across the rainbow floor. Built on tutorial
-      // start (above), torn down on _exitTutorialIfActive.
-      try { updateMagnetTiles(player.pos, dt); } catch (e) {}
       // Tutorial overdrive request — the OVERDRIVE lesson sets this
       // flag the moment the player's streak crosses 25 (vs the usual
       // 100 in the main game). We honor it once and clear; the lesson
