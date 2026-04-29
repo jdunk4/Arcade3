@@ -173,10 +173,11 @@ export function getWaveDef_current() { return waveDef; }
 // ---------------------------------------------------------------------
 // Portal terminology — chapter-aware UI strings.
 // ---------------------------------------------------------------------
-// Portal type cycles every 3 chapters via spawnPortal(): chapterIdx % 3
-// gives slot 0 = hive, 1 = pyramid, 2 = ufo. Toasts and objective
-// strings should use the right noun per chapter so messaging matches
-// what the player sees on the field. Returns:
+// Portal type cycles every 3 chapters. The internal S.chapter index is
+// 0-based (chapter 1 is S.chapter=0, chapter 7 is S.chapter=6) — this
+// helper accepts the 1-BASED chapter number you see in the UI to keep
+// callers readable (portalLabels(2) for chapter 2, not portalLabels(1)).
+// Returns:
 //   noun       — singular noun, lowercase ("hive" / "pyramid" / "ufo")
 //   nounPlural — plural caps for headlines ("HIVES" / "PYRAMIDS" / "UFOS")
 //   exposeToast — short toast fired when the wave-2 mechanism (laser /
@@ -186,7 +187,14 @@ export function getWaveDef_current() { return waveDef; }
 //   destroyDesc  — body text under the objective title
 //   targetingToast — short toast when the wave-2 mechanism is mid-fire
 //                    ("TARGETING ..." or equivalent)
-function portalLabels(chapterIdx = S.chapter || 0) {
+//   empSuffix    — completion suffix for EMP-launch toast (chapters with
+//                  the EMP wave-2 mechanic — hives + ufos)
+function portalLabels(chapterNum) {
+  // chapterNum is 1-BASED (1..7). If omitted, derive from S.chapter
+  // which is 0-BASED. Keeps internal S.chapter consumers untouched
+  // while letting callers pass the natural "chapter 2" number.
+  if (chapterNum == null) chapterNum = (S.chapter || 0) + 1;
+  const chapterIdx = chapterNum - 1;
   const slot = ((chapterIdx % 3) + 3) % 3;
   if (slot === 1) {
     // PYRAMIDS — chapters 2 & 5. Player request: "Opened the Pyramids"

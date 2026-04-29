@@ -75,6 +75,76 @@ const _hiveShields = new Map();
 // well before reaching the hive body.
 const _SHIELD_GEO = new THREE.SphereGeometry(3.8, 28, 18);
 
+// Hex-pulse impact ring infrastructure ---------------------------------
+//
+// When a bullet/rocket/beam hits a shield, we spawn an expanding flat
+// ring at the impact point on the sphere surface. The ring's plane is
+// tangent to the sphere (i.e., the ring's normal points outward from
+// the sphere center), so it appears glued to the shield's curve. Over
+// ~0.45s the ring scales from 0.4u → 1.6u radius and fades from 1.0 →
+// 0.0 opacity, producing a sci-fi "force field absorbs hit" pulse.
+//
+// The ring's albedo is a procedurally-generated hex-grid texture. White
+// hex outlines on transparent background — additive-blended so the hex
+// pattern appears to bloom against the shield. One shared CanvasTexture
+// across all pulses (no per-pulse allocation cost). Same texture is
+// also applied to the shield itself (faintly visible at base opacity)
+// so hits "reveal" the texture stronger at the impact site.
+let _hexTextureCache = null;
+function _getHexTexture() {
+  if (_hexTextureCache) return _hexTextureCache;
+  const SIZE = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = SIZE;
+  const ctx = c.getContext('2d');
+  // Fully transparent background — hex outlines bloom additively over
+  // the shield's tinted surface.
+  ctx.clearRect(0, 0, SIZE, SIZE);
+  // Hex grid parameters tuned so ~6 hex rows are visible across the
+  // ring at peak size — readable but not busy.
+  const HEX_R = 18;             // outer radius of each hex cell
+  const HEX_W = HEX_R * Math.sqrt(3);  // pointy-top hex spacing horizontal
+  const HEX_H = HEX_R * 1.5;           // pointy-top hex spacing vertical
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+  ctx.lineWidth = 2.0;
+  // Draw enough rows/cols to cover the canvas with overlap to handle
+  // the offset pattern. 1.5x SIZE / spacing in each direction.
+  for (let row = -1; row * HEX_H < SIZE + HEX_H; row++) {
+    const yC = row * HEX_H;
+    const xOffset = (row % 2 === 0) ? 0 : HEX_W * 0.5;
+    for (let col = -1; col * HEX_W < SIZE + HEX_W; col++) {
+      const xC = col * HEX_W + xOffset;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = Math.PI / 6 + i * (Math.PI / 3);   // pointy-top
+        const x = xC + Math.cos(a) * HEX_R;
+        const y = yC + Math.sin(a) * HEX_R;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.stroke();
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.needsUpdate = true;
+  _hexTextureCache = tex;
+  return tex;
+}
+// Shared geometry for every pulse — RingGeometry from inner radius 0
+// to outer radius 1, segmented enough to look smooth at full size.
+// Pulses are scaled to their actual size each frame.
+const _PULSE_RING_GEO = new THREE.RingGeometry(0.0, 1.0, 32, 1);
+// Active pulses — array of { mesh, t, lifetime, maxRadius, mat }.
+// Updated each frame; mesh removed and pushed to scene removal when
+// t >= lifetime.
+const _hexPulses = [];
+const _PULSE_LIFETIME = 0.45;        // seconds for ring to expand + fade
+const _PULSE_MAX_RADIUS = 1.6;       // world units (shield radius is 3.8)
+const _PULSE_START_RADIUS = 0.4;
+
 // Shield sphere radius + center Y — kept as module-level constants so
 // bullet collision code in main.js can import and use them without
 // inspecting mesh geometry directly. MUST stay in sync with the
@@ -155,6 +225,56 @@ export function shieldHitVisual(hive, impactPos) {
   const tint = shield.userData.tint || 0x4ff7ff;
   hitBurst(impactPos, 0xffffff, 8);
   hitBurst(impactPos, tint, 10);
+
+  // Spawn a hex-grid pulse ring at the impact point. The ring is a
+  // flat disc tangent to the shield sphere (its normal points outward
+  // from the sphere center), so it reads as glued to the curved
+  // shield surface rather than floating in space. It expands and
+  // fades over ~0.45s; multiple concurrent pulses are fine — each
+  // one is independent and updateHiveShields walks the list every
+  // frame. Each pulse has its own material clone so the fade doesn't
+  // bleed across hits.
+  const pulseMat = new THREE.MeshBasicMaterial({
+    map: _getHexTexture(),
+    color: tint,
+    transparent: true,
+    opacity: 1.0,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false,
+  });
+  const pulse = new THREE.Mesh(_PULSE_RING_GEO, pulseMat);
+  // Position at the impact point.
+  pulse.position.copy(impactPos);
+  // Orient the ring's normal to point AWAY from the shield's center.
+  // Default RingGeometry has its normal on +Z; we rotate so +Z points
+  // outward from the shield center, which lays the ring tangent to
+  // the sphere's surface at the impact point.
+  const shieldCenter = new THREE.Vector3(
+    shield.position.x, shield.position.y, shield.position.z
+  );
+  const outward = new THREE.Vector3()
+    .subVectors(impactPos, shieldCenter)
+    .normalize();
+  // Compute a quaternion that rotates +Z onto `outward`.
+  const q = new THREE.Quaternion();
+  q.setFromUnitVectors(new THREE.Vector3(0, 0, 1), outward);
+  pulse.quaternion.copy(q);
+  // Lift the ring just slightly off the shield surface so it doesn't
+  // z-fight with the translucent shield — 0.04 world units outward.
+  pulse.position.addScaledVector(outward, 0.04);
+  // Initial scale = start radius; grown to max radius by the update.
+  pulse.scale.setScalar(_PULSE_START_RADIUS);
+  scene.add(pulse);
+  _hexPulses.push({
+    mesh: pulse,
+    mat: pulseMat,
+    t: 0,
+    lifetime: _PULSE_LIFETIME,
+    startR: _PULSE_START_RADIUS,
+    maxR: _PULSE_MAX_RADIUS,
+  });
 }
 
 /**
@@ -374,13 +494,18 @@ function _applyShieldsToAllHives(chapterIdx) {
 function _addShieldToHive(hive, tint) {
   // Each shield gets its own material so the per-hive pulse phase can
   // drift independently (looks less synthetic than every shield pulsing
-  // in lockstep).
+  // in lockstep). Additive blending so overlapping front+back faces of
+  // the sphere bloom against each other — produces an automatic edge-
+  // glow without needing a separate halo mesh. toneMapped:false so the
+  // shield isn't crushed by exposure when scene bloom is active.
   const mat = new THREE.MeshBasicMaterial({
     color: tint,
     transparent: true,
-    opacity: 0.45,          // was 0.18 — now reads clearly as a shield, not a whiff
+    opacity: 0.55,           // bumped 0.45 → 0.55 — reads more substantial
     side: THREE.DoubleSide,
     depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false,
   });
   const shield = new THREE.Mesh(_SHIELD_GEO, mat);
   shield.position.copy(hive.pos);
@@ -566,5 +691,29 @@ export function updateHiveShields(dt, time) {
   for (const hive of toRemove) {
     _hiveShields.delete(hive);
     if (hive) hive.shieldMesh = null;
+  }
+
+  // Hex pulse rings — expand + fade every active pulse. Walk the
+  // array backwards so we can splice expired entries safely. Pulses
+  // are independent of specific shields; if a shield is being torn
+  // down mid-pulse the pulse continues to its natural end.
+  for (let i = _hexPulses.length - 1; i >= 0; i--) {
+    const p = _hexPulses[i];
+    p.t += dt;
+    const u = Math.min(1, p.t / p.lifetime);
+    // Ease-out for radius (fast start, slow end) — feels like a shock
+    // wave decelerating as it dissipates.
+    const radiusU = 1 - Math.pow(1 - u, 2.4);
+    const r = p.startR + (p.maxR - p.startR) * radiusU;
+    p.mesh.scale.setScalar(r);
+    // Opacity: linear fade with a slight curve so it stays bright
+    // longer at the start of the pulse.
+    p.mat.opacity = Math.max(0, 1 - Math.pow(u, 1.6));
+    if (p.t >= p.lifetime) {
+      if (p.mesh.parent) scene.remove(p.mesh);
+      // Each pulse owns its material clone — dispose to avoid leak.
+      p.mat.dispose();
+      _hexPulses.splice(i, 1);
+    }
   }
 }
