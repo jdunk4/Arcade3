@@ -31,6 +31,17 @@ export const S = {
   //   - the player owns every weapon from the first frame
   // Cleared on game-over / restart so a normal run after a tutorial
   // doesn't inherit the practice settings.
+  // Stratagem artifacts — call-in inventory. Each entry is the
+  // number of times the player can call that stratagem before they
+  // need to find another artifact. Granted by tutorial bonus waves
+  // (12-14) for practice, and by chapter-7+ pickups for the main
+  // game. Persisted across waves within a single run; cleared on
+  // game reset (resetGame zeros the entries).
+  //
+  // Keys are the stratagem ids in stratagems.js _STRATAGEMS catalog:
+  //   'bomb500kg', 'mech', 'mines'
+  stratagemArtifacts: {},
+
   tutorialMode: false,
 
   // Chapter 7 (PARADISE FALLEN) intro spawn hold. Set to true when the
@@ -344,6 +355,9 @@ export function resetGame() {
   // Tutorial mode is reset by default. startTutorial() in main.js
   // re-sets it to true after resetGame() runs.
   S.tutorialMode = false;
+  // Stratagem inventory zeroed every run — chapter-7+ pickups and
+  // tutorial bonus waves are responsible for re-granting.
+  S.stratagemArtifacts = {};
 }
 
 export function getWeapon() {

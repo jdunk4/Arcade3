@@ -30,6 +30,11 @@
 
 import * as THREE from 'three';
 import { keys, mouse, joyState, S } from './state.js';
+import {
+  beginStratagemInput, endStratagemInput, pushStratagemArrow,
+  isStratagemMenuOpen,
+} from './stratagems.js';
+import { pushSecretArrow } from './tutorialSecret.js';
 
 const DEADZONE = 0.18;            // ignore tiny stick drift
 const TRIGGER_THRESHOLD = 0.35;   // how far the trigger must press to count as "down"
@@ -266,6 +271,52 @@ export function updateGamepad(dt) {
 
   // --- In-game input below ---
 
+  // --- Stratagem menu open/close on LB (button 4) ---
+  // Mirrors the keyboard's RMB toggle. While the menu is open d-pad
+  // presses become discrete arrow inputs (handled below) instead of
+  // driving movement.
+  const _lbDown = btn[4] && btn[4].pressed;
+  const _lbWasDown = _prevButtons[4];
+  // NOTE: button 4 is also wired to "previous weapon" via
+  // _onCycleWeapon below. That cycle fires on _press_; the stratagem
+  // menu opens on _hold_. We honor the existing weapon-cycle on
+  // initial tap, then start the menu after a short hold (250 ms).
+  // Simpler approach: open the menu on press, and let the player
+  // release LB before the cycle is finalized — but that breaks
+  // existing muscle memory. Instead, when the player has at least
+  // one stratagem artifact, LB is the stratagem trigger; weapon
+  // cycle moves to RB-only (button 5). When no artifacts, LB keeps
+  // its prior weapon-cycle behavior.
+  const _hasArtifact = (() => {
+    const a = S.stratagemArtifacts || {};
+    for (const k in a) if (a[k] > 0) return true;
+    return false;
+  })();
+  if (_hasArtifact) {
+    if (_lbDown && !_lbWasDown) beginStratagemInput();
+    if (!_lbDown && _lbWasDown) endStratagemInput();
+  }
+
+  // --- D-pad → discrete arrow keys for stratagem code entry ---
+  // When the stratagem menu is open OR the tutorial-secret listener
+  // is armed, suppress d-pad-as-movement and feed each new press
+  // as an arrow event. Edge-detected so a single tap registers once.
+  let _stratagemAteDpad = false;
+  if (isStratagemMenuOpen()) {
+    if (btn[12] && btn[12].pressed && !_prevButtons[12]) pushStratagemArrow('up');
+    if (btn[13] && btn[13].pressed && !_prevButtons[13]) pushStratagemArrow('down');
+    if (btn[14] && btn[14].pressed && !_prevButtons[14]) pushStratagemArrow('left');
+    if (btn[15] && btn[15].pressed && !_prevButtons[15]) pushStratagemArrow('right');
+    _stratagemAteDpad = true;
+  } else {
+    // Secret listener — arm only on tutorial completion modal. Always
+    // safe to attempt; pushSecretArrow is a no-op if not armed.
+    if (btn[12] && btn[12].pressed && !_prevButtons[12]) pushSecretArrow('up');
+    if (btn[13] && btn[13].pressed && !_prevButtons[13]) pushSecretArrow('down');
+    if (btn[14] && btn[14].pressed && !_prevButtons[14]) pushSecretArrow('left');
+    if (btn[15] && btn[15].pressed && !_prevButtons[15]) pushSecretArrow('right');
+  }
+
   // --- Left stick OR D-pad → movement ---
   // We always check both. Left stick gives analog movement; d-pad gives
   // discrete ±1 values. D-pad is the fallback for controllers whose
@@ -275,10 +326,12 @@ export function updateGamepad(dt) {
   const ly_stick = _deadzone(axes[1] || 0);
   // D-pad Up=12, Down=13, Left=14, Right=15 on standard mapping
   let lx_dpad = 0, ly_dpad = 0;
-  if (btn[14] && btn[14].pressed) lx_dpad -= 1;
-  if (btn[15] && btn[15].pressed) lx_dpad += 1;
-  if (btn[12] && btn[12].pressed) ly_dpad -= 1;
-  if (btn[13] && btn[13].pressed) ly_dpad += 1;
+  if (!_stratagemAteDpad) {
+    if (btn[14] && btn[14].pressed) lx_dpad -= 1;
+    if (btn[15] && btn[15].pressed) lx_dpad += 1;
+    if (btn[12] && btn[12].pressed) ly_dpad -= 1;
+    if (btn[13] && btn[13].pressed) ly_dpad += 1;
+  }
   const lx = lx_dpad !== 0 ? lx_dpad : lx_stick;
   const ly = ly_dpad !== 0 ? ly_dpad : ly_stick;
 
@@ -364,7 +417,9 @@ export function updateGamepad(dt) {
   if (pressedThisFrame(1) && _onGrenade) _onGrenade();
   if (pressedThisFrame(2) && _onTogglePickaxe) _onTogglePickaxe();
   if (pressedThisFrame(9) && _onPause) _onPause();
-  if (pressedThisFrame(4) && _onCycleWeapon) _onCycleWeapon(-1);
+  // LB is repurposed as the stratagem-menu trigger when the player
+  // has artifacts; otherwise it cycles weapons (legacy behavior).
+  if (pressedThisFrame(4) && !_hasArtifact && _onCycleWeapon) _onCycleWeapon(-1);
   if (pressedThisFrame(5) && _onCycleWeapon) _onCycleWeapon(+1);
 
   for (let i = 0; i < btn.length; i++) {

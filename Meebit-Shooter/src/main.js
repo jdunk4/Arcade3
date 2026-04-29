@@ -101,6 +101,20 @@ import { getShieldedHiveAt, shieldHitVisual, hiveShieldsIter } from './dormantPr
 import { Save } from './save.js';
 import { Wallet } from './wallet.js';
 import {
+  beginStratagemInput, endStratagemInput, pushStratagemArrow,
+  updateStratagems, isStratagemMenuOpen, stratagemHudHtml,
+  resetStratagems,
+} from './stratagems.js';
+import {
+  findEnterableMech, enterMech, exitMech, isPiloting, getPilotedMech,
+  tickPilotedMech, damagePilotedMech, updateMechPrompts, clearMechs,
+} from './mech.js';
+import { deployMineField, updateMines, clearAllMines } from './mineField.js';
+import {
+  armSecretListener, disarmSecretListener, pushSecretArrow,
+} from './tutorialSecret.js';
+import { appendBonusStratagemLessons, resumeIntoBonusLessons } from './tutorialLessons.js';
+import {
   redirectToAuth, handleAuthCallback, getStoredAuth, clearStoredAuth,
   fetchOwnedMeebits, pickMeebitIdFromList,
 } from './meebitsApi.js';
@@ -203,6 +217,80 @@ import { updateLaunch } from './empLaunch.js';
 import { updateShockwaves } from './shockwave.js';
 import { updateMissileArrow, hideMissileArrow } from './missileArrow.js';
 import { initGamepad, updateGamepad, setTitleMode, rumble } from './gamepad.js';
+
+// =====================================================================
+// STRATAGEM SYSTEM HOOKS
+// =====================================================================
+// stratagems.js + mech.js + mineField.js call out via window.__*
+// hooks so they don't have to import enemies / effects / UI directly
+// (keeps the dep graph cleaner — those modules become much more
+// portable). The hooks are wired here ONCE at module load.
+
+// 500kg bomb payload: massive AoE explosion at the beacon location.
+// Kills nearly any enemy in radius and visibly nukes the area.
+window.__stratagemFire500kg = function(pos, tint) {
+  const RADIUS = 16;
+  const r2 = RADIUS * RADIUS;
+  const DAMAGE = 4000;
+  // Damage every enemy in radius.
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i];
+    if (!e || !e.pos || e.dying) continue;
+    const dx = e.pos.x - pos.x;
+    const dz = e.pos.z - pos.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < r2) {
+      const falloff = 1 - Math.sqrt(d2) / RADIUS;
+      e.hp -= DAMAGE * falloff;
+      e.hitFlash = 0.30;
+    }
+  }
+  // Multi-stage explosion FX (bigger than mushroom cloud since this
+  // is a directly-targeted payload — see ufoSpawner.explodeUfo for
+  // similar staged-burst pattern).
+  const epi = new THREE.Vector3(pos.x, 1.5, pos.z);
+  hitBurst(epi, 0xffffff, 80);
+  hitBurst(epi, tint, 60);
+  setTimeout(() => hitBurst(epi, 0xffaa00, 50), 60);
+  setTimeout(() => hitBurst(epi, 0xff5520, 40), 130);
+  setTimeout(() => hitBurst(epi, 0xff3cac, 30), 220);
+  // Heavy camera shake.
+  shake(2.4, 1.0);
+  // Notify any tutorial observer.
+  if (window.__bonusObserve && window.__bonusObserve.onDetonate) {
+    try { window.__bonusObserve.onDetonate('bomb500kg'); } catch (_) {}
+  }
+};
+
+// Mine field payload — delegate to mineField.js.
+window.__stratagemDeployMines = function(pos, tint) {
+  deployMineField(pos, tint);
+};
+
+// No-artifact feedback toast.
+window.__stratagemNoArtifact = function(stratagem) {
+  if (UI && UI.toast) UI.toast('NO ' + stratagem.label + ' ARTIFACT', '#ff5520', 1800);
+};
+
+// Mech ejection — when the mech is destroyed, restore the player
+// avatar at the mech's last position. Called by mech.js _destroyMech.
+window.__mechEjected = function(mechPos) {
+  player.pos.x = mechPos.x;
+  player.pos.z = mechPos.z;
+  if (player.obj) player.obj.visible = true;
+  if (UI && UI.toast) UI.toast('EJECTED', '#ff5520', 1500);
+};
+
+// Tutorial observer hooks — bonus stratagem lessons set callbacks on
+// window.__bonusObserve to track the player's progress. The objects
+// here are pre-created so lessons can attach callbacks lazily.
+window.__bonusObserve = window.__bonusObserve || {
+  onCall: null,
+  onDetonate: null,
+  onMechEnter: null,
+  onMineDetonate: null,
+};
+
 
 // ---- HAZARD STYLE PER CHAPTER ----
 // Maps chapter index → hazard style module. Called at wave start
@@ -1534,9 +1622,42 @@ window.addEventListener('keydown', e => {
     UI.toast(WEAPONS[S.currentWeapon].name, '#' + WEAPONS[S.currentWeapon].color.toString(16).padStart(6, '0'));
   }
   if (e.key.toLowerCase() === 'e') {
-    // Pixl Pals now auto-deploy 10s into boss fights (wave 5 of each
-    // chapter). The E-key no longer summons manually — this handler
-    // remains as a harmless stub in case of muscle memory.
+    // Mech interact: enter the nearest mech in range; if already
+    // piloting, eject. Stratagems unlocked at chapter 7+ (or via
+    // the secret tutorial code) — no-op on chapters that don't
+    // support mechs yet.
+    if (isPiloting()) {
+      const mp = exitMech();
+      if (mp) {
+        // Sync player.pos to where the mech was and unhide the
+        // player avatar that was hidden during the pilot.
+        player.pos.x = mp.x;
+        player.pos.z = mp.z;
+        if (player.obj) player.obj.visible = true;
+      }
+      return;
+    }
+    const mech = findEnterableMech(player.pos);
+    if (mech) {
+      enterMech(mech);
+      // Hide the player avatar — mech body replaces the silhouette.
+      if (player.obj) player.obj.visible = false;
+      // Notify any tutorial observer that the player entered a mech.
+      if (window.__bonusObserve && window.__bonusObserve.onMechEnter) {
+        try { window.__bonusObserve.onMechEnter(); } catch (_) {}
+      }
+    }
+  }
+  // Stratagem code input — arrow keys feed pushStratagemArrow when
+  // the menu is open (player holding RMB). When the menu is closed,
+  // arrow keys also drive the secret-code listener if armed.
+  if (isStratagemMenuOpen()) {
+    let dir = null;
+    if (e.key === 'ArrowUp')    dir = 'up';
+    else if (e.key === 'ArrowDown')  dir = 'down';
+    else if (e.key === 'ArrowLeft')  dir = 'left';
+    else if (e.key === 'ArrowRight') dir = 'right';
+    if (dir) { e.preventDefault(); pushStratagemArrow(dir); }
   }
   if (e.key.toLowerCase() === 'g') {
     // Grenade throw — available on every level, 3 charges per wave.
@@ -1668,8 +1789,21 @@ window.addEventListener('mousemove', e => {
 });
 window.addEventListener('mousedown', e => {
   if (e.button === 0) { mouse.down = true; Audio.resume(); }
+  if (e.button === 2) {
+    // Right mouse button — open stratagem menu (Helldivers-style).
+    // Only honored when the player has at least one stratagem
+    // artifact so the menu doesn't pop up uselessly. The menu UI
+    // lists the codes the player can actually call.
+    const arts = S.stratagemArtifacts || {};
+    let any = false;
+    for (const k in arts) { if (arts[k] > 0) { any = true; break; } }
+    if (any) beginStratagemInput();
+  }
 });
-window.addEventListener('mouseup', e => { if (e.button === 0) mouse.down = false; });
+window.addEventListener('mouseup', e => {
+  if (e.button === 0) mouse.down = false;
+  if (e.button === 2) endStratagemInput();
+});
 window.addEventListener('contextmenu', e => e.preventDefault());
 
 // Mouse-wheel weapon cycling. Each wheel "click" rotates the revolver
@@ -2658,6 +2792,7 @@ function _showTutorialCompleteModal() {
     });
     btn.addEventListener('click', () => {
       // Hide modal, tear down tutorial, restore title screen.
+      disarmSecretListener();
       m.style.display = 'none';
       S.paused = false;
       S.running = false;
@@ -2671,6 +2806,23 @@ function _showTutorialCompleteModal() {
     _tutCompleteModal = m;
   }
   _tutCompleteModal.style.display = 'flex';
+  // Arm the secret Helldivers code listener (↑→↓↓↓). On match we
+  // hide the modal, append bonus stratagem lessons 12–14 to the
+  // tutorial controller, and resume play. The hint glyph row at
+  // the bottom of the modal is created/updated by the listener
+  // itself.
+  armSecretListener(() => {
+    if (!_tutCompleteModal) return;
+    _tutCompleteModal.style.display = 'none';
+    try { appendBonusStratagemLessons(); } catch (e) { console.warn('[bonus]', e); }
+    // Reset the lesson controller index to the first bonus lesson and
+    // fire its onActivate hook (it sets up the observer callbacks
+    // that drive the lesson's completion check).
+    try { resumeIntoBonusLessons(); } catch (e) { console.warn('[bonus resume]', e); }
+    UI.toast('STRATAGEMS UNLOCKED · WAVE 12', '#ffd93d', 3500);
+    S.paused = false;
+    S.running = true;
+  });
 }
 
 function gameOver() {
@@ -2746,6 +2898,16 @@ function _exitTutorialIfActive() {
   // Despawn the decorative hives we placed at tutorial start. Idempotent
   // — clearAllPortals iterates spawners[] and is a no-op when empty.
   try { clearAllPortals(); } catch (e) {}
+  // Tear down stratagem state — beacons, mechs, mines, and any
+  // lingering pilot session. The bonus waves grant temporary
+  // artifacts; resetGame zeros them out, so by the time we re-enter
+  // the title screen the inventory is clean.
+  try { resetStratagems(); } catch (e) {}
+  try { clearAllMines(); } catch (e) {}
+  try { disarmSecretListener(); } catch (e) {}
+  // Re-show the player avatar in case the player was piloting a
+  // mech when they bailed.
+  if (player && player.obj) player.obj.visible = true;
   // Hide cell-glow + both meebit lights on exit so they don't
   // reappear at their last position the next time the player runs
   // a normal game.
@@ -3298,6 +3460,38 @@ function animate() {
     // ticks to completion and the last destroyed hive stays on-screen into
     // wave 4. updateSpawners is a no-op when `spawners` is empty.
     updateSpawners(dt);
+    // Stratagem system — beacons, mechs, mine-field. Cascades through
+    // updateStratagems → updateStratagemBeacons + updateMechs. Cheap
+    // when nothing is active (early-returns on empty lists).
+    // Refresh the chapter-tint global so beacons / mines / mechs
+    // spawned this frame use the current chapter palette.
+    {
+      const _ch = CHAPTERS[S.chapter % CHAPTERS.length];
+      window.__stratagemTint = _ch && _ch.full ? _ch.full.lamp : 0xff5520;
+    }
+    updateStratagems(dt);
+    updateMines(dt);
+    // Refresh the "PRESS E TO ENTER" prompts on any deployed mechs
+    // based on the player's current distance. No-op when no mechs.
+    updateMechPrompts(player.pos);
+    // Stratagem HUD overlay — lazily created on first use, rebuilt
+    // each frame from stratagemHudHtml(). String comparison avoids
+    // unnecessary innerHTML writes (cheap stable-state idle).
+    {
+      let hud = document.getElementById('stratagem-hud');
+      if (!hud) {
+        hud = document.createElement('div');
+        hud.id = 'stratagem-hud';
+        hud.style.cssText = 'position:fixed;left:16px;bottom:80px;z-index:8000;pointer-events:none;font-family:Impact,monospace;';
+        document.body.appendChild(hud);
+        hud.__lastHtml = '';
+      }
+      const html = stratagemHudHtml();
+      if (html !== hud.__lastHtml) {
+        hud.innerHTML = html;
+        hud.__lastHtml = html;
+      }
+    }
     // Tick silo cap open/close, missile raise, powerplant flames, and
     // missile blinkers. Cheap and no-op when no compound is built.
     updateCompound(dt, S.timeElapsed);
@@ -3755,6 +3949,67 @@ function updatePlayer(dt) {
   const len = Math.sqrt(mx * mx + mz * mz);
   if (len > 0) { mx /= len; mz /= len; }
 
+  // ----- MECH PILOTING REDIRECT -----
+  // While the player pilots a mech, their input drives the mech body
+  // and the player.pos is synced to the mech each frame so the camera
+  // (which follows player.pos) and any other player-position-aware
+  // systems keep working unchanged. Player movement collision is
+  // skipped — the mech has its own movement clamp inside tickPilotedMech.
+  if (isPiloting()) {
+    const aimDx = (mouse.worldX != null) ? mouse.worldX - player.pos.x : 0;
+    const aimDz = (mouse.worldZ != null) ? mouse.worldZ - player.pos.z : -1;
+    const aimAng = Math.atan2(aimDx, aimDz);
+    const inputs = {
+      mx, mz,
+      aimAng,
+      // While piloting: LMB = MG primary fire (continuous),
+      // SHIFT held = rocket salvo (secondary), F = stomp, SPACE = dash.
+      firePrimary: !!mouse.down && !_inputLocked,
+      fireSecondary: !!keys['shift'] && !_inputLocked,
+      stomp: !!keys['f'] && !_inputLocked,
+      dash: !!keys[' '] && !_inputLocked,
+      arenaHalf: ARENA,
+    };
+    const mp = tickPilotedMech(inputs, dt);
+    if (mp) {
+      player.pos.x = mp.x;
+      player.pos.z = mp.z;
+    }
+    player.vel.set(0, 0, 0);
+    if (player.obj) player.obj.position.copy(player.pos);
+    // While piloting, the player is locked inside the mech's armor —
+    // treat them as invulnerable so the various enemy-collision and
+    // hazard-tick damage paths don't kill them. The mech absorbs hits
+    // separately via _tickMechProximityDamage below.
+    S.invulnTimer = Math.max(S.invulnTimer, 0.1);
+    // Mech proximity damage — any enemy within MECH_BODY_RADIUS of
+    // the mech's pos drains mech HP. Tuned so a swarm pressuring the
+    // mech kills it in ~6-8s, giving the pilot urgency without
+    // making the mech feel paper-thin.
+    {
+      const mech = getPilotedMech();
+      if (mech) {
+        const MECH_BODY_RADIUS = 2.6;
+        const MECH_DPS_PER_ENEMY = 18;
+        const r2 = MECH_BODY_RADIUS * MECH_BODY_RADIUS;
+        let touchingCount = 0;
+        for (let i = 0; i < enemies.length; i++) {
+          const e = enemies[i];
+          if (!e || !e.pos || e.dying) continue;
+          const dx = e.pos.x - mech.pos.x;
+          const dz = e.pos.z - mech.pos.z;
+          if (dx * dx + dz * dz < r2) touchingCount++;
+        }
+        if (touchingCount > 0) {
+          damagePilotedMech(touchingCount * MECH_DPS_PER_ENEMY * dt);
+        }
+      }
+    }
+    // Skip the rest of the player-movement / player-firing block.
+    // (We jump to the next-major-block by NOT executing the lines
+    // below; the rest of the animate loop continues normally.)
+  } else {
+
   const speed = S.playerSpeed * (S.dashActive > 0 ? PLAYER.dashSpeed : 1);
   player.vel.set(mx * speed, 0, mz * speed);
   // GLACIER_WRAITH suction — during the freeze telegraph, modify the
@@ -3791,6 +4046,8 @@ function updatePlayer(dt) {
     }
   }
   player.obj.position.copy(player.pos);
+
+  } // end !isPiloting() player-movement block
 
   // Floor hazards (lava tetrominoes) damage the player continuously while
   // they stand on one. Dash frames' invuln protects them briefly.
@@ -3891,7 +4148,7 @@ function updatePlayer(dt) {
 
   animatePlayer(dt, len > 0.05, S.timeElapsed);
 
-  if (!_inputLocked && (mouse.down || ('ontouchstart' in window && mouse.down))) {
+  if (!_inputLocked && !isPiloting() && (mouse.down || ('ontouchstart' in window && mouse.down))) {
     if (S.fireCooldown <= 0) {
       if (S.currentWeapon === 'pickaxe') tryMine();
       else fireWeapon();

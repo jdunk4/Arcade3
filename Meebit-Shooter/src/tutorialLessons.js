@@ -56,6 +56,7 @@ import {
 import { spawnBlock, blocks } from './blocks.js';
 import { updateOres, clearAllOres } from './ores.js';
 import { spawnPickup, pickups } from './pickups.js';
+import { grantArtifact as grantStratagemArtifact } from './stratagems.js';
 
 // ---------------------------------------------------------------------
 // State
@@ -1132,6 +1133,159 @@ function buildLessonList() {
   });
 
   return list;
+}
+
+// =====================================================================
+// BONUS STRATAGEM LESSONS — appended on tutorial completion via the
+// Helldivers ↑→↓↓↓ secret code. tutorialSecret.js calls
+// appendBonusStratagemLessons(); the controller's _activeIdx remains
+// pointed at the current lesson, but _lessons now has 14 entries
+// instead of 11, and waves 12-14 fire when the player advances past
+// 11 (overdrive). Each bonus lesson grants a temporary stratagem
+// artifact at activation so the player can practice without having
+// earned it via the (yet-unbuilt) chapter-7 pickup.
+// =====================================================================
+// Called from main.js after appendBonusStratagemLessons() has run.
+// _advance() set _activeIdx to the sentinel "all done" value when the
+// last regular lesson finished; we now have new lessons to play, so
+// roll _activeIdx back to the first bonus lesson and fire its
+// onActivate hook so the lesson registers its observer callbacks.
+export function resumeIntoBonusLessons() {
+  if (!_lessons || !_lessons.length) return false;
+  // Find the first bonus (strat_*) lesson and set _activeIdx to it.
+  for (let i = 0; i < _lessons.length; i++) {
+    if (_lessons[i] && _lessons[i].id && _lessons[i].id.startsWith('strat_')) {
+      _activeIdx = i;
+      // Reset per-lesson baselines so the bonus lessons measure
+      // progress relative to "now" rather than tutorial start.
+      _enemyKillCountAtActivate = _enemyKillCount;
+      _shotCountAtActivate = _shotCount;
+      _walkDistanceAtActivate = _walkDistance;
+      _dashCountAtActivate = _dashCount;
+      _hazardHitsAtActivate = _hazardHits;
+      _deadlyHazardHitsAtActivate = _deadlyHazardHits;
+      _potionsConsumedAtActivate = _potionsConsumed;
+      _grenadesThrownAtActivate = _grenadesThrown;
+      _weaponsTried.clear();
+      const lesson = _lessons[i];
+      if (lesson.onActivate) {
+        try { lesson.onActivate(); } catch (e) { console.warn('[bonus onActivate]', e); }
+      }
+      renderChecklist();
+      return true;
+    }
+  }
+  return false;
+}
+
+export function appendBonusStratagemLessons() {
+  if (!_lessons || !_lessons.length) return;
+  // Idempotent — bail if bonus lessons already in the list.
+  for (const l of _lessons) {
+    if (l && l.id && l.id.startsWith('strat_')) return;
+  }
+  // Wrap the imported artifact granter in a try so a single failure
+  // doesn't break lesson activation.
+  const grantArtifact = (id, n) => {
+    try { grantStratagemArtifact(id, n); }
+    catch (e) { console.warn('[bonus lesson] grantArtifact', e); }
+  };
+
+  // ---- 12. CALL IN A 500KG BOMB ----
+  _lessons.push({
+    id: 'strat_500kg',
+    label: 'STRATAGEM · 500KG BOMB',
+    hint: 'Hold RIGHT MOUSE · enter ↑→↓↓↓ · release. Throw a beacon at the swarm and stand clear.',
+    _called: false,
+    _detonated: false,
+    onActivate() {
+      this._called = false;
+      this._detonated = false;
+      // Grant 2 artifacts so the player has a retry if they fumble.
+      grantArtifact('bomb500kg', 2);
+      // The completion hook is set on a global flag; the lesson
+      // observes the call and detonation via main.js wiring.
+      if (typeof window !== 'undefined') {
+        window.__bonusObserve = window.__bonusObserve || {};
+        window.__bonusObserve.onCall = (id) => { if (id === 'bomb500kg') this._called = true; };
+        window.__bonusObserve.onDetonate = (id) => { if (id === 'bomb500kg') this._detonated = true; };
+      }
+    },
+    onComplete() {
+      if (typeof window !== 'undefined' && window.__bonusObserve) {
+        window.__bonusObserve.onCall = null;
+        window.__bonusObserve.onDetonate = null;
+      }
+    },
+    isComplete() { return this._detonated; },
+    progress() {
+      if (this._detonated) return '✓ DETONATED';
+      if (this._called) return 'BEACON THROWN · WAIT FOR DETONATION';
+      return '↑→↓↓↓';
+    },
+  });
+
+  // ---- 13. CALL IN AN EXOSUIT MECH ----
+  _lessons.push({
+    id: 'strat_mech',
+    label: 'STRATAGEM · EXOSUIT',
+    hint: 'Hold RIGHT MOUSE · enter ↓↑→→↑ · release. After it lands, walk to the mech and press E to pilot.',
+    _called: false,
+    _entered: false,
+    onActivate() {
+      this._called = false;
+      this._entered = false;
+      grantArtifact('mech', 2);
+      if (typeof window !== 'undefined') {
+        window.__bonusObserve = window.__bonusObserve || {};
+        window.__bonusObserve.onCall = (id) => { if (id === 'mech') this._called = true; };
+        window.__bonusObserve.onMechEnter = () => { this._entered = true; };
+      }
+    },
+    onComplete() {
+      if (typeof window !== 'undefined' && window.__bonusObserve) {
+        window.__bonusObserve.onCall = null;
+        window.__bonusObserve.onMechEnter = null;
+      }
+    },
+    isComplete() { return this._entered; },
+    progress() {
+      if (this._entered) return '✓ PILOTING';
+      if (this._called) return 'WALK TO MECH · PRESS E';
+      return '↓↑→→↑';
+    },
+  });
+
+  // ---- 14. SCATTER A MINE FIELD ----
+  _lessons.push({
+    id: 'strat_mines',
+    label: 'STRATAGEM · MINE FIELD',
+    hint: 'Hold RIGHT MOUSE · enter ↓→→↓ · release. Scatter a minefield in front of the next swarm.',
+    _called: false,
+    _detonated: false,
+    onActivate() {
+      this._called = false;
+      this._detonated = false;
+      grantArtifact('mines', 2);
+      if (typeof window !== 'undefined') {
+        window.__bonusObserve = window.__bonusObserve || {};
+        window.__bonusObserve.onCall = (id) => { if (id === 'mines') this._called = true; };
+        window.__bonusObserve.onMineDetonate = () => { this._detonated = true; };
+      }
+    },
+    onComplete() {
+      if (typeof window !== 'undefined' && window.__bonusObserve) {
+        window.__bonusObserve.onCall = null;
+        window.__bonusObserve.onMineDetonate = null;
+      }
+    },
+    isComplete() { return this._detonated; },
+    progress() {
+      if (this._detonated) return '✓ MINES TRIGGERED';
+      if (this._called) return 'WAIT FOR ENEMY TO STEP ON A MINE';
+      return '↓→→↓';
+    },
+  });
 }
 
 // ---------------------------------------------------------------------
