@@ -1255,7 +1255,7 @@ async function tryUpgradeAvatarFromAuth(auth) {
       () => { UI.toast('PLAYING AS MEEBIT #' + id + ' (ok)', '#00ff66', 2500); UI.updateHUD(); },
       (err) => { console.warn('GLB swap failed', err); UI.toast('GLB LOAD FAILED * USING VOXEL', '#ff3cac', 2500); }
     );
-    const linkBtn = document.getElementById('link-meebits-btn');
+    const linkBtn = _getLinkMeebitsBtn();
     if (linkBtn) {
       linkBtn.textContent = '(ok) MEEBIT #' + id + ' LINKED';
       linkBtn.classList.add('connected');
@@ -1267,7 +1267,18 @@ async function tryUpgradeAvatarFromAuth(auth) {
 }
 
 // ---- LINK BUTTON ----
-const linkBtn = document.getElementById('link-meebits-btn');
+// The wallet/Meebit-link button has gone by two ids historically:
+//   • #link-meebits-btn   (canonical — matches the SIGN/LINK semantics)
+//   • #connect-wallet-btn (legacy alias still used by older index.html
+//                          markup; kept as a fallback so cached HTML
+//                          and any external embeds keep working).
+// All call sites use this helper instead of getElementById directly so
+// the support stays in one place.
+function _getLinkMeebitsBtn() {
+  return document.getElementById('link-meebits-btn')
+      || document.getElementById('connect-wallet-btn');
+}
+const linkBtn = _getLinkMeebitsBtn();
 if (linkBtn) {
   linkBtn.addEventListener('click', () => {
     if (getStoredAuth()) {
