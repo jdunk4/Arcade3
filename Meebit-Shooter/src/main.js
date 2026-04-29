@@ -33,6 +33,7 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 })();
 
 import { scene, camera, renderer, CAMERA_OFFSET, applyTheme, Scene, enterChapter7Atmosphere, exitChapter7Atmosphere, updateFlashlight } from './scene.js';
+import { loadShieldTexture, updateShieldsTick } from './shieldShader.js';
 import {
   isTutorialActive, setTutorialActive,
   applyTutorialFloor, restoreNormalFloor,
@@ -42,6 +43,9 @@ import {
   getTutorialFloorColorAt, getTutorialCellInfo,
   getTileBevelMaskTexture,
 } from './tutorial.js';
+import {
+  buildMagnetTiles, updateMagnetTiles, destroyMagnetTiles,
+} from './tutorialMagnetTiles.js';
 import {
   startTutorialController, stopTutorialController,
   tickTutorialController,
@@ -86,7 +90,7 @@ import {
 import { preloadAllHerds } from './herdVrmLoader.js';
 import { blocks, updateBlocks, segmentBlocked, resolveCollision, findNearestBlock, damageBlock, damageBlockAt, clearAllBlocks, registerBlockExplosionHandler } from './blocks.js';
 import { clearAllEggs } from './eggs.js';
-import { updateCannon, clearCannon } from './cannon.js';
+import { updateCannon, clearCannon, getCannonCollisionCircles } from './cannon.js';
 import { updateQueenHive, clearQueenHive, tickQueenShieldCollision, tryHitQueenShield, getOutermostDomeInfo, pingQueenShieldAt } from './queenHive.js';
 import { updateCrusher, clearCrusher } from './crusher.js';
 import { updateChargeCubes, clearChargeCubes } from './chargeCubes.js';
@@ -185,6 +189,13 @@ registerDynamicPropsGetter(() => {
   const wh = getServerCollisionCircles();
   if (wh && wh.length) {
     for (const c of wh) out.push(c);
+  }
+  // Cannon — solid body that blocks the player from walking through.
+  // Active in chapter 1 main game AND tutorial cannon lesson. Returns
+  // [] when no cannon exists (chapters 2-7) so this is a no-op there.
+  const cn = getCannonCollisionCircles();
+  if (cn && cn.length) {
+    for (const c of cn) out.push(c);
   }
   return out;
 });
@@ -2470,6 +2481,14 @@ function startTutorial() {
   // theme's lamp tint doesn't multiply the rainbow colors.
   applyTutorialFloor();
 
+  // Spawn the 3D magnet tile grid — 400 colored cubes that sit below
+  // the floor at rest and rise up toward the player as they walk near.
+  // Reads as the player magnetically pulling the tile colors up to
+  // walking level. The black grout/border on the rainbow texture
+  // beneath stays flush with the ground, so unraised areas show the
+  // bordered texture and raised areas show floating colored cubes.
+  try { buildMagnetTiles(); } catch (e) { console.warn('[tutorial] magnet tiles', e); }
+
   // Tutorial mode is bare-bones: no shadows, no fog (flat, calm look)
   // and our own dedicated music. Both visuals are restored in
   // restoreNormalFloor() / on quit-to-title via the same flow.
@@ -2518,6 +2537,16 @@ function startTutorial() {
   spawners.push(spawnPortal(-12,  10, 0));     // hive variant (idx 0 % 3 = 0)
   spawners.push(spawnPortal(  0,  14, 1));     // pyramid variant
   spawners.push(spawnPortal( 12,  10, 2));     // UFO variant
+  // Lower HP for tutorial decorative hives so all weapons feel
+  // responsive against them — at default 180 HP it would take ~18
+  // seconds of held beam/flame to kill one, which reads as "broken."
+  // 30 HP gives: bullets 30 shots, beam ~3s held, flame ~6s held,
+  // rocket ~1 hit. They're not part of any wave, no balance concern.
+  for (let i = spawners.length - 3; i < spawners.length; i++) {
+    const s = spawners[i];
+    s.hp = 30;
+    s.hpMax = 30;
+  }
 
   // Start the lesson controller. We do NOT call startWave(1) — the
   // tutorial controller drives all spawns and props. waves.js
@@ -2691,6 +2720,10 @@ function _exitTutorialIfActive() {
   S.tutorialMode = false;
   S.tutorialHazardCycle = false;
   restoreNormalFloor();
+  // Tear down the 400-cube magnet grid before any other restore work
+  // so we don't leak meshes/materials between runs. Idempotent — safe
+  // to call even if the grid was never built (early-return inside).
+  try { destroyMagnetTiles(); } catch (e) {}
   restoreShadows(renderer);
   restoreFog();
   restoreTutorialLighting();
@@ -3291,6 +3324,10 @@ function animate() {
     // their entities don't exist (chapters 2-7).
     updateCannon(dt);
     updateQueenHive(dt);
+    // Per-frame tick for ALL active hex shields — drives the time
+    // uniform (so the hex pulse animation runs) and advances any
+    // active impact-radius ramps. Cheap; only walks active shields.
+    try { updateShieldsTick(performance.now() / 1000, dt); } catch (e) {}
     tickQueenShieldCollision(player.pos);
     updateCrusher(dt);
     updateChargeCubes(dt, player.pos);
@@ -3330,6 +3367,10 @@ function animate() {
       // frame; tracks player.pos every frame; recolors using the
       // tutorial floor's bilinear sampler.
       _updateTutorialFloorGlow(dt);
+      // Magnet tile grid — colored 3D cubes rise toward the player
+      // as they walk across the rainbow floor. Built on tutorial
+      // start (above), torn down on _exitTutorialIfActive.
+      try { updateMagnetTiles(player.pos, dt); } catch (e) {}
       // Tutorial overdrive request — the OVERDRIVE lesson sets this
       // flag the moment the player's streak crosses 25 (vs the usual
       // 100 in the main game). We honor it once and clear; the lesson
@@ -4561,6 +4602,31 @@ function updateRockets(dt) {
       scene.remove(r);
       rockets.splice(i, 1);
       continue;
+    }
+
+    // Direct portal/spawner hit. Without this, the rocket would fly
+    // past tutorial decorative hives (and any unshielded spawner-wave
+    // hive in main game) without ever detonating, since the regular
+    // update path only stops on enemies/walls/civilians. Same
+    // tutorial-mode-aware gate as the bullet portal-hit at line ~5136.
+    // Note we check destroyed and (NOT shielded) here — the shielded
+    // hive collision is handled earlier in this function via the big
+    // shield-bubble path (which deflects + still triggers AoE).
+    if (S.spawnerWaveActive || (S.bossRef && S.bossRef.shielded) || S.tutorialMode) {
+      let hitPortal = false;
+      for (const s of spawners) {
+        if (s.destroyed || s.shielded) continue;
+        const dxs = s.pos.x - r.position.x;
+        const dzs = s.pos.z - r.position.z;
+        if (dxs * dxs + dzs * dzs < 2.25) {       // 1.5u radius squared
+          explodeRocket(r);
+          scene.remove(r);
+          rockets.splice(i, 1);
+          hitPortal = true;
+          break;
+        }
+      }
+      if (hitPortal) continue;
     }
 
     // Enemy hit
@@ -5803,6 +5869,11 @@ function collectPickup(p) {
   }
 }
 
+// Async fire-and-forget — load the shield's hex texture in parallel
+// with the first frame render. Until it loads, addShieldToHive falls
+// back to the simpler glow shield path, so this is just an upgrade
+// when the texture arrives.
+loadShieldTexture();
 animate();
 
 // --- CONSOLE BANNER ---
