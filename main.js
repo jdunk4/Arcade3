@@ -33,14 +33,42 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 })();
 
 import { scene, camera, renderer, CAMERA_OFFSET, applyTheme, Scene, enterChapter7Atmosphere, exitChapter7Atmosphere, updateFlashlight } from './scene.js';
+import {
+  isTutorialActive, setTutorialActive,
+  applyTutorialFloor, restoreNormalFloor,
+  disableShadows, restoreShadows,
+  disableFog, restoreFog,
+  boostTutorialLighting, restoreTutorialLighting,
+  getTutorialFloorColorAt, getTutorialCellInfo,
+  getTileBevelMaskTexture,
+} from './tutorial.js';
+import {
+  startTutorialController, stopTutorialController,
+  tickTutorialController,
+  getActiveLessonIdx as getActiveTutorialLessonIdx,
+  notifyEnemyKilled as tutorialOnEnemyKilled,
+  notifyShotFired as tutorialOnShotFired,
+  notifyDashed as tutorialOnDashed,
+  notifyHazardHit as tutorialOnHazardHit,
+  notifyDeadlyHazardHit as tutorialOnDeadlyHazardHit,
+  notifyPotionConsumed as tutorialOnPotionConsumed,
+  notifyGrenadeThrown as tutorialOnGrenadeThrown,
+} from './tutorialLessons.js';
 import { updateLifedrainBeams, applyLifedrainTick, fireLifedrainSwarm, updateLifedrainProjectiles, clearLifedrainEffects } from './lifedrainer.js';
 import { scatterCorpses, clearCorpses } from './corpses.js';
-import { S, keys, mouse, joyState, resetGame, getWeapon, shake } from './state.js';
+import { S, keys, mouse, joyState, aimJoyState, resetGame, getWeapon, shake } from './state.js';
 import { PLAYER, WEAPONS, CHAPTERS, ARENA, GOO_CONFIG, MINING_CONFIG, BLOCK_CONFIG, getChapterRangedMult, getChapterRangedRangeMult, PARADISE_FALLEN_CHAPTER_IDX, WAVES_PER_CHAPTER } from './config.js';
 import { Audio } from './audio.js';
 import { UI } from './ui.js';
 import { loadPlayer, animatePlayer, player, recolorGun, resetPlayer, swapAvatarGLB } from './player.js';
 import { enemies, enemyProjectiles, spawnEnemyProjectile, makeEnemy, updateVesselZeroAnim } from './enemies.js';
+import { loadAntMesh } from './antMesh.js';
+
+// Kick off the chapter-1 ant GLB load as soon as the module graph
+// resolves. Async load — by the time the player starts a real run
+// the mesh should be ready. If it isn't (slow network, etc) the
+// makeEnemy dispatch falls back to the procedural box ant.
+loadAntMesh();
 import {
   bullets, spawnBullet, clearBullets,
   rockets, spawnRocket, clearRockets,
@@ -59,15 +87,15 @@ import { preloadAllHerds } from './herdVrmLoader.js';
 import { blocks, updateBlocks, segmentBlocked, resolveCollision, findNearestBlock, damageBlock, damageBlockAt, clearAllBlocks, registerBlockExplosionHandler } from './blocks.js';
 import { clearAllEggs } from './eggs.js';
 import { updateCannon, clearCannon } from './cannon.js';
-import { updateQueenHive, clearQueenHive, tickQueenShieldCollision, tryHitQueenShield } from './queenHive.js';
+import { updateQueenHive, clearQueenHive, tickQueenShieldCollision, tryHitQueenShield, getOutermostDomeInfo, pingQueenShieldAt } from './queenHive.js';
 import { updateCrusher, clearCrusher } from './crusher.js';
 import { updateChargeCubes, clearChargeCubes } from './chargeCubes.js';
-import { clearEscortTruck, getTruckPos, getTruckCollisionCircles, updateEscortTruck } from './escortTruck.js';
+import { clearEscortTruck, getTruckPos, getTruckCollisionCircles, updateEscortTruck, isTruckArrived } from './escortTruck.js';
 import { updateServerWarehouse, clearServerWarehouse, getServerCollisionCircles } from './serverWarehouse.js';
 import { updateSafetyPod, clearSafetyPod, getPodCollisionCircles, getPodPos, getPodRadius } from './safetyPod.js';
 import { updateHiveLasers, clearHiveLasers } from './hiveLasers.js';
 import { updateCockroach, clearCockroachBoss } from './cockroachBoss.js';
-import { initFogRing, updateFogRing, clearFogRing } from './fogRing.js';
+import { initFogRing, updateFogRing, clearFogRing, setFogVisible } from './fogRing.js';
 import { spawners, damageSpawner, updateSpawners } from './spawners.js';
 import { getShieldedHiveAt, shieldHitVisual, hiveShieldsIter } from './dormantProps.js';
 import { Save } from './save.js';
@@ -86,8 +114,25 @@ import { prewarmShaders } from './prewarm.js';
 import {
   spawnHazardsForWave, clearHazards, hurtPlayerIfOnHazard,
   repelEnemyFromHazards, updateHazards, setHazardSpawningEnabled,
-  setHazardStyle,
+  setHazardStyle, tickHazardSpawning,
 } from './hazards.js';
+import {
+  paintFactionHazard, clearFactionPaint, updateFactionPaint, getActivePaintCount,
+} from './factionPaint.js';
+import {
+  spawnPuddle, clearAllPuddles, updatePuddles,
+} from './bossPuddles.js';
+import {
+  triggerFreezeCycle, isInsideAnyPod, getFreezePhase,
+  didFreezeFireThisFrame, clearFreeze, updateFreeze,
+  applySuctionToVelocity,
+} from './bossFreeze.js';
+import {
+  initHeroHexagons, updateHeroHexagons, setHeroHexagonsVisible,
+} from './heroHexagons.js';
+import {
+  spawnSolarFlare, clearAllFlares, updateFlares,
+} from './bossSolarFlare.js';
 import * as tetrisStyle from './hazardsTetris.js';
 import * as galagaStyle from './hazardsGalaga.js';
 import * as minesweeperStyle from './hazardsMinesweeper.js';
@@ -98,6 +143,8 @@ import { spawnGalagaShip, despawnGalagaShip, updateGalagaShip, isGalagaShipActiv
 import { spawnPacman, despawnPacman, updatePacman, isPacmanActive, runAwayPacman } from './pacmanCharacter.js';
 import { spawnPellets, despawnPellets, updatePellets } from './pacmanPellets.js';
 import { buildCrowd, updateCrowd, recolorCrowd } from './crowd.js';
+import { spawnGravestones, recolorGravestones, clearGravestones } from './gravestones.js';
+import { playMatrixRain } from './matrixRain.js';
 import { prefetchMeebits, pickRandomMeebitId } from './meebitsPublicApi.js';
 import {
   spawnPickup, updatePickups as updateNewPickups, clearAllPickups,
@@ -165,11 +212,22 @@ import { initGamepad, updateGamepad, setTitleMode, rumble } from './gamepad.js';
 //                     tiles. Ghost-touch is INSTANT KILL.
 //   4-6: Not yet implemented — falls back to Tetris as safe default
 function _pickHazardStyleForChapter(chapterIdx) {
+  // Per-chapter unique hazard style. Each chapter has its own signature
+  // arcade-style hazard across waves 1-3 — laid tiles persist into wave
+  // 4 (bonus) + wave 5 (boss) for continued floor pressure.
+  //   idx 0 = INFERNO    → tetris
+  //   idx 1 = CRIMSON    → galaga
+  //   idx 2 = SOLAR      → minesweeper
+  //   idx 3 = TOXIC      → pacman
+  //   idx 4 = ARCTIC     → pong
+  //   idx 5 = PARADISE   → donkey kong
+  //   idx 6 = PARADISE FALLEN → tetris (TBD)
+  if (chapterIdx === 0) return tetrisStyle;
   if (chapterIdx === 1) return galagaStyle;
   if (chapterIdx === 2) return minesweeperStyle;
   if (chapterIdx === 3) return pacmanStyle;
-  if (chapterIdx === 4) return pongStyle;       // ARCTIC — pong/ice tiles
-  if (chapterIdx === 5) return donkeyKongStyle; // PARADISE — DK barrels + fires
+  if (chapterIdx === 4) return pongStyle;
+  if (chapterIdx === 5) return donkeyKongStyle;
   return tetrisStyle;
 }
 
@@ -177,30 +235,28 @@ function _pickHazardStyleForChapter(chapterIdx) {
 // has one). Called whenever style is applied — keeps the ally in sync
 // with the chapter even after retries / chapter resets.
 function _applyChapterAlly(chapterIdx, playerPos) {
+  // Galaga ship — spawned for chapters using the galaga hazard style:
+  // idx 1 (CRIMSON / chapter 2) and idx 4 (ARCTIC / chapter 5, which
+  // now uses pong style — galaga ship retired). Updated to match the
+  // restored per-chapter style mapping: galaga ship only on idx 1.
   if (chapterIdx === 1) {
-    // Galaga ship — spawn at player position if not already spawned.
     if (!isGalagaShipActive()) {
       const px = (playerPos && playerPos.x) || 0;
       const pz = (playerPos && playerPos.z) || 0;
       spawnGalagaShip(px, pz);
     }
   } else {
-    // Any other chapter: tear down the Galaga ship if it was up.
     if (isGalagaShipActive()) {
       despawnGalagaShip();
     }
   }
-  // Pac-Man character — spawn on chapter 4 (zero-indexed = 3), despawn
-  // elsewhere. Idempotent: spawnPacman is a no-op if already active,
-  // so calling this every wave-start in chapter 4 doesn't re-summon him.
+  // Pac-Man character — spawn on chapter 4 (idx 3) where the pacman
+  // hazard style is now restored. spawnPacman is idempotent so repeated
+  // calls during the chapter are safe. Pellets too (also chapter-4 only).
   if (chapterIdx === 3) {
     if (!isPacmanActive()) {
-      // Pass the player's position so pacman does the cinematic intro
-      // — appears above the player and dives, instead of dropping in
-      // a random corner the player might never visit.
       spawnPacman(playerPos);
     }
-    // Power pellets — also chapter-4 only. spawnPellets is idempotent.
     spawnPellets();
   } else {
     if (isPacmanActive()) {
@@ -284,13 +340,34 @@ function ensureFlameMeshes() {
   // part is RIGHT at the player, so the weapon feels punchy up close.
   //
   // ConeGeometry(radius, height, radialSegments, heightSegments, openEnded).
-  // Default cone: tip at +Y, base at -Y. We translate so the BASE is at
-  // origin and the tip extends along +Y, then rotate so tip points at +Z.
-  // At runtime we scale Z by length, X/Y by BASE radius (the wide muzzle
-  // end).
+  // Default cone: tip at +Y=0.5, base at -Y=-0.5.
+  //
+  // GOAL: in object space, place TIP at origin and BASE at +Z=+1, so
+  // after lookAt() (which in this codebase aligns local +Z toward the
+  // target — proven by the rocket geometry: rocket exhaust at -Z=-0.45
+  // sits at the BACK of the rocket as it flies, meaning +Z is the
+  // direction of travel) the TIP stays at the muzzle and the BASE
+  // flares outward toward the target. That gives the megaphone
+  // silhouette the playtester sketched: narrow point at the gun, wide
+  // base at the far reach.
+  //
+  // Construction:
+  //   1. rotateX(-π/2): sends +Y → -Z and -Y → +Z. So tip at +Y=0.5
+  //      lands at -Z=0.5; base at -Y=-0.5 lands at +Z=0.5.
+  //   2. translate(0, 0, 0.5): slides the whole cone forward by 0.5
+  //      along +Z. Tip lands at z=0 (origin); base lands at +Z=1.
+  //
+  // At runtime we scale Z by `length` (positive) so the base extends
+  // along +Z by `length` units. lookAt then sends +Z toward target,
+  // putting the BASE at the target end and the TIP at the muzzle.
+  //
+  // Three previous attempts had this orientation wrong because I kept
+  // assuming three.js Object3D.lookAt aligned -Z toward target (camera
+  // convention) but in this codebase's setup it's +Z. The rocket
+  // geometry confirmed +Z toward target.
   const flameGeo = new THREE.ConeGeometry(1, 1, 14, 1, true);
-  flameGeo.translate(0, 0.5, 0);                // base at origin, tip at +Y
-  flameGeo.rotateX(Math.PI / 2);                // base at origin, tip at +Z
+  flameGeo.rotateX(-Math.PI / 2);
+  flameGeo.translate(0, 0, 0.5);                // tip at origin, base at +Z=1
   flameOuterMat = new THREE.MeshBasicMaterial({
     color: 0xff6622, transparent: true, opacity: 0.75,
     side: THREE.DoubleSide, depthWrite: false,
@@ -492,6 +569,33 @@ function showIncomingCall() {
       @keyframes ip-pulse {
         0%, 100% { opacity: 1; }
         50% { opacity: 0.7; }
+      }
+      /* Mobile — push the title block UP by switching from center
+         flex alignment to a top-anchored layout. Without this, the
+         large pulsing INITIATE PROTOCOL title gets centered on the
+         viewport and the BEGIN button sits low on the screen. Per
+         playtester: "On the main screen before we BEGIN simulation
+         can we move BEGIN up?" */
+      @media (max-width: 900px), (pointer: coarse) {
+        #initiate-protocol {
+          justify-content: flex-start;
+          padding-top: 12vh;
+        }
+        #initiate-protocol .ip-title {
+          font-size: clamp(36px, 12vw, 80px);
+          letter-spacing: 6px;
+          margin-bottom: 8px;
+        }
+        #initiate-protocol .ip-sub {
+          font-size: 11px;
+          letter-spacing: 5px;
+          margin-bottom: 24px;
+        }
+        #initiate-protocol .ip-btn {
+          font-size: 18px;
+          letter-spacing: 4px;
+          padding: 14px 36px;
+        }
       }
     </style>
     <div class="ip-title">INITIATE</div>
@@ -713,10 +817,19 @@ function showIncomingCall() {
 
     // When the player finally clicks ATTACK THE AI, tear down the dive.
     // We do this once the start-btn fires so the fade coincides with the
-    // transition into gameplay (below in startGame).
-    document.getElementById('start-btn').addEventListener('click', () => {
-      diveCtrl.teardown();
-    }, { once: true });
+    // transition into gameplay (below in startGame). The tutorial button
+    // takes the player into a different gameplay path but needs the same
+    // overlay teardown — without it the matrix rain stays on top of the
+    // game and you can hear gameplay but see nothing.
+    const _diveTeardownOnce = (() => {
+      let done = false;
+      return () => { if (!done) { done = true; diveCtrl.teardown(); } };
+    })();
+    document.getElementById('start-btn').addEventListener('click', _diveTeardownOnce, { once: true });
+    const tutorialBtn = document.getElementById('tutorial-btn');
+    if (tutorialBtn) {
+      tutorialBtn.addEventListener('click', _diveTeardownOnce, { once: true });
+    }
   }, { once: true });
 }
 
@@ -817,9 +930,14 @@ function runMatrixDive(progressSource, onReady) {
   overlay.appendChild(pctText);
 
   // Subtitle below the big %. Switches to "READY · ATTACK THE AI" at 100%.
+  // Anchor at top: 68% so the subText sits directly below the title-screen
+  // save panel (HIGH SCORE / FURTHEST rows) without looking detached. The
+  // save panel ends around 64-65% on standard 16:9 viewports; 68% lands
+  // the text just under it with breathing room and still above the
+  // SELECT A GAME MODE description line.
   const subText = document.createElement('div');
   subText.style.cssText = `
-    position:absolute; left:50%; top:62%; transform:translate(-50%,-50%);
+    position:absolute; left:50%; top:68%; transform:translate(-50%,-50%);
     color:#00ff66; font-family:monospace;
     font-size: clamp(12px, 1.4vw, 16px);
     letter-spacing:5px;
@@ -955,6 +1073,13 @@ function runMatrixDive(progressSource, onReady) {
       y: (Math.random() - 0.5) * 2,
       z: initial ? Math.random() * 1.0 + 0.1 : 1.0,
       speed: 0.15 + Math.random() * 0.35,
+      // Vertical fall speed — gives streams a classic Matrix-rain
+      // descending motion ON TOP OF the dive-toward-camera effect.
+      // World-space units per second. Randomized per stream so the
+      // overall cascade has natural variance instead of every column
+      // moving in lockstep. screenY = cy + s.y * H * 0.6 / s.z, so
+      // increasing s.y over time drives the stream down the screen.
+      fallSpeed: 0.20 + Math.random() * 0.35,
       length: 8 + Math.floor(Math.random() * 20),
       chars: Array.from({ length: 30 }, () => CHARS[Math.floor(Math.random() * CHARS.length)]),
       charOffset: Math.random() * 100,
@@ -991,7 +1116,16 @@ function runMatrixDive(progressSource, onReady) {
     for (let i = 0; i < streams.length; i++) {
       const s = streams[i];
       s.z -= s.speed * accel * 0.016;
-      if (s.z <= 0.02) {
+      // Apply vertical fall — moves the stream's world-space y down.
+      // Same 0.016 dt approximation as the dive update for consistent
+      // motion. accel scales fall too so the rain "rushes" as load
+      // approaches 100%, matching the dive intensity.
+      s.y += s.fallSpeed * accel * 0.016;
+      if (s.z <= 0.02 || s.y > 4) {
+        // Reset: stream either reached the camera (z=0) or fell past
+        // the visible canvas (y too large). Respawn at the back. The
+        // y > 4 cap prevents streams with low z from drifting
+        // indefinitely off-screen without ever respawning.
         Object.assign(s, spawnStream(false));
         continue;
       }
@@ -1187,8 +1321,18 @@ function _makeReticleCursor(svgInner) {
   // beneath, and the crisp green stroke on top. Color locked to
   // matrix green (#00ff66) so it reads as "targeting mode" regardless
   // of which chapter palette is active.
-  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'><defs><filter id='g' x='-50%25' y='-50%25' width='200%25' height='200%25'><feGaussianBlur stdDeviation='2'/></filter></defs><g filter='url(%23g)' opacity='0.9'>${svgInner}</g>${svgInner}</svg>`;
-  return `url("data:image/svg+xml;utf8,${svg}") 20 20, crosshair`;
+  //
+  // Sizing: rendered at 128×128 with the SVG's viewBox kept at 40×40,
+  // so the inner shape coordinates and stroke widths scale up
+  // proportionally. 128 is the documented Firefox cap for CSS cursors
+  // and the largest size that renders reliably across modern browsers
+  // (Windows in particular silently downscales beyond 128). Hotspot
+  // moves from (20,20) to (64,64) — the new center of the 128px image.
+  // This approach keeps the cursor experience identical to the
+  // pre-DOM-element shipping behavior the player is used to, just
+  // bigger.
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128' viewBox='0 0 40 40'><defs><filter id='g' x='-50%25' y='-50%25' width='200%25' height='200%25'><feGaussianBlur stdDeviation='2'/></filter></defs><g filter='url(%23g)' opacity='0.9'>${svgInner}</g>${svgInner}</svg>`;
+  return `url("data:image/svg+xml;utf8,${svg}") 64 64, crosshair`;
 }
 
 // Build all reticles once. The SVG strings reference matrix green as the
@@ -1310,12 +1454,22 @@ function _reticleFor(weapon) {
   return _cursorCache[weapon];
 }
 
+// ===========================================================================
+// WEAPON CURSOR SYNC
+// ===========================================================================
+// Each weapon has a dedicated reticle (built above as _pistolReticle,
+// _shotgunReticle, etc.). _syncWeaponCursor() picks the right one for
+// S.currentWeapon and writes it to the --matrix-cursor CSS variable,
+// which the styles.css rules on body / #game / canvas pick up
+// automatically. One write updates every aiming surface at once.
+//
+// Called after every action that can change the active weapon: the 1-6
+// hotkeys, mouse-wheel cycle, gamepad cycle, weapon-pickup swap, and
+// the chapter-7 lifedrainer takeover. Also called once at module load
+// so the initial cursor matches the starting weapon (pistol).
+
 function _syncWeaponCursor() {
   const cursor = _reticleFor(S.currentWeapon);
-  // Override the --matrix-cursor CSS variable set in styles.css. Body
-  // and #game, canvas, and all its children inherit cursor via the
-  // var(--matrix-cursor) rules, so one variable write updates every
-  // surface at once.
   document.documentElement.style.setProperty('--matrix-cursor', cursor);
 }
 
@@ -1387,7 +1541,8 @@ window.addEventListener('keydown', e => {
     // Use a potion from inventory: heals POTION_HEAL HP if not at max,
     // no-op if already full or no potions held. Toast feedback in
     // tryUsePotion handles all the player-facing messages.
-    tryUsePotion();
+    const consumed = tryUsePotion();
+    if (consumed && S.tutorialMode) tutorialOnPotionConsumed();
   }
   if (e.key.toLowerCase() === 'n') {
     // Super Nuke — cleanses infectors arena-wide. Only available in
@@ -1400,6 +1555,40 @@ window.addEventListener('keydown', e => {
   }
 });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+// Tap-select weapons from the revolver wheel — ui.js dispatches this
+// custom event when the user taps (or clicks) a weapon slot. Mirrors
+// the keyboard 1-6 path so wheel taps and number-key presses run the
+// exact same weapon-switch sequence (state update, gun recolor,
+// cursor sync, toast). Chapter-7 lifedrainer-only mode and pickaxe
+// state are respected by the same guards as the key handler.
+window.addEventListener('mw:select-weapon', (e) => {
+  const w = e.detail;
+  if (S.chapter === PARADISE_FALLEN_CHAPTER_IDX) return;
+  if (!w || !S.ownedWeapons.has(w)) return;
+  S.currentWeapon = w;
+  S.previousCombatWeapon = w;
+  UI.updateWeaponSlots();
+  recolorGun(WEAPONS[w].color);
+  _syncWeaponCursor();
+  UI.toast(WEAPONS[w].name, '#' + WEAPONS[w].color.toString(16).padStart(6, '0'));
+});
+
+// Mobile-friendly action taps. Mirror the H / G / Escape keyboard
+// paths so taps and key presses run identical sequences. Tutorial
+// bookkeeping (tutorialOnPotionConsumed, _togglePauseKey returning
+// without S.running, etc) is preserved by calling the same entry
+// points the keyboard handler uses.
+window.addEventListener('mw:use-potion', () => {
+  const consumed = tryUsePotion();
+  if (consumed && S.tutorialMode) tutorialOnPotionConsumed();
+});
+window.addEventListener('mw:throw-grenade', () => {
+  tryThrowGrenade();
+});
+window.addEventListener('mw:toggle-pause', () => {
+  _togglePauseKey();
+});
 
 const raycaster = new THREE.Raycaster();
 const aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -1418,19 +1607,89 @@ window.addEventListener('mousedown', e => {
 window.addEventListener('mouseup', e => { if (e.button === 0) mouse.down = false; });
 window.addEventListener('contextmenu', e => e.preventDefault());
 
+// Mouse-wheel weapon cycling. Each wheel "click" rotates the revolver
+// by one slot:
+//   wheel DOWN (deltaY > 0) → NEXT weapon
+//   wheel UP   (deltaY < 0) → PREVIOUS weapon
+// Matches OS scroll convention (scroll down = move forward through
+// content). The 1-6 hotkeys still work; this is an alternate input.
+//
+// Trackpads emit many tiny deltaY events per swipe (each only a few
+// pixels); a naive listener would whip through every weapon in one
+// flick. We accumulate deltaY and only step when |accum| crosses a
+// threshold, which feels like one "click" per intentional gesture on
+// both mice and trackpads.
+//
+// We also rate-limit the actual cycle calls. Without this, rapid
+// scroll input fires multiple _cycleWeapon() calls inside a single
+// CSS transition window, which makes the revolver wheel "judder" as
+// each new transform overrides a still-tweening previous one. The
+// cooldown lets each step's animation land cleanly before the next
+// begins. Tuned to ~half the transition duration (which is 0.5s in
+// ui.js) so a deliberate scroll feels responsive, not blocked.
+let _wheelAccum = 0;
+let _lastCycleAt = 0;                 // wallclock ms of last cycle call
+const _WHEEL_STEP_THRESHOLD = 50;     // tuned for both mice & trackpads
+const _CYCLE_COOLDOWN_MS = 180;       // min time between weapon switches
+window.addEventListener('wheel', e => {
+  if (!S.running) return;
+  // Don't hijack scroll inside the pause menu, settings panes, etc.
+  if (S.paused) return;
+  // preventDefault so the page doesn't scroll behind the canvas.
+  e.preventDefault();
+  _wheelAccum += e.deltaY;
+  // Drain accumulator into at most ONE cycle per tick — additional
+  // intent is dropped on the floor (we explicitly clamp the accum to
+  // the threshold magnitude) so a flick that crossed the threshold
+  // 5 times in 80ms doesn't queue 5 spins.
+  const now = performance.now();
+  if (now - _lastCycleAt < _CYCLE_COOLDOWN_MS) return;
+  if (_wheelAccum >= _WHEEL_STEP_THRESHOLD) {
+    _wheelAccum = 0;
+    _lastCycleAt = now;
+    _cycleWeapon(+1);                 // wheel down = next weapon
+  } else if (_wheelAccum <= -_WHEEL_STEP_THRESHOLD) {
+    _wheelAccum = 0;
+    _lastCycleAt = now;
+    _cycleWeapon(-1);                 // wheel up = previous weapon
+  }
+}, { passive: false });               // passive:false so preventDefault works
+
 // Mobile controls (unchanged)
 const joystick = document.getElementById('joystick');
 const knob = document.getElementById('knob');
+// Track the touch identifier that started this joystick. Without
+// this, e.touches[0] returns the FIRST touch in the global list —
+// which can be the FIRE BUTTON's touch when the player has two
+// fingers down. That cross-talk caused the left joystick to read
+// thumb position from the fire button thumb. Identifier tracking
+// makes each control only respond to ITS OWN touch.
+let _joyTouchId = null;
+function _findTouchById(touchList, id) {
+  for (let i = 0; i < touchList.length; i++) {
+    if (touchList[i].identifier === id) return touchList[i];
+  }
+  return null;
+}
 function startJoy(e) {
+  // Latch onto the FIRST touch that hits the joystick element. If
+  // we already have one tracked (e.g., second finger added inside
+  // the joystick), ignore the new touch.
+  if (_joyTouchId !== null) return;
+  const t = e.changedTouches[0];
+  if (!t) return;
+  _joyTouchId = t.identifier;
   const r = joystick.getBoundingClientRect();
   joyState.active = true;
   joyState.cx = r.left + r.width / 2;
   joyState.cy = r.top + r.height / 2;
-  moveJoy(e); e.preventDefault();
+  // Run the move logic using the captured touch coordinates so the
+  // initial press registers a 0,0 position (the new control center)
+  // instead of a snap based on touches[0].
+  _applyJoyTouch(t);
+  e.preventDefault();
 }
-function moveJoy(e) {
-  if (!joyState.active) return;
-  const t = e.touches[0];
+function _applyJoyTouch(t) {
   let dx = t.clientX - joyState.cx;
   let dy = t.clientY - joyState.cy;
   const m = Math.sqrt(dx * dx + dy * dy);
@@ -1438,9 +1697,26 @@ function moveJoy(e) {
   if (m > max) { dx = dx / m * max; dy = dy / m * max; }
   joyState.dx = dx / max; joyState.dy = dy / max;
   knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+}
+function moveJoy(e) {
+  if (!joyState.active || _joyTouchId === null) return;
+  // Find OUR touch by identifier. If it's not in this event's
+  // touches (touchmove only includes touches that actually moved),
+  // bail — there's no update for us this frame.
+  const t = _findTouchById(e.changedTouches, _joyTouchId)
+         || _findTouchById(e.touches, _joyTouchId);
+  if (!t) return;
+  _applyJoyTouch(t);
   e.preventDefault();
 }
-function endJoy() {
+function endJoy(e) {
+  // Only release on the touch that owns the joystick — a different
+  // touch ending (e.g., fire button thumb lifting) shouldn't
+  // release the joystick if the joystick thumb is still down.
+  if (_joyTouchId === null) return;
+  const t = e ? _findTouchById(e.changedTouches, _joyTouchId) : null;
+  if (e && !t) return;
+  _joyTouchId = null;
   joyState.active = false;
   joyState.dx = 0; joyState.dy = 0;
   knob.style.transform = 'translate(-50%, -50%)';
@@ -1448,9 +1724,74 @@ function endJoy() {
 joystick.addEventListener('touchstart', startJoy, { passive: false });
 joystick.addEventListener('touchmove', moveJoy, { passive: false });
 joystick.addEventListener('touchend', endJoy);
+joystick.addEventListener('touchcancel', endJoy);
+
 const fireBtn = document.getElementById('fire-btn');
-fireBtn.addEventListener('touchstart', e => { mouse.down = true; Audio.resume(); e.preventDefault(); });
-fireBtn.addEventListener('touchend', e => { mouse.down = false; });
+// Mobile fire button doubles as an aim joystick. Touchstart captures
+// the button center; touchmove computes a drag vector from center
+// that drives aim direction. While touching: fire AND aim with one
+// thumb. Release: clear both. Inside a small deadzone (no drag) the
+// existing auto-aim takes over so a tap-fire still snaps to nearest
+// enemy — only a meaningful drag overrides the aim.
+//
+// Same touch-identifier tracking as the movement joystick so a
+// thumb on the joystick doesn't accidentally drive the fire
+// button's aim direction.
+let _fireTouchId = null;
+function _fireBtnStart(t) {
+  if (_fireTouchId !== null) return;
+  _fireTouchId = t.identifier;
+  mouse.down = true;
+  aimJoyState.active = true;
+  const r = fireBtn.getBoundingClientRect();
+  aimJoyState.cx = r.left + r.width / 2;
+  aimJoyState.cy = r.top + r.height / 2;
+  aimJoyState.dx = 0;
+  aimJoyState.dy = 0;
+  fireBtn.classList.add('firing');
+  Audio.resume();
+}
+function _fireBtnMove(t) {
+  if (!aimJoyState.active) return;
+  let dx = t.clientX - aimJoyState.cx;
+  let dy = t.clientY - aimJoyState.cy;
+  const m = Math.sqrt(dx * dx + dy * dy);
+  const max = 50;
+  if (m > max) { dx = (dx / m) * max; dy = (dy / m) * max; }
+  aimJoyState.dx = dx / max;
+  aimJoyState.dy = dy / max;
+}
+function _fireBtnEnd() {
+  _fireTouchId = null;
+  mouse.down = false;
+  aimJoyState.active = false;
+  aimJoyState.dx = 0;
+  aimJoyState.dy = 0;
+  fireBtn.classList.remove('firing');
+}
+fireBtn.addEventListener('touchstart', e => {
+  const t = e.changedTouches[0];
+  if (t) _fireBtnStart(t);
+  e.preventDefault();
+}, { passive: false });
+fireBtn.addEventListener('touchmove', e => {
+  if (_fireTouchId === null) return;
+  const t = _findTouchById(e.changedTouches, _fireTouchId)
+         || _findTouchById(e.touches, _fireTouchId);
+  if (!t) return;
+  _fireBtnMove(t);
+  e.preventDefault();
+}, { passive: false });
+fireBtn.addEventListener('touchend', e => {
+  if (_fireTouchId === null) return;
+  const t = _findTouchById(e.changedTouches, _fireTouchId);
+  if (!t) return;
+  _fireBtnEnd();
+});
+fireBtn.addEventListener('touchcancel', e => {
+  if (_fireTouchId === null) return;
+  _fireBtnEnd();
+});
 
 const pickBtn = document.getElementById('pick-btn');
 if (pickBtn) {
@@ -1484,6 +1825,7 @@ function tryDash() {
   S.dashCooldown = PLAYER.dashCooldown;
   S.invulnTimer = Math.max(S.invulnTimer, PLAYER.dashDuration);
   shake(0.1, 0.1);
+  if (S.tutorialMode) tutorialOnDashed();
 }
 
 // ---- GAMEPAD ----
@@ -1916,6 +2258,11 @@ function startGame() {
   // then tint it to chapter 0.
   buildCrowd();
   recolorCrowd(CHAPTERS[0].full.grid1);
+  // Spawn perimeter gravestones (X/O carvings, chapter-tinted). Cleared
+  // first to handle restart from a previous session — otherwise stones
+  // accumulate across runs.
+  clearGravestones();
+  spawnGravestones(14, CHAPTERS[0].full.grid1);
   // Prewarm every shader permutation (enemies, bosses, projectiles, pickups,
   // weapons) before the first frame of real gameplay. Runs once; no-op on
   // subsequent calls. This eliminates the wave-6 hitch (new red-chapter
@@ -1942,10 +2289,317 @@ function startGame() {
   }, 3000);
   UI.updateHUD();
   UI.updateWeaponSlots();
+  // Hero hexagons HUD — three pointy-top hexagonal tiles in the
+  // top-left showing chapter-themed NPC portraits (PIXL PAL,
+  // FLINGER, GOB). Rim tinted with the chapter palette grid color.
+  // Idempotent — safe to call on every new run. setVisible(true)
+  // covers the case where the player ran the tutorial first
+  // (which hides them) before starting a real run.
+  try {
+    initHeroHexagons();
+    setHeroHexagonsVisible(true);
+    updateHeroHexagons(0, CHAPTERS[0].full.grid1);
+  } catch (e) { console.warn('[hero-hexagons]', e); }
   startWave(1);
 }
 
+// ---------------------------------------------------------------------
+// TUTORIAL ENTRY
+// ---------------------------------------------------------------------
+// Loads the player into the same arena geometry as a normal run, but:
+//   - swaps the floor for the rainbow numbered-tile texture
+//   - unlocks every weapon (plus pickaxe/grenade) so the player can
+//     practice cycling through 1-6 + Q
+//   - flags S.tutorialMode so waves.js forces enemy color to b/w and
+//     clamps the spawn rate to 1..2/sec
+//
+// We deliberately skip the hyperdrive cinematic — the tutorial is
+// supposed to feel like a calm range, not the dramatic ATTACK THE AI
+// dive. Otherwise the path mirrors startGame so the rest of the game's
+// systems boot identically.
+// ---------------------------------------------------------------------
+function startTutorial() {
+  Audio.stopPhoneRing && Audio.stopPhoneRing();
+  Audio.stopCDrone && Audio.stopCDrone();
+
+  initFogRing();
+  setTitleMode(false);
+
+  document.getElementById('gameover').classList.add('hidden');
+
+  // Hide the title screen immediately — no cinematic ramp.
+  const titleEl = document.getElementById('title');
+  if (titleEl) titleEl.classList.add('hidden');
+
+  // Reveal the in-game HUD just like startGame does, then HIDE the
+  // panels we don't want during the tutorial. Per spec:
+  //   • hide #hud-top      — score / chapter / wave / kills (meaningless here)
+  //   • hide #player-panel — HP/XP bars + avatar (clutter)
+  //   • keep  #inventory   — weapon revolver
+  //   • keep  #controls    — keybind reference
+  //   • keep killstreak / grenade / potion HUDs (lazily created by ui.js)
+  document.querySelectorAll('.hidden-ui').forEach(el => el.style.display = '');
+  const _hudTop = document.getElementById('hud-top');
+  const _playerPanel = document.getElementById('player-panel');
+  if (_hudTop) _hudTop.style.display = 'none';
+  if (_playerPanel) _playerPanel.style.display = 'none';
+  // Hero hexagons are chapter-themed; hide during tutorial (which
+  // isn't tied to any chapter). They'll be re-shown automatically
+  // when the player enters a real game run via startGame().
+  try { setHeroHexagonsVisible(false); } catch (e) {}
+
+  resetGame();
+
+  // Mark tutorial mode AFTER resetGame (which clears the flag).
+  S.tutorialMode = true;
+  setTutorialActive(true);
+
+  // Load player identity. Tutorial only starts the player with the
+  // pistol — additional weapons are granted by their respective
+  // lessons so the player learns each one in context.
+  const rec = Save.load();
+  S.username = rec.username;
+  S.playerMeebitId = rec.playerMeebitId || S.playerMeebitId;
+  S.playerMeebitSource = rec.playerMeebitSource || S.playerMeebitSource;
+  S.walletAddress = rec.walletAddress;
+  S.ownedWeapons = new Set(['pistol']);
+  S.currentWeapon = 'pistol';
+  S.previousCombatWeapon = 'pistol';
+
+  resetPlayer();
+  resetWaves();
+  clearBullets();
+  clearRockets();
+  for (const g of _grenades) scene.remove(g);
+  _grenades.length = 0;
+  refillGrenades();
+  clearPickups();
+  clearParticles();
+  clearAllBlocks();
+  clearAllEggs();
+  clearCannon();
+  clearQueenHive();
+  clearCrusher();
+  clearChargeCubes();
+  clearEscortTruck();
+  clearServerWarehouse();
+  clearSafetyPod();
+  clearCockroachBoss();
+  clearGooSplats();
+  clearHazards();
+  clearAllPickups();
+  clearAllPixlPals();
+  clearAllFlingers();
+  despawnGalagaShip();
+  despawnPacman();
+  despawnPellets();
+  clearInfectors();
+  clearAllPowerups();
+  hideMissileArrow();
+
+  // Initialize visuals on chapter 0 so the lighting/sky look right; the
+  // floor swap below replaces just the ground texture.
+  initRain(CHAPTERS[0].full.grid1, 1);
+  ensureBeamMesh();
+  ensureFlameMeshes();
+  applyTheme(0, 1);
+  applyRainTo(CHAPTERS[0].full.grid1, 1);
+  buildCrowd();
+  recolorCrowd(CHAPTERS[0].full.grid1);
+  prewarmShaders(renderer);
+  try { prewarmBossCinematic(); } catch (e) {}
+
+  // Tutorial = clear weather. Per playtester: "we can get rid of rain
+  // and lightning in tutorial." initRain + applyRainTo above set up
+  // the pooled mesh group + lightning DirectionalLight + CSS flash
+  // element so they're cheap to re-engage when the player exits to
+  // the real game; disposeRain() immediately tears down the visible
+  // rain group and zeros lightning flash intensity. The pool will be
+  // rebuilt fresh by initRain in startGame() if the player picks
+  // ATTACK THE AI later.
+  disposeRain();
+
+  // Swap the floor to the rainbow tile texture AFTER applyTheme so the
+  // theme's lamp tint doesn't multiply the rainbow colors.
+  applyTutorialFloor();
+
+  // Tutorial mode is bare-bones: no shadows, no fog (flat, calm look)
+  // and our own dedicated music. Both visuals are restored in
+  // restoreNormalFloor() / on quit-to-title via the same flow.
+  // Three coordinated steps disable fog completely:
+  //   1. disableFog() pushes scene.fog distances far out
+  //   2. setFogVisible(false) hides the radial fog-ring meshes
+  //   3. The animate loop skips updateFogRing while tutorial is active
+  //      (otherwise it would aggressively re-assert fog every frame
+  //      and undo step 1)
+  disableShadows(renderer);
+  disableFog();
+  // Crank ambient + hemi to bright white so the meebit isn't muted
+  // by chapter-mood lighting. Without this the avatar reads as DARK
+  // even with two parented PointLights, because the scene-wide
+  // ambient sits at intensity 0.55 with a deep purple tint that
+  // dominates the meebit's albedo.
+  boostTutorialLighting();
+  try { setFogVisible(false); } catch (e) {}
+
+  Audio.init();
+  Audio.resume();
+  Audio.stopCDrone && Audio.stopCDrone();
+  // Tutorial gets its own dedicated looping track. Drops on tutorial
+  // exit (quit, restart, or auto-return on completion) via
+  // _exitTutorialIfActive() → Audio.stopTutorialMusic().
+  try { Audio.startTutorialMusic(); } catch (e) { console.warn('[tutorial] music', e); }
+
+  UI.updateHUD();
+  UI.updateWeaponSlots();
+  UI.toast('TUTORIAL · FOLLOW THE CHECKLIST', '#ffd93d', 3000);
+
+  // Start the lesson controller. We do NOT call startWave(1) — the
+  // tutorial controller drives all spawns and props. waves.js
+  // updateWaves early-returns when S.tutorialMode is true (see step 4
+  // below).
+  startTutorialController({
+    onAllDone: () => {
+      // Final lesson is overdrive. We want the player to FINISH the
+      // overdrive special ability (its 8-second power-up timer) before
+      // the tutorial closes — yanking the player out of overdrive mid-
+      // flight feels abrupt and steals the reward they just earned.
+      // Poll until S.overdriveActive flips false, then show the
+      // TUTORIAL COMPLETE prompt with a manual "Return to Main Screen"
+      // button instead of auto-dismissing on a timeout.
+      _waitForOverdriveAndPromptComplete();
+    },
+  });
+}
+
+// Poll until the active overdrive power-up has fully played out, then
+// show the tutorial-complete modal. While overdrive is on, S.overdriveActive
+// is true and S.overdriveTimer counts down from OVERDRIVE_DURATION (8s).
+// We check every 200ms — cheap, and the human-perceptible delay between
+// "overdrive ended" and "modal appeared" stays under a fifth of a second.
+function _waitForOverdriveAndPromptComplete() {
+  // Hard cap on the wait so a stuck overdrive flag can't lock the
+  // tutorial in limbo indefinitely. 12s is OVERDRIVE_DURATION (8s) +
+  // generous slack; if we're still waiting after that, just show the
+  // modal anyway.
+  const startWait = performance.now();
+  const HARD_CAP_MS = 12000;
+  const tick = () => {
+    if (!S.overdriveActive || performance.now() - startWait > HARD_CAP_MS) {
+      _showTutorialCompleteModal();
+      return;
+    }
+    setTimeout(tick, 200);
+  };
+  tick();
+}
+
+// Build (lazily) and show the TUTORIAL COMPLETE confirmation modal.
+// Single CTA: RETURN TO MAIN SCREEN. Click triggers the actual
+// teardown + title-screen restoration. Modal is created on first call
+// and reused on subsequent runs (which won't happen in a normal session
+// but the code path is defended anyway).
+let _tutCompleteModal = null;
+function _showTutorialCompleteModal() {
+  if (!_tutCompleteModal) {
+    const m = document.createElement('div');
+    m.id = 'tutorial-complete-modal';
+    // High z-index so it sits above the title overlay (100) and the
+    // pause menu (10000). Same z as the gameover screen would block,
+    // so we explicitly hide gameover before showing this.
+    m.style.cssText = [
+      'position: fixed',
+      'inset: 0',
+      'background: radial-gradient(ellipse at center, rgba(20,4,40,0.92), rgba(7,3,13,0.99))',
+      'display: flex',
+      'flex-direction: column',
+      'align-items: center',
+      'justify-content: center',
+      'z-index: 10001',
+      'text-align: center',
+      'padding: 40px',
+      'font-family: Impact, monospace',
+      'color: #fff',
+      'cursor: var(--matrix-cursor)',
+    ].join(';');
+    m.innerHTML = `
+      <div style="font-size: 14px; letter-spacing: 6px; color: #888; margin-bottom: 20px;">
+        :: SIGNAL CLEAN ::
+      </div>
+      <div style="
+        font-size: 86px;
+        letter-spacing: 8px;
+        line-height: 0.95;
+        color: #00ff66;
+        text-shadow: 0 0 18px #00ff66, 0 0 44px rgba(0,255,102,0.7), 4px 4px 0 #000;
+        margin-bottom: 18px;
+      ">TUTORIAL<br>COMPLETE</div>
+      <div style="
+        font-size: 16px;
+        letter-spacing: 4px;
+        color: #ccc;
+        margin-bottom: 36px;
+      ">YOU ARE READY TO ENTER THE GRID.</div>
+      <button id="tutorial-complete-return" style="
+        font-family: Impact, monospace;
+        font-size: 24px;
+        letter-spacing: 5px;
+        padding: 16px 42px;
+        background: transparent;
+        color: #00ff66;
+        border: 2px solid #00ff66;
+        cursor: pointer;
+        text-shadow: 0 0 10px rgba(0,255,102,0.6);
+        transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+      ">RETURN TO MAIN SCREEN</button>
+    `;
+    document.body.appendChild(m);
+    const btn = m.querySelector('#tutorial-complete-return');
+    btn.addEventListener('mouseenter', () => {
+      btn.style.background = '#00ff66';
+      btn.style.color = '#000';
+    });
+    btn.addEventListener('mouseleave', () => {
+      btn.style.background = 'transparent';
+      btn.style.color = '#00ff66';
+    });
+    btn.addEventListener('click', () => {
+      // Hide modal, tear down tutorial, restore title screen.
+      m.style.display = 'none';
+      S.paused = false;
+      S.running = false;
+      Audio.stopMusic();
+      _exitTutorialIfActive();
+      document.querySelectorAll('.hidden-ui').forEach(el => el.style.display = 'none');
+      document.getElementById('gameover').classList.add('hidden');
+      const _t = document.getElementById('title');
+      if (_t) _t.classList.remove('hidden');
+    });
+    _tutCompleteModal = m;
+  }
+  _tutCompleteModal.style.display = 'flex';
+}
+
 function gameOver() {
+  // Tutorial mode never actually ends. If the player runs out of HP
+  // we respawn them at the center of the arena with full health and
+  // a brief invuln window, so they can resume the lesson without
+  // dropping to the SIGNAL LOST screen. Some hazards (Minesweeper
+  // bombs, Pacman ghosts) are designed to insta-kill in the real
+  // game — in tutorial we still want the player to *experience*
+  // those hits, just survive them.
+  if (S.tutorialMode) {
+    S.hp = S.hpMax;
+    S.invulnTimer = Math.max(S.invulnTimer, 1.5);
+    if (player && player.pos) {
+      player.pos.set(0, 0, 0);
+      if (player.obj) player.obj.position.copy(player.pos);
+    }
+    UI.toast('TUTORIAL · NO DEATH · RESPAWNED', '#ffd93d', 1800);
+    UI.updateHUD();
+    return;
+  }
+
   S.running = false;
   S.phase = 'gameover';
   Audio.stopMusic();
@@ -1962,8 +2616,232 @@ function gameOver() {
   document.getElementById('gameover').classList.remove('hidden');
 }
 
-document.getElementById('start-btn').addEventListener('click', () => { Audio.init(); startGame(); });
-document.getElementById('restart-btn').addEventListener('click', startGame);
+// Tutorial teardown helper — called from every path that exits a
+// tutorial run (Start, Restart, Pause→Quit, and the auto-return on
+// completion). Keeps the cleanup sequence in one place so we don't
+// drift over time.
+function _exitTutorialIfActive() {
+  if (!isTutorialActive() && !S.tutorialMode) return;
+  setTutorialActive(false);
+  S.tutorialMode = false;
+  S.tutorialHazardCycle = false;
+  restoreNormalFloor();
+  restoreShadows(renderer);
+  restoreFog();
+  restoreTutorialLighting();
+  // Re-show the fog ring meshes; the animate loop will resume calling
+  // updateFogRing on the next non-tutorial frame which will re-assert
+  // proper fog params for the active chapter.
+  try { setFogVisible(true); } catch (e) {}
+  // Stop hazard spawning that the tutorial cycler may have enabled.
+  setHazardSpawningEnabled(false);
+  // Stop the tutorial soundtrack.
+  try { Audio.stopTutorialMusic && Audio.stopTutorialMusic(); } catch (e) {}
+  // Tear down the lesson controller (also removes the checklist DOM).
+  try { stopTutorialController(); } catch (e) {}
+  // Restore HUD panels we hid for tutorial mode.
+  const _hudTop = document.getElementById('hud-top');
+  const _playerPanel = document.getElementById('player-panel');
+  if (_hudTop) _hudTop.style.display = '';
+  if (_playerPanel) _playerPanel.style.display = '';
+  // Reset the hazard cycler state so a future tutorial starts clean.
+  _tutHazInit = false;
+  _tutHazMode = false;
+  _tutHazIdx = 0;
+  _tutHazTimer = 0;
+  try { clearHazards(); } catch (e) {}
+  // Hide cell-glow + both meebit lights on exit so they don't
+  // reappear at their last position the next time the player runs
+  // a normal game.
+  if (_tutCellMesh) _tutCellMesh.visible = false;
+  if (_tutMeebitLight) _tutMeebitLight.visible = false;
+  if (_tutMeebitFillLight) _tutMeebitFillLight.visible = false;
+  // If the OVERDRIVE lesson left overdrive mid-flight (8s timer
+  // started, tutorial closed before it expired), force-exit it so
+  // the player's scale/invuln state doesn't leak into the title
+  // screen. exitOverdrive is idempotent — safe to call when not
+  // active.
+  if (S.overdriveActive) {
+    try { exitOverdrive(); } catch (e) {}
+  }
+  S.tutorialRequestOverdrive = false;
+}
+
+// Tutorial-only — highlights the rainbow grid cell the player is
+// CURRENTLY STANDING ON. Two layers:
+//
+//   1. _tutCellMesh — opaque-ish quad laid on the floor, sized 1:1
+//      with the grid cell. Uses NormalBlending (NOT additive) so it
+//      paints the cell with the saturated tile color directly,
+//      rather than additively averaging toward white. Additive
+//      blending was tried earlier and read as "soft / washed out"
+//      because at high opacity it just brightens everything toward
+//      a uniform glow. Normal-blend with high opacity keeps the
+//      pure tile hue.
+//
+//      The colour is also pushed THROUGH a hard saturation boost
+//      (sat × 2.0) before being applied — the floor texture itself
+//      stays at gentler saturation for the base look, but the
+//      "active cell" indicator is meant to POP, so it gets the
+//      extra punch.
+//
+//   2. _tutMeebitLight — a real PointLight parented to the player.
+//      Color matches the tile so the meebit picks up the rainbow
+//      hue too. Distance ~6u so falloff is tight.
+//
+// Earlier iteration also added an upward beam cylinder; the user
+// said "the lights going up just isn't working" so it's been
+// removed. The layered approach now is cell-paint + meebit-light,
+// nothing else.
+let _tutCellMesh = null;
+let _tutCellMat = null;
+let _tutMeebitLight = null;
+let _tutMeebitFillLight = null;     // constant-white fill so meebit isn't dark on saturated tiles
+let _tutCellSize = 0;             // remembered to detect first build
+let _tutCellTargetColor = new THREE.Color(0xffffff);
+// Cell-cross animation state. Tracks the col/row the highlight is
+// currently painting. When the player crosses into a new cell we
+// trigger:
+//   - opacity fade: drops to ~0.55 then climbs back to 1.0 over ~0.45s
+//   - Y-lift:       rises from 0.01 to 0.045 then settles to 0.018
+// The pop reads as the new tile rising to greet the player rather
+// than a hard snap. _tutCellAnimT is seconds since the last
+// cell-cross; counts up indefinitely once past the animation length.
+let _tutCurCol = -1;
+let _tutCurRow = -1;
+let _tutCellAnimT = 0;
+const _TUT_CELL_ANIM_LEN = 0.45;     // seconds for fade+lift to finish
+function _updateTutorialFloorGlow(dt) {
+  if (!player || !player.pos) return;
+  const info = getTutorialCellInfo(player.pos.x, player.pos.z);
+  if (!info) {
+    // Player is outside the rainbow zone (on the black border rails).
+    if (_tutCellMesh) _tutCellMesh.visible = false;
+    if (_tutMeebitLight) _tutMeebitLight.visible = false;
+    if (_tutMeebitFillLight) _tutMeebitFillLight.visible = false;
+    _tutCurCol = _tutCurRow = -1;
+    return;
+  }
+
+  if (!_tutCellMesh) {
+    const geo = new THREE.PlaneGeometry(1, 1);
+    // Bevel-shape mask: same rounded-corner + bevel pattern as the
+    // floor tiles. Used as alphaMap so the highlight's silhouette
+    // and bevel lines match the underlying tile exactly. The mask's
+    // brightness gradient ALSO multiplies the color (since we set
+    // material.color to the cell color and the mask is white-ish
+    // gradient), so the highlight gets a free top-left highlight +
+    // bottom-right shadow that mirrors the floor bevel.
+    const bevelMask = getTileBevelMaskTexture();
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      // Slight base translucency so the underlying floor tile shows
+      // through faintly, blending the highlight color with the
+      // floor texture rather than completely overpainting it. The
+      // animation drives this between ~0.55 (mid-fade) and 1.0
+      // (settled).
+      opacity: 1.0,
+      // Use the bevel mask as both color modulator (via .map) and
+      // shape (via .alphaMap). One single texture does both jobs:
+      // the color channel multiplies tint with the bevel highlights
+      // and shadows, the alpha channel clips to the rounded shape.
+      map: bevelMask,
+      alphaMap: bevelMask,
+      blending: THREE.NormalBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.y = 0.018;
+    mesh.renderOrder = -1;
+    scene.add(mesh);
+    _tutCellMesh = mesh;
+    _tutCellMat = mat;
+  }
+  if (!_tutMeebitLight) {
+    const fill = new THREE.PointLight(0xffffff, 1.6, 7.0, 1.4);
+    fill.position.set(0, 1.6, 0);
+    if (player.obj) player.obj.add(fill);
+    else scene.add(fill);
+    _tutMeebitFillLight = fill;
+
+    const light = new THREE.PointLight(0xffffff, 3.0, 8.0, 1.6);
+    light.position.set(0, 1.0, 0);
+    if (player.obj) player.obj.add(light);
+    else scene.add(light);
+    _tutMeebitLight = light;
+  }
+
+  // Highlight quad sized 1:1 with the cell — was 0.94× before
+  // (slight inset) but per playtester request it should be
+  // "exactly the same size of the floor tile it represents". The
+  // bevel mask's own internal inset already creates the visible
+  // grout gap, so the geometry stays 1.0×.
+  if (_tutCellSize !== info.size) {
+    _tutCellSize = info.size;
+    _tutCellMesh.scale.set(info.size, info.size, 1);
+  }
+  _tutCellMesh.visible = true;
+  _tutCellMesh.position.x = info.x;
+  _tutCellMesh.position.z = info.z;
+  if (_tutMeebitLight) _tutMeebitLight.visible = true;
+  if (_tutMeebitFillLight) _tutMeebitFillLight.visible = true;
+
+  // Detect cell crossing — kick off the fade + lift animation when
+  // the player walks onto a different (col, row).
+  if (info.col !== _tutCurCol || info.row !== _tutCurRow) {
+    _tutCurCol = info.col;
+    _tutCurRow = info.row;
+    _tutCellAnimT = 0;
+  }
+  if (_tutCellAnimT < _TUT_CELL_ANIM_LEN) {
+    _tutCellAnimT = Math.min(_TUT_CELL_ANIM_LEN, _tutCellAnimT + (dt || 0.016));
+  }
+  // Animation curve: a single-cycle 0→1 sine bump.
+  // t01 goes 0..1 across the animation length.
+  // bump = 4*t*(1-t) is a unit parabola peaking at t=0.5.
+  const t01 = _tutCellAnimT / _TUT_CELL_ANIM_LEN;
+  const bump = 4 * t01 * (1 - t01);
+  // Fade: opacity dips to 0.55 mid-animation, recovers to 1.0.
+  // Without animation (t01 = 1): opacity = 1.0.
+  const FADE_LOW = 0.55;
+  const opacity = 1.0 - bump * (1.0 - FADE_LOW);
+  _tutCellMat.opacity = opacity;
+  // Lift: y rises from settled 0.018 → 0.045 at peak, returns to
+  // settled. Subtle physical pop without the highlight detaching
+  // visually from the floor.
+  const SETTLED_Y = 0.018;
+  const PEAK_Y    = 0.045;
+  _tutCellMesh.position.y = SETTLED_Y + bump * (PEAK_Y - SETTLED_Y);
+
+  // Color migration. info.color is already at max saturation + high
+  // lightness via getTutorialGlowColorAt. Smooth lerp so adjacent
+  // cells of similar hue don't pop, but the cell-cross animation
+  // above gives a clear "I changed cells" cue regardless.
+  _tutCellTargetColor.setHex(info.color);
+  _tutCellMat.color.lerp(_tutCellTargetColor, 0.25);
+  if (_tutMeebitLight) _tutMeebitLight.color.lerp(_tutCellTargetColor, 0.25);
+}
+
+document.getElementById('start-btn').addEventListener('click', () => {
+  // If we somehow got here from a tutorial run, make sure the rainbow
+  // floor + tutorial state are gone before the real game starts.
+  _exitTutorialIfActive();
+  Audio.init();
+  startGame();
+});
+document.getElementById('tutorial-btn').addEventListener('click', () => {
+  Audio.init();
+  startTutorial();
+});
+document.getElementById('restart-btn').addEventListener('click', () => {
+  // Restart always returns to the real game flow — drop the tutorial
+  // floor + state if it's currently up.
+  _exitTutorialIfActive();
+  startGame();
+});
 
 // ---- PAUSE MENU HANDLERS ----
 // Registered once. The pause menu calls onResume when the user clicks
@@ -1975,6 +2853,9 @@ PauseMenu.setHandlers({
     S.paused = false;
     S.running = false;
     Audio.stopMusic();
+    // If quitting a tutorial run, drop the rainbow floor so the title
+    // screen + any subsequent normal run look right.
+    _exitTutorialIfActive();
     document.querySelectorAll('.hidden-ui').forEach(el => el.style.display = 'none');
     document.getElementById('gameover').classList.add('hidden');
     document.getElementById('title').classList.remove('hidden');
@@ -2159,8 +3040,16 @@ registerBlockExplosionHandler((centerVec3, radius, color) => {
       const dist = Math.sqrt(d2);
       const falloff = 1 - (dist / radius) * 0.4; // 100% at center, 60% at edge
       const dmg = BLOCK_CONFIG.explosionDamageEnemy * falloff;
-      e.hp -= dmg;
-      e.hitFlash = 0.25;
+      // Shielded bosses (NIGHT_HERALD pre-50%-HP) absorb damage via
+      // shield. Show feedback so the player knows the hit landed but
+      // didn't penetrate.
+      if (e.shielded) {
+        e.hitFlash = 0.15;
+        try { Audio.shieldHit && Audio.shieldHit(); } catch (err) {}
+      } else {
+        e.hp -= dmg;
+        e.hitFlash = 0.25;
+      }
       hitBurst(e.pos, color, 6);
       if (e.hp <= 0) {
         // Use existing kill pipeline so score/XP/pickups fire correctly
@@ -2235,6 +3124,29 @@ let _lastSeenWave = 0;
 // hyperdrive block doesn't fire after the first wave so without this
 // tracker the style stays stuck as tetris for the whole run.
 let _lastSeenChapter = -1;
+
+// Tutorial-only hazard cycle state. Driven by lesson 10/11 via
+// S.tutorialHazardCycle which is one of:
+//   'damage' — non-lethal hazards (Tetris, Galaga). Damage but
+//              don't insta-kill.
+//   'deadly' — lethal hazards (Minesweeper, Pacman). Insta-kill in
+//              the real game; the tutorial gameOver helper respawns
+//              the player at center.
+//    false   — cycle off.
+// _tutHazInit guards the one-time setup; the timer rotates through
+// the active group every 5s.
+let _tutHazInit = false;
+let _tutHazMode = false;
+let _tutHazIdx = 0;
+let _tutHazTimer = 0;
+const _tutHazStylesByMode = {
+  damage: [tetrisStyle, galagaStyle],
+  deadly: [minesweeperStyle, pacmanStyle],
+};
+const _tutHazNamesByMode = {
+  damage: ['TETRIS', 'GALAGA'],
+  deadly: ['MINESWEEPER', 'PACMAN'],
+};
 
 function animate() {
   requestAnimationFrame(animate);
@@ -2319,14 +3231,86 @@ function animate() {
     // sink animation needs to keep ticking AFTER wave 1 ends so the
     // truck actually vanishes for wave 2. Calling with null playerPos
     // skips movement; only beacon + sink animations run.
-    updateEscortTruck(dt, null, null);
+    // In tutorial mode we DO want the truck to move when the escort
+    // lesson is active, so pass real args. The escort lesson spawns
+    // a truck via spawnEscortTruck; on other tutorial lessons no
+    // truck exists and updateEscortTruck early-returns harmlessly.
+    if (S.tutorialMode) {
+      updateEscortTruck(dt, player.pos, enemies);
+    } else {
+      updateEscortTruck(dt, null, null);
+    }
     updateServerWarehouse(dt);
     updateSafetyPod(dt);
     updateHiveLasers(dt);
     updateCockroach(dt);
-    updateFogRing(player.pos);
+    // Skip the fog-ring update in tutorial mode. updateFogRing()
+    // re-writes scene.fog.near/far/color every frame to override
+    // theme transitions; without this guard it would clobber the
+    // disableFog() snapshot and the perimeter darkness would
+    // come back. Tutorial gets bare-bones lighting on purpose.
+    if (!S.tutorialMode) updateFogRing(player.pos);
     updateBossCubes(dt);
     updateCivilians(dt, enemies, player, onCivilianKilled, onCivilianRescued);
+    // In tutorial mode the lesson controller drives spawns and props
+    // every frame. updateWaves below early-returns when tutorialMode
+    // is on, so the two systems never fight for game state.
+    if (S.tutorialMode) {
+      try { tickTutorialController(dt); } catch (e) { console.warn('[tutorial] tick', e); }
+      // Floor glow — soft emissive disc under the player, tinted to
+      // match the rainbow tile underneath. Lazy-built on first tutorial
+      // frame; tracks player.pos every frame; recolors using the
+      // tutorial floor's bilinear sampler.
+      _updateTutorialFloorGlow(dt);
+      // Tutorial overdrive request — the OVERDRIVE lesson sets this
+      // flag the moment the player's streak crosses 25 (vs the usual
+      // 100 in the main game). We honor it once and clear; the lesson
+      // detects S.overdriveActive to mark itself complete.
+      if (S.tutorialRequestOverdrive && !S.overdriveActive) {
+        S.tutorialRequestOverdrive = false;
+        try { enterOverdrive(); } catch (e) {}
+      }
+      // Hazard cycle driver — only runs when the active lesson sets
+      // S.tutorialHazardCycle to 'damage' or 'deadly'. Cycles through
+      // the matching style group every ~5s. updateWaves'
+      // tickHazardSpawning is gated behind the wave system; in
+      // tutorial we call it directly here.
+      const mode = S.tutorialHazardCycle;
+      if (mode && _tutHazStylesByMode[mode]) {
+        // Mode change: tear down + re-init for the new group.
+        if (_tutHazMode !== mode) {
+          _tutHazMode = mode;
+          _tutHazInit = false;
+          _tutHazIdx = 0;
+          _tutHazTimer = 0;
+          // Wipe currently-falling hazards so the player isn't hit
+          // by leftovers from the previous group.
+          try { clearHazards(); } catch (e) {}
+        }
+        const stylesNow = _tutHazStylesByMode[_tutHazMode];
+        const namesNow = _tutHazNamesByMode[_tutHazMode];
+        if (!_tutHazInit) {
+          _tutHazInit = true;
+          setHazardStyle(stylesNow[0]);
+          setHazardSpawningEnabled(true);
+          UI.toast('HAZARD STYLE: ' + namesNow[0], '#ff8844', 1400);
+        }
+        _tutHazTimer += dt;
+        if (_tutHazTimer >= 5.0) {
+          _tutHazTimer = 0;
+          _tutHazIdx = (_tutHazIdx + 1) % stylesNow.length;
+          setHazardStyle(stylesNow[_tutHazIdx]);
+          UI.toast('HAZARD STYLE: ' + namesNow[_tutHazIdx], '#ff8844', 1400);
+        }
+        tickHazardSpawning(dt, 0, player.pos, []);
+      } else if (_tutHazInit) {
+        // Lesson finished — turn spawning off, clear in-flight tiles.
+        _tutHazInit = false;
+        _tutHazMode = false;
+        setHazardSpawningEnabled(false);
+        try { clearHazards(); } catch (e) {}
+      }
+    }
     updateWaves(dt);
     // Notify the pixl-pal system of new waves so it can award charges
     // every 3rd wave. Cheap: one int comparison per frame.
@@ -2346,6 +3330,8 @@ function animate() {
       // when the mascot isn't there is a no-op.
       const localWave = ((S.wave - 1) % WAVES_PER_CHAPTER) + 1;
       if (localWave === 4) {
+        // Galaga ship retires for chapter 2 (idx 1) only — its
+        // dedicated hazard chapter.
         if (S.chapter === 1 && isGalagaShipActive()) {
           flyAwayGalagaShip();
         }
@@ -2404,6 +3390,30 @@ function animate() {
         console.log(`[chapter-change] ${prevChapter} → ${S.chapter}, style=${styleName}, managesOwnSpawns=${!!style.managesOwnSpawns}`);
         setHazardStyle(style);
         _applyChapterAlly(S.chapter, player.pos);
+        // Retint perimeter gravestones to the new chapter. Cheap —
+        // 14 material color writes. Without this the X/O carvings
+        // would stay locked to chapter-1 orange forever.
+        try {
+          recolorGravestones(CHAPTERS[S.chapter % CHAPTERS.length].full.grid1);
+        } catch (e) { console.warn('[gravestones] recolor', e); }
+        // Hero hexagons HUD — swap to the new chapter's portraits and
+        // retint the rim. updateHeroHexagons is no-op if the chapter
+        // hasn't actually changed, so safe to call here.
+        try {
+          updateHeroHexagons(S.chapter, CHAPTERS[S.chapter % CHAPTERS.length].full.grid1);
+        } catch (e) { console.warn('[hero-hexagons] update', e); }
+        // Matrix-rain chapter transition. Brief full-screen translucent
+        // cascade tinted with the incoming chapter's color. ~3s total
+        // duration, self-disposing, pointer-events: none — pure flavor
+        // overlay that doesn't interfere with gameplay continuing
+        // underneath. Skipped on chapter 7 entry because the existing
+        // ch7 cinematic flow already handles its own transition;
+        // doubling up would be busy.
+        if (S.chapter !== PARADISE_FALLEN_CHAPTER_IDX) {
+          try {
+            playMatrixRain(CHAPTERS[S.chapter % CHAPTERS.length].full.grid1);
+          } catch (e) { console.warn('[matrixRain] play', e); }
+        }
         // Confirm the ally was applied (or wasn't because chapter doesn't have one).
         if (S.chapter === 1) console.log(`[chapter-change] galaga ship active=${isGalagaShipActive()}`);
         if (S.chapter === 3) console.log(`[chapter-change] pacman active=${isPacmanActive()}`);
@@ -2651,6 +3661,11 @@ function updatePlayer(dt) {
 
   const speed = S.playerSpeed * (S.dashActive > 0 ? PLAYER.dashSpeed : 1);
   player.vel.set(mx * speed, 0, mz * speed);
+  // GLACIER_WRAITH suction — during the freeze telegraph, modify the
+  // velocity to add inward pull toward the boss. WASD still works at
+  // full strength but standing still or kiting away is harder. No-op
+  // outside the telegraph phase.
+  applySuctionToVelocity(player.pos, player.vel);
   player.pos.x += player.vel.x * dt;
   player.pos.z += player.vel.z * dt;
   player.pos.x = Math.max(-ARENA + 1.5, Math.min(ARENA - 1.5, player.pos.x));
@@ -2683,10 +3698,73 @@ function updatePlayer(dt) {
 
   // Floor hazards (lava tetrominoes) damage the player continuously while
   // they stand on one. Dash frames' invuln protects them briefly.
+  // Tutorial: snapshot HP before the call so we can detect a fresh
+  // hazard hit (HP drop) and notify the lesson controller. We split
+  // the notification into TWO kinds:
+  //   1. Any HP drop → tutorialOnHazardHit  (lesson 10, "TAKE A HIT")
+  //   2. HP went from positive to ≤0 in one go → tutorialOnDeadlyHazardHit
+  //      (lesson 11, "DODGE THE DEADLY") — only insta-kill bombs and
+  //      ghosts trigger this, since damage tiles tick down gradually.
+  const _hpBeforeHazard = S.tutorialMode ? S.hp : 0;
   hurtPlayerIfOnHazard(dt, player.pos, S, UI, Audio, shake);
+  // Faction paint hazards (boss-fight floor hazard, X/Y/Z letters).
+  // Sits next to the standard tile-hazard check so both share the
+  // same "before HP-die check" timing — a fatal paint touch will
+  // process the death pipeline this frame just like a fatal lethal
+  // tile would.
+  updateFactionPaint(dt, player.pos, S, UI, Audio, shake);
+  // TOXIC_MAW puddle hazards. Same per-frame pattern as faction
+  // paint — DOT damage when player is in puddle radius. Updated
+  // alongside paint so all the "before HP-die check" hazard sources
+  // process in the same window.
+  updatePuddles(dt, player.pos, S, UI, Audio, shake);
+  // SOLAR_TYRANT predictive AOE flares. Telegraph then damage if
+  // player is in radius. Same hazard-update window as paint/puddles.
+  updateFlares(dt, player.pos, S, UI, Audio, shake);
+  // GLACIER_WRAITH freeze cycle. Drives the telegraph→frozen→thaw
+  // phase machine + pod animation. Damage application happens in
+  // the boss pattern dispatch (waves.js) which checks
+  // didFreezeFireThisFrame() — putting updateFreeze BEFORE
+  // updateWaves so the phase transition is visible to the dispatch
+  // on the same frame.
+  updateFreeze(dt);
+  if (S.tutorialMode && S.hp < _hpBeforeHazard) {
+    tutorialOnHazardHit();
+    if (_hpBeforeHazard > 0 && S.hp <= 0) {
+      tutorialOnDeadlyHazardHit();
+    }
+  }
   if (S.hp <= 0) { S.hp = 0; UI.updateHUD(); gameOver(); return; }
 
   let targetX = mouse.worldX, targetZ = mouse.worldZ;
+  // Mobile twin-stick aim: when the player is holding the fire
+  // button AND has dragged it past the dead-zone, use that drag as
+  // the aim direction instead of auto-aim. Lets the player choose
+  // exactly which target to engage rather than always snapping to
+  // the nearest enemy. Within the dead-zone (a barely-touched fire
+  // button) we fall through to auto-aim so a quick tap-fire still
+  // works without forcing the player to drag.
+  const aimMag = Math.sqrt(aimJoyState.dx * aimJoyState.dx + aimJoyState.dy * aimJoyState.dy);
+  const aimEngaged = aimJoyState.active && aimMag > 0.10;
+  if (aimEngaged) {
+    // Project a virtual aim point ~30u in front of the player along
+    // the joystick direction. We only need the direction; the
+    // distance is arbitrary as long as it's > 0.
+    //
+    // Y axis: dragging thumb UP on screen → dy < 0 (screen Y grows
+    // down) → we want the aim to go UP relative to the player on
+    // the playscreen, which in this camera's world frame is +Z
+    // (NOT -Z as I originally assumed). So dirZ = dy directly.
+    // Tested empirically per playtester report: "shoot up direction
+    // it shoots down" — that meant my prior negation was wrong.
+    const dirX = aimJoyState.dx;
+    const dirZ = aimJoyState.dy;
+    const m = Math.sqrt(dirX * dirX + dirZ * dirZ);
+    if (m > 0.001) {
+      targetX = player.pos.x + (dirX / m) * 30;
+      targetZ = player.pos.z + (dirZ / m) * 30;
+    }
+  }
   // Auto-aim-to-nearest-enemy runs when the player is driving movement
   // with a joystick (touch joyState OR gamepad left-stick/d-pad) AND is
   // NOT actively aiming with a gamepad right stick. The _gamepadAiming
@@ -2694,7 +3772,10 @@ function updatePlayer(dt) {
   // (or in a short hold window right after release) — when it's set,
   // respect the player's chosen aim direction instead of snapping to
   // the nearest enemy.
+  // Mobile aim-joystick (aimEngaged above) ALSO disables auto-aim so
+  // the player's chosen direction wins.
   const autoAimEligible =
+    !aimEngaged &&
     (joyState.active || ('ontouchstart' in window && !mouse.down)) &&
     !mouse._gamepadAiming;
   if (autoAimEligible) {
@@ -2728,7 +3809,16 @@ function fireWeapon() {
   const w = getWeapon();
   const rate = w.fireRate * (S.fireRateBoost || 1);
   const dmgBoost = S.damageBoost || 1;
-  const origin = new THREE.Vector3(player.pos.x, 1.3, player.pos.z);
+  // Origin Y=1.9 puts the spawn point at gun-barrel height (player's
+  // raised hand area) so bullets and rockets emerge from the weapon,
+  // not the waist. Was 1.3 (hip) — playtester reported all bullet
+  // weapons looked like they were firing from the player's belly.
+  // 1.9 matches BEAM_Y in updateBeams so all weapon emit points
+  // align consistently.
+  const origin = new THREE.Vector3(player.pos.x, 1.9, player.pos.z);
+  // Tutorial: count this as a shot for the SHOOT lesson and tag the
+  // current weapon for the TRY ALL WEAPONS lesson.
+  if (S.tutorialMode) tutorialOnShotFired(S.currentWeapon);
 
   if (w.isLifedrainer) {
     // Two-phase: if charge >= 1, the press becomes a SWARM RELEASE.
@@ -2829,8 +3919,13 @@ function updateBeam() {
     beamMesh.visible = false;
     return;
   }
-  // Beam visual: a scaled box from the player's gun to the beam endpoint (wall or first enemy)
-  const origin = new THREE.Vector3(player.pos.x, 1.3, player.pos.z);
+  // Beam visual: a scaled box from the player's gun to the beam endpoint
+  // (wall or first enemy). Y=1.9 puts the origin right at the gun-barrel
+  // height. Was 1.3 (hip), bumped to 1.7 (close), then 1.9 (final) per
+  // playtester eye-check. Damage hit-tests are 2D (perpendicular
+  // distance in the XZ plane) so the Y is purely cosmetic.
+  const BEAM_Y = 1.9;
+  const origin = new THREE.Vector3(player.pos.x, BEAM_Y, player.pos.z);
   const dirX = Math.sin(player.facing);
   const dirZ = Math.cos(player.facing);
   let length = w.beamRange;
@@ -2845,6 +3940,29 @@ function updateBeam() {
     const hitRadius = e.bossHitRadius || (e.isBoss ? 1.6 : 0.9);
     if (perp < hitRadius + w.beamWidth) {
       length = Math.min(length, along);
+    }
+  }
+  // Queen dome — clamp the beam to the outermost intact dome surface.
+  // Without this the raygun would punch right through the shield and
+  // damage the inner hives. _beamDomeIntersect returns the distance
+  // from origin to the dome's nearest surface intersection along the
+  // beam direction, or null if the beam misses the dome entirely.
+  const domeT = _beamDomeIntersect(origin, dirX, dirZ, length);
+  if (domeT !== null) {
+    length = Math.min(length, domeT);
+    // Ping the dome at the impact point so the player can see the
+    // beam burning into the shield. Only flash a few times per
+    // second to keep particle counts reasonable; we throttle by
+    // timeElapsed.
+    const now = S.timeElapsed || 0;
+    if (!_beamShieldPingT || now - _beamShieldPingT > 0.12) {
+      _beamShieldPingT = now;
+      const impact = new THREE.Vector3(
+        origin.x + dirX * domeT,
+        BEAM_Y,
+        origin.z + dirZ * domeT,
+      );
+      pingQueenShieldAt(impact);
     }
   }
   // Also clamp to blocked segment
@@ -2866,12 +3984,75 @@ function updateBeam() {
   beamMesh.visible = true;
   const midX = origin.x + dirX * (length / 2);
   const midZ = origin.z + dirZ * (length / 2);
-  beamMesh.position.set(midX, 1.3, midZ);
+  beamMesh.position.set(midX, BEAM_Y, midZ);
   beamMesh.scale.set(1, 1, length);
-  beamMesh.lookAt(origin.x + dirX, 1.3, origin.z + dirZ);
+  beamMesh.lookAt(origin.x + dirX, BEAM_Y, origin.z + dirZ);
   beamMat.color.setHex(w.color);
   // Pulse
   beamMat.opacity = 0.65 + Math.sin(S.timeElapsed * 30) * 0.15;
+}
+
+// Beam-vs-shield intersection. Returns the smallest positive `t`
+// such that the beam hits any active shield surface (queen outer
+// dome OR per-hive shield bubble), or null if it misses everything
+// within `maxLen`. Covers two shield kinds:
+//   1. Queen outer dome — single big sphere (radius ~13) wrapping the
+//      whole hive cluster while at least one dome layer remains.
+//   2. Per-hive shields — small bubbles (radius SHIELD_RADIUS ≈ 1.9)
+//      around each individual hive when waves 1–2 mark hives as
+//      shielded. After the queen dome is fully popped, these become
+//      the active barrier the beam should respect.
+//
+// Math is the standard line-sphere quadratic: |O + tD - C|² = r².
+// We test every active shield and return the nearest hit so the beam
+// is clamped to whichever barrier is in front.
+let _beamShieldPingT = 0;
+function _beamShieldIntersect(origin, dirX, dirZ, maxLen) {
+  let best = Infinity;
+  // Queen dome
+  const dome = getOutermostDomeInfo();
+  if (dome) {
+    const t = _raySphereT(origin.x, origin.y, origin.z, dirX, 0, dirZ, dome.x, dome.y, dome.z, dome.radius, maxLen);
+    if (t !== null && t < best) best = t;
+  }
+  // Per-hive shields
+  try {
+    for (const [hive, shield] of hiveShieldsIter()) {
+      if (!hive.shielded) continue;
+      if (shield.userData && shield.userData._dropping) continue;
+      // Shield is a sphere centered at (hive.pos.x, SHIELD_CENTER_Y,
+      // hive.pos.z). SHIELD_CENTER_Y is 1.9 in dormantProps.js; the
+      // beam runs at y=1.3 so the dy term matters.
+      const t = _raySphereT(origin.x, origin.y, origin.z, dirX, 0, dirZ, hive.pos.x, 1.9, hive.pos.z, 1.9, maxLen);
+      if (t !== null && t < best) best = t;
+    }
+  } catch (e) {}
+  return best === Infinity ? null : best;
+}
+
+// Standard ray-sphere intersection helper. Returns smallest positive
+// t within maxLen, or null. Origin (ox,oy,oz), unit-ish direction
+// (dx,dy,dz), sphere center (cx,cy,cz), radius r.
+function _raySphereT(ox, oy, oz, dx, dy, dz, cx, cy, cz, r, maxLen) {
+  const lx = ox - cx, ly = oy - cy, lz = oz - cz;
+  const a = dx * dx + dy * dy + dz * dz;
+  const b = 2 * (lx * dx + ly * dy + lz * dz);
+  const c = lx * lx + ly * ly + lz * lz - r * r;
+  const disc = b * b - 4 * a * c;
+  if (disc < 0) return null;
+  const sq = Math.sqrt(disc);
+  const t1 = (-b - sq) / (2 * a);
+  const t2 = (-b + sq) / (2 * a);
+  let t = Infinity;
+  if (t1 > 0 && t1 < t) t = t1;
+  if (t2 > 0 && t2 < t) t = t2;
+  if (t === Infinity || t > maxLen) return null;
+  return t;
+}
+
+// Backward-compat alias (older callers used the dome-only name).
+function _beamDomeIntersect(origin, dirX, dirZ, maxLen) {
+  return _beamShieldIntersect(origin, dirX, dirZ, maxLen);
 }
 
 function applyBeamDamage(w, dmgBoost) {
@@ -2879,6 +4060,13 @@ function applyBeamDamage(w, dmgBoost) {
   const dirX = Math.sin(player.facing);
   const dirZ = Math.cos(player.facing);
   const dmg = w.damage * dmgBoost;
+  // Clamp damage range to the dome surface if the beam intersects an
+  // intact outer dome. Enemies past the surface are spared because
+  // the shield is in the way. Same intersection math as the visual
+  // clamp in updateBeam — keep the two in sync.
+  let damageRange = w.beamRange;
+  const domeT = _beamDomeIntersect(origin, dirX, dirZ, damageRange);
+  if (domeT !== null) damageRange = Math.min(damageRange, domeT);
   // Damage every enemy whose projection on the beam is within range AND perp < width
   // (can penetrate multiple enemies -- it's a beam)
   for (let j = enemies.length - 1; j >= 0; j--) {
@@ -2886,10 +4074,24 @@ function applyBeamDamage(w, dmgBoost) {
     const dx = e.pos.x - origin.x;
     const dz = e.pos.z - origin.z;
     const along = dx * dirX + dz * dirZ;
-    if (along < 0 || along > w.beamRange) continue;
+    if (along < 0 || along > damageRange) continue;
     const perp = Math.abs(dx * dirZ - dz * dirX);
     const hitRadius = e.bossHitRadius || (e.isBoss ? 1.6 : 0.9);
     if (perp < hitRadius + w.beamWidth) {
+      // Shield guard for shielded bosses (NIGHT_HERALD pre-50%-HP).
+      if (e.shielded) {
+        e.hitFlash = 0.10;
+        // Beam fires every frame so throttle the shield-hit SFX via
+        // the same _beamShieldSfxT cooldown the existing shielded-hive
+        // beam-hit code uses (see line ~3836). Without this the audio
+        // would stack to nasty.
+        const _now = performance.now();
+        if (_now - _beamShieldSfxT > 200) {
+          _beamShieldSfxT = _now;
+          try { Audio.shieldHit && Audio.shieldHit(); } catch (err) {}
+        }
+        continue;
+      }
       e.hp -= dmg;
       e.hitFlash = 0.15;
       if (Math.random() < 0.4) {
@@ -2984,8 +4186,10 @@ function applyBeamDamage(w, dmgBoost) {
       }
     }
   }
-  // Also damage portals along the beam (for spawner waves)
-  if (S.spawnerWaveActive) {
+  // Also damage portals along the beam (for spawner waves OR
+  // NIGHT_HERALD's shielded phase, when the boss spawns 3 hives the
+  // player must destroy to break the shield).
+  if (S.spawnerWaveActive || (S.bossRef && S.bossRef.shielded)) {
     for (const s of spawners) {
       if (s.destroyed) continue;
       const dx = s.pos.x - origin.x;
@@ -3039,6 +4243,13 @@ function applyFlameDamage(w, dmgBoost) {
   const cosHalf = Math.cos(w.flameAngle);
   const rangeSq = w.flameRange * w.flameRange;
 
+  // Queen dome guard — any enemy whose position is inside the
+  // outermost intact dome is protected from the flame cone, same as
+  // the bullet/rocket/beam paths. Cached once per call since dome
+  // geometry doesn't change mid-tick.
+  const dome = getOutermostDomeInfo();
+  const domeR2 = dome ? dome.radius * dome.radius : 0;
+
   // Enemies: cone hit test. Does NOT penetrate (multiple enemies can be hit
   // in the same tick because flame engulfs them).
   for (let j = enemies.length - 1; j >= 0; j--) {
@@ -3051,6 +4262,23 @@ function applyFlameDamage(w, dmgBoost) {
     // Dot product of (enemy dir) and (facing dir) — must exceed cosHalf.
     const dot = (dx / d) * dirX + (dz / d) * dirZ;
     if (dot < cosHalf) continue;
+    // Skip enemies that are sheltering inside the queen dome.
+    if (dome) {
+      const eddx = e.pos.x - dome.x;
+      const eddz = e.pos.z - dome.z;
+      if (eddx * eddx + eddz * eddz < domeR2) continue;
+    }
+    // Shield guard for shielded bosses. Flame is per-frame so use
+    // the same throttled shield-hit audio cooldown as the beam.
+    if (e.shielded) {
+      e.hitFlash = 0.12;
+      const _now = performance.now();
+      if (_now - _beamShieldSfxT > 200) {
+        _beamShieldSfxT = _now;
+        try { Audio.shieldHit && Audio.shieldHit(); } catch (err) {}
+      }
+      continue;
+    }
     e.hp -= dmg;
     e.hitFlash = 0.15;
     // Every 3rd pass, spawn a flame lick at the enemy's feet for visual feedback.
@@ -3089,7 +4317,7 @@ function applyFlameDamage(w, dmgBoost) {
   }
 
   // Hives (spawner wave) in the cone — same flat 0.5/tick as raygun.
-  if (S.spawnerWaveActive) {
+  if (S.spawnerWaveActive || (S.bossRef && S.bossRef.shielded)) {
     for (const s of spawners) {
       if (s.destroyed) continue;
       const dx = s.pos.x - origin.x;
@@ -3213,6 +4441,19 @@ function updateRockets(dt) {
     // `shielded` flag and bails — explodeRocket() calls damageSpawner
     // for any hives in radius but they no-op.
     {
+      // Queen outer-dome FIRST: the dome (radius 13) wraps the whole
+      // hive cluster. A rocket flying toward the cluster needs to
+      // detonate on the dome shell, not punch through and explode
+      // inside next to a per-hive 3.8 shield. tryHitQueenShield
+      // returns true once the rocket's position is inside the
+      // outermost intact dome and emits the chapter-tinted ping.
+      if (tryHitQueenShield(r.position)) {
+        Audio.shieldHit();
+        explodeRocket(r);
+        scene.remove(r);
+        rockets.splice(i, 1);
+        continue;
+      }
       const shieldedHive = getShieldedHiveAt(r.position.x, r.position.y, r.position.z);
       if (shieldedHive) {
         shieldHitVisual(shieldedHive, r.position.clone());
@@ -3260,9 +4501,17 @@ function updateRockets(dt) {
       const dz = e.pos.z - r.position.z;
       const hitRange = e.bossHitRadius || (e.isBoss ? 2.2 : 1.1);
       if (dx * dx + dz * dz < hitRange) {
-        // Direct damage
-        e.hp -= ud.damage;
-        e.hitFlash = 0.18;
+        // Shield guard — rocket still detonates on the shield (player
+        // doesn't get to "tunnel" rockets through), but doesn't deal
+        // damage. The explodeRocket() call below still fires its AOE,
+        // which has its own shield check at line ~4177.
+        if (e.shielded) {
+          e.hitFlash = 0.18;
+          try { Audio.shieldHit && Audio.shieldHit(); } catch (err) {}
+        } else {
+          e.hp -= ud.damage;
+          e.hitFlash = 0.18;
+        }
         explodeRocket(r);
         scene.remove(r);
         rockets.splice(i, 1);
@@ -3291,8 +4540,14 @@ function explodeRocket(r) {
     const dz = e.pos.z - pos.z;
     const d2 = dx * dx + dz * dz;
     if (d2 < radius * radius) {
-      e.hp -= ud.explosionDamage * (1 - Math.sqrt(d2) / radius);
-      e.hitFlash = 0.15;
+      // Shield guard — shielded enemies in blast radius take no HP
+      // damage but flash to show the hit landed.
+      if (e.shielded) {
+        e.hitFlash = 0.15;
+      } else {
+        e.hp -= ud.explosionDamage * (1 - Math.sqrt(d2) / radius);
+        e.hitFlash = 0.15;
+      }
       if (e.hp <= 0) killEnemy(j);
     }
   }
@@ -3314,8 +4569,9 @@ function explodeRocket(r) {
       damageHerdAt(pos.x, pos.z, radius);
     }
   }
-  // AoE can hurt portals too
-  if (S.spawnerWaveActive) {
+  // AoE can hurt portals too (spawner waves OR NIGHT_HERALD's shielded
+  // phase, where the player must destroy 3 hives to break the shield).
+  if (S.spawnerWaveActive || (S.bossRef && S.bossRef.shielded)) {
     for (const s of spawners) {
       if (s.destroyed) continue;
       const dx = s.pos.x - pos.x;
@@ -3367,6 +4623,7 @@ function tryThrowGrenade() {
   const w = WEAPONS.grenade;
   S.grenadeCharges -= 1;
   S.grenadeCooldown = w.fireRate;
+  if (S.tutorialMode) tutorialOnGrenadeThrown();
   _syncGrenadeHUD();
 
   const origin = new THREE.Vector3(
@@ -3568,6 +4825,21 @@ function updateEnemies(dt) {
       }
     }
 
+    // Ant wing flutter. Only the GLB ant has wings — antWings is null
+    // on every other enemy. Wings flap on their Z axis at ~22Hz with
+    // a ±0.55 rad swing. Each ant has its own randomized phase
+    // (antWingPhase) so a swarm doesn't beat in unison. Left wing
+    // and right wing flap mirrored so the body stays aerodynamically
+    // centered while the tips travel up and down.
+    if (e.antWings) {
+      e.antWingPhase = (e.antWingPhase || 0) + dt * 22;
+      const flap = Math.sin(e.antWingPhase) * 0.55;
+      // wings[0] is the LEFT wing, wings[1] is the RIGHT.
+      // Both rotate on Z; we negate one so they mirror.
+      e.antWings[0].rotation.z = flap;
+      e.antWings[1].rotation.z = -flap;
+    }
+
     let moveTargetX = player.pos.x, moveTargetZ = player.pos.z;
     if (S.rescueMeebit && !S.rescueMeebit.freed && !S.rescueMeebit.killed) {
       const cx = S.rescueMeebit.pos.x, cz = S.rescueMeebit.pos.z;
@@ -3584,7 +4856,13 @@ function updateEnemies(dt) {
     // Stable parity-based split using a hashed assignment that
     // sticks to the enemy for its lifetime.
     if (S.isEscortWave) {
-      const tp = getTruckPos();
+      // Only target the truck while it's still EN ROUTE. Once arrived,
+      // even though the truck mesh stays parked at the destination,
+      // gameplay has moved past escorting and enemies should redirect
+      // to the player. Without this guard, enemies pile up on the
+      // parked truck for the rest of the wave — player feedback:
+      // "enemies are still interested in the truck after it despawns."
+      const tp = (!isTruckArrived()) ? getTruckPos() : null;
       if (tp) {
         if (e._escortTarget === undefined) {
           // Assign once. Use enemy y-pos byte + x-pos byte as a stable hash.
@@ -3772,7 +5050,7 @@ function updateBullets(dt) {
         scene.remove(b); bullets.splice(i, 1); continue;
       }
     }
-    if (S.spawnerWaveActive) {
+    if (S.spawnerWaveActive || (S.bossRef && S.bossRef.shielded)) {
       let portalHit = null;
       for (const s of spawners) {
         if (s.destroyed) continue;
@@ -3841,6 +5119,17 @@ function updateBullets(dt) {
       const dx = e.pos.x - b.position.x;
       const dz = e.pos.z - b.position.z;
       if (dx*dx + dz*dz < hitRange) {
+        // Shield guard — bullet detonates on shield (consumed) but
+        // does no damage. shieldHit visual + audio.
+        if (e.shielded) {
+          e.hitFlash = 0.15;
+          hitBurst(b.position, 0xffffff, 4);
+          try { Audio.shieldHit && Audio.shieldHit(); } catch (err) {}
+          scene.remove(b);
+          bullets.splice(i, 1);
+          hitEnemy = true;
+          break;
+        }
         e.hp -= b.userData.damage;
         e.hitFlash = 0.15;
         hitBurst(b.position, 0xffffff, 4);
@@ -4266,14 +5555,27 @@ function killEnemy(idx) {
   // each) so they feel like genuine windfalls. Drop position is
   // the enemy's last position; the pickup mesh's pop animation
   // gives a clear "something appeared here" telegraph.
-  if (rollPotionDrop(!!e.isBoss)) {
-    spawnPickup('potion', e.pos.clone());
-  }
-  if (rollGrenadeDrop(!!e.isBoss)) {
-    spawnPickup('grenade', e.pos.clone());
+  // Tutorial mode: suppress enemy drops of potions and grenades
+  // until the HEAL lesson activates (lesson index 9, 0-indexed).
+  // Reason: that lesson explicitly clears inventory and spawns its
+  // own pickups — if enemies dropped potions/grenades during the
+  // earlier lessons (kill, weapons, escort, cannon...) the player
+  // could enter the heal lesson with stockpiled items and skip the
+  // pickup-and-use mechanic the lesson is designed to teach. Once
+  // the heal lesson activates onwards, drops resume normally so the
+  // overdrive lesson still gets the full chaotic loot pattern.
+  const _tutSuppressDrops = S.tutorialMode && getActiveTutorialLessonIdx() < 9;
+  if (!_tutSuppressDrops) {
+    if (rollPotionDrop(!!e.isBoss)) {
+      spawnPickup('potion', e.pos.clone());
+    }
+    if (rollGrenadeDrop(!!e.isBoss)) {
+      spawnPickup('grenade', e.pos.clone());
+    }
   }
 
   onEnemyKilled(e, inZone);
+  if (S.tutorialMode) tutorialOnEnemyKilled(e);
 }
 
 // ============================================================================

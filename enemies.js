@@ -3,6 +3,7 @@ import { scene } from './scene.js';
 import { ENEMY_TYPES, BOSSES } from './config.js';
 import { buildInfectorMesh, buildRoachMesh } from './infector.js';
 import { S } from './state.js';
+import { makeAntFromGLB, hasAntLoaded } from './antMesh.js';
 
 export const enemies = [];
 export const enemyProjectiles = [];
@@ -1072,13 +1073,23 @@ export function makeEnemy(typeKey, tintHex, pos) {
   // and combat behavior are identical to the humanoid version. Other
   // types on chapter 1 (pumpkin, brute, etc.) are NOT substituted —
   // pumpkinheads in particular are kept as-is per playtester request.
+  //
+  // Two ant builders are used in priority order:
+  //   1. makeAntFromGLB — clones the TRELLIS-generated GLB mesh
+  //      (sliced into body + 6 legs with hip pivots). Looks like
+  //      the figurine reference. Used when the GLB has loaded.
+  //   2. makeAnt — fallback procedural box-ant. Looks blockier but
+  //      doesn't depend on assets/. Used during the brief window
+  //      between page load and GLB parse, OR if the GLB failed
+  //      to fetch. Game keeps working either way.
   const _useAntForChapter1 =
     (S && S.chapter === 0) &&
     (typeKey === 'zomeeb' || typeKey === 'sprinter');
 
   let built;
   if (_useAntForChapter1) {
-    built = makeAnt(tintHex, scale);
+    built = hasAntLoaded() ? makeAntFromGLB(scale) : null;
+    if (!built) built = makeAnt(tintHex, scale);
   }
   else if (typeKey === 'infector') {
     const m = buildInfectorMesh(tintHex, scale);
@@ -1129,6 +1140,12 @@ export function makeEnemy(typeKey, tintHex, pos) {
     // so we flip the same flag — same visual loop applies.
     isSpider: typeKey === 'spider' || _useAntForChapter1,
     spiderLegs: built.spiderLegs || null,
+    // Ant wings — only present on the GLB ant. Two THREE.Group hinges
+    // animated by the per-frame flutter loop in main.js. Null on every
+    // other enemy type and on the procedural fallback box ant (which
+    // has no wings).
+    antWings: built.wings || null,
+    antWingPhase: Math.random() * Math.PI * 2,
     ghostTail: built.ghostTail || null,
     floatPhase: Math.random() * Math.PI * 2,
     isBoss: false,
