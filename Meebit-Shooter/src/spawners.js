@@ -7,6 +7,7 @@ import { enemies } from './enemies.js';
 import { spawnPyramidPortal, tickPyramidDamage, launchPyramid, tickPyramidLaunch } from './pyramidSpawner.js';
 import { spawnUfoPortal, tickUfoDamage, explodeUfo } from './ufoSpawner.js';
 import { updateMushroomClouds, clearMushroomClouds } from './mushroomCloud.js';
+import { startHiveMelt, tickHiveMelts, clearHiveMelts } from './slimeMelt.js';
 
 export const spawners = [];
 
@@ -533,8 +534,15 @@ function destroySpawner(spawner) {
   // still want the AoE damage and the chain-decoration bursts for
   // wasp-nests + UFOs. Pyramids skip the bursts (their lightning +
   // launch sequence is the visual event).
-  const isPyramid = spawner.structureType === 'pyramid';
-  const isUfo     = spawner.structureType === 'ufo';
+  //
+  // Queen-cluster override: spawnQueenHive tags each of the 4 cluster
+  // hives with kind === 'queen-cluster' regardless of the chapter's
+  // structureType. Per design we want queens to ALWAYS melt — even on
+  // pyramid or UFO chapters — so a queen-cluster member skips the
+  // structure-specific path and forces the slime melt below.
+  const isQueenCluster = spawner.kind === 'queen-cluster';
+  const isPyramid = !isQueenCluster && spawner.structureType === 'pyramid';
+  const isUfo     = !isQueenCluster && spawner.structureType === 'ufo';
 
   if (isPyramid) {
     // Pyramid takes off — no explosion, no AoE damage. The launch
@@ -550,14 +558,15 @@ function destroySpawner(spawner) {
     // Bigger UFO explosion — extra burst layers via explodeUfo.
     try { explodeUfo(spawner); } catch (e) { console.warn('[ufo explode]', e); }
   } else {
-    // Default (wasp-nest) explosion — chapter tint + white core +
-    // orange flash. Bigger than the per-hit bursts in damageSpawner()
-    // so the death reads as an explosion rather than another hit.
-    const pos = new THREE.Vector3(spawner.pos.x, 2, spawner.pos.z);
-    hitBurst(pos, 0xffffff, 40);
-    hitBurst(pos, spawner.tint, 32);
-    setTimeout(() => hitBurst(pos, 0xff8800, 22), 60);
-    setTimeout(() => hitBurst(pos, 0xff3cac, 18), 140);
+    // Wasp-nest path (also taken by queen-cluster hives on any chapter).
+    // Melts into a chapter-tinted slime puddle instead of exploding.
+    // No particle bursts (the gross sag is the visual event), and we
+    // set _melting on the obj so the destroyed-spawner branch in
+    // updateSpawners skips the standard scale-down collapse. AoE
+    // damage below still runs — the dying hive still takes out
+    // clustered enemies on the floor near it.
+    try { startHiveMelt(spawner); } catch (e) { console.warn('[hive melt]', e); }
+    spawner.obj.userData._melting = true;
   }
 
   // AoE enemy damage — the structure's death throws shrapnel that
@@ -581,12 +590,14 @@ function destroySpawner(spawner) {
     }
   }
 
-  // Collapse animation: was 2× speed (full shrink in 0.5s) — bump to
-  // 6× speed so the structure crumbles inside ~0.17s and the
-  // explosion reads as the cause of death rather than a slow wilt.
-  spawner.obj.userData._collapsing = true;
-  spawner.obj.userData._collapseT = 0;
-  spawner.obj.userData._collapseFast = true;
+  // Collapse animation flag — for UFO only; wasp-nests use the melt
+  // path above (slimeMelt.js owns the body removal). Set _collapseFast
+  // so the UFO crumbles in ~0.17s while the mushroom cloud expands.
+  if (!spawner.obj.userData._melting) {
+    spawner.obj.userData._collapsing = true;
+    spawner.obj.userData._collapseT = 0;
+    spawner.obj.userData._collapseFast = true;
+  }
 }
 
 export function updateSpawners(dt) {
@@ -595,6 +606,12 @@ export function updateSpawners(dt) {
   // removed from the spawners array, so this lives at the top of
   // updateSpawners rather than inside the per-spawner loop.
   updateMushroomClouds(dt);
+
+  // Tick active hive slime melts — independent of the per-spawner
+  // loop because the puddle persists in scene space after the obj
+  // has been removed. slimeMelt owns its own active list and disposes
+  // puddles when the fade finishes.
+  tickHiveMelts(dt);
 
   // Global retraction tick — invoked from waves.js startHiveRetraction()
   // before wave 4 starts. Every hive (destroyed-and-collapsed OR still
@@ -640,7 +657,14 @@ export function updateSpawners(dt) {
         }
         continue;
       }
-      // Standard collapse animation (wasp-nest, UFO).
+      // Wasp-nest melt path — slimeMelt owns the per-frame animation
+      // (sag → puddle → fade). This branch just skips the standard
+      // scale-down collapse below; the melt module removes the obj
+      // from the scene at the start of its puddle phase.
+      if (s.obj.userData._melting) {
+        continue;
+      }
+      // Standard collapse animation (UFO).
       if (s.obj.userData._collapsing) {
         s.obj.userData._collapseT += dt;
         const t = s.obj.userData._collapseT;
@@ -768,6 +792,8 @@ export function clearAllPortals() {
   // Tear down any active mushroom clouds so a game restart doesn't
   // leave drifting clouds in the next run.
   clearMushroomClouds();
+  // Same for hive slime puddles.
+  clearHiveMelts();
 }
 
 // Pick a random NON-destroyed portal to spawn an enemy from.
