@@ -33,6 +33,7 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 })();
 
 import { scene, camera, renderer, CAMERA_OFFSET, applyTheme, Scene, enterChapter7Atmosphere, exitChapter7Atmosphere, updateFlashlight } from './scene.js';
+import { loadShieldTexture, updateShieldsTick } from './shieldShader.js';
 import {
   isTutorialActive, setTutorialActive,
   applyTutorialFloor, restoreNormalFloor,
@@ -3291,6 +3292,10 @@ function animate() {
     // their entities don't exist (chapters 2-7).
     updateCannon(dt);
     updateQueenHive(dt);
+    // Per-frame tick for ALL active hex shields — drives the time
+    // uniform (so the hex pulse animation runs) and advances any
+    // active impact-radius ramps. Cheap; only walks active shields.
+    try { updateShieldsTick(performance.now() / 1000, dt); } catch (e) {}
     tickQueenShieldCollision(player.pos);
     updateCrusher(dt);
     updateChargeCubes(dt, player.pos);
@@ -5803,6 +5808,11 @@ function collectPickup(p) {
   }
 }
 
+// Async fire-and-forget — load the shield's hex texture in parallel
+// with the first frame render. Until it loads, addShieldToHive falls
+// back to the simpler glow shield path, so this is just an upgrade
+// when the texture arrives.
+loadShieldTexture();
 animate();
 
 // --- CONSOLE BANNER ---
