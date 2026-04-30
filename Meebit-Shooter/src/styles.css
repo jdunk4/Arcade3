@@ -197,23 +197,29 @@ canvas { display: block; cursor: var(--matrix-cursor); }
 }
 /* Pip segments: drawn as <line> with stroke-linecap=round so the
    tips look like rounded bullets. Per-pip class so we can swap
-   color (filled vs spent) cheaply. */
+   color (filled vs spent) cheaply. Filled pips use matrix-green
+   instead of the XP yellow so they read clearly against the
+   active-slot's yellow box-shadow glow — yellow-on-yellow was
+   washing the indicator out and making magazine state hard to read.
+   Green also matches the matrix/grid identity of the rest of the
+   UI (chapter readout, level-up flash, tutorial complete modal). */
 .slot-ammo-arc .ammo-pip-filled {
-  stroke: var(--xp-yellow);
-  filter: drop-shadow(0 0 3px var(--xp-yellow));
+  stroke: var(--matrix-green);
+  filter: drop-shadow(0 0 3px var(--matrix-green));
 }
 .slot-ammo-arc .ammo-pip-spent {
   stroke: rgba(255, 255, 255, 0.18);
 }
 /* Bar mode (raygun / flamethrower): continuous arc, two layered
    <path> elements — a faint background and a foreground that sweeps
-   the filled portion. */
+   the filled portion. Same green-against-yellow contrast logic as
+   the pip path above. */
 .slot-ammo-arc .ammo-bar-bg {
   stroke: rgba(255, 255, 255, 0.18);
 }
 .slot-ammo-arc .ammo-bar-fg {
-  stroke: var(--xp-yellow);
-  filter: drop-shadow(0 0 3px var(--xp-yellow));
+  stroke: var(--matrix-green);
+  filter: drop-shadow(0 0 3px var(--matrix-green));
   transition: stroke-dasharray 0.08s linear;
 }
 /* When the player is actively reloading we want the arc to flash

@@ -6137,7 +6137,14 @@ function updateBossCubes(dt) {
 // HUD display lives in updateHUD(); this module just maintains the state.
 // _bumpKillstreak() is called from killEnemy + the AoE chain, _tickKillstreak()
 // is called every frame with dt.
-const KILLSTREAK_WINDOW = 1.0;
+//
+// Window was 1.0s in the pre-reload era when guns fired continuously. With
+// the reload mechanic shipped, 1s is impossibly tight — a typical pistol
+// reload (~1.4s) ALONE blows through the window before the next kill can
+// happen, so streaks could never carry across a magazine swap. Bumping to
+// 5s gives the player breathing room to reload + reposition + score the
+// next kill while still feeling like a deliberate streak (not a scoreboard).
+const KILLSTREAK_WINDOW = 5.0;
 
 // Overdrive tuning constants. Duration 8 seconds — long enough to
 // wade through 3-5 crowds and smash a hive or two, short enough that
