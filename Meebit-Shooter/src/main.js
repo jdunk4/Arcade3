@@ -548,10 +548,14 @@ function ensureFlameMeshes() {
 function updateFlame(dt) {
   if (!flameOuter) return;
   const w = WEAPONS[S.currentWeapon];
+  // Hide the flame cone while reloading. See matching guard in
+  // updateBeam() — without this the cone keeps streaming visually
+  // while the mag is actually being swapped, which makes reload
+  // feel unresponsive.
   const firing =
     !isBossCinematicActive() &&
     (mouse.down || ('ontouchstart' in window && mouse.down)) &&
-    w && w.isFlame && player.ready;
+    w && w.isFlame && player.ready && !S.reloading;
   if (!firing) {
     flameOuter.visible = false;
     flameMuzzle.visible = false;
@@ -4587,7 +4591,13 @@ function _chapterLaserColor(originalColor) {
 function updateBeam() {
   if (!beamMesh) return;
   const w = WEAPONS[S.currentWeapon];
-  const firing = !isBossCinematicActive() && (mouse.down || ('ontouchstart' in window && mouse.down)) && w && w.isBeam && player.ready;
+  // Hide the beam visual entirely while reloading. The fire-tick
+  // already gates on _isReloadable + S.reloading so no damage is
+  // applied during a reload, but the persistent beam mesh would
+  // otherwise stay visible (it's tied to mouse.down, not to whether
+  // the weapon can actually fire). Same gate is applied to the
+  // flamethrower cone below.
+  const firing = !isBossCinematicActive() && (mouse.down || ('ontouchstart' in window && mouse.down)) && w && w.isBeam && player.ready && !S.reloading;
   if (!firing) {
     beamMesh.visible = false;
     return;

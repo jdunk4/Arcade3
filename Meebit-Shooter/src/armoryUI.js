@@ -101,6 +101,31 @@ export function openArmory() {
   // markup, then remove .hidden so the .overlay flex display kicks in.
   overlay.style.display = '';
   overlay.classList.remove('hidden');
+  // Force the armory to sit above EVERY other overlay regardless of
+  // their inline z-index choices. The matrix-rain dive at first load
+  // sets the title to z-index:9998 inline; an inline style with a
+  // larger value here is the only way to reliably beat that without
+  // touching the rest of the UI stacking. Using 2147483600 (just
+  // under 32-bit signed int max) guarantees we win against anything.
+  overlay.style.zIndex = '2147483600';
+  // Solid black scrim so any underlying overlay (title rain, mode
+  // cards, dive overlay) is fully masked. The armory's own CSS sets
+  // an internal background on the frame; this ensures nothing bleeds
+  // through from below regardless of stacking outcome.
+  overlay.style.background = '#000';
+
+  // Belt-and-suspenders: also hide the title overlay if it's
+  // currently visible. This eliminates any chance of stacking-context
+  // weirdness on first page load — the title screen has its own
+  // inline z-index set by the matrix-rain dive sequence and we'd
+  // rather just take it out of the layout entirely while armory is
+  // open. We tag it so closeArmory can restore it if appropriate.
+  const titleEl = document.getElementById('title');
+  if (titleEl && !titleEl.classList.contains('hidden')) {
+    titleEl.classList.add('hidden');
+    titleEl.dataset.armoryTookOver = '1';
+  }
+
   _render();
   // Audio cue — repurpose the level-up chime as a "screen open" sound.
   // No dedicated armory open SFX yet; this is close enough sonically.
@@ -112,6 +137,18 @@ export function closeArmory() {
   if (overlay) {
     overlay.classList.add('hidden');
     overlay.style.display = 'none';     // belt-and-suspenders FOUC guard
+    // Reset the inline overrides applied by openArmory so the
+    // stylesheet rules apply again next time, and we're not leaving
+    // an opaque black box in the layout that could confuse the
+    // browser dev tools.
+    overlay.style.zIndex = '';
+    overlay.style.background = '';
+  }
+  // Restore the title screen if armory hid it on open.
+  const titleEl = document.getElementById('title');
+  if (titleEl && titleEl.dataset.armoryTookOver === '1') {
+    titleEl.classList.remove('hidden');
+    delete titleEl.dataset.armoryTookOver;
   }
   // If the armory was opened from the game-over screen, bring that
   // overlay back so REBOOT is reachable. Tag set in initArmoryUI's
