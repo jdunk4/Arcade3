@@ -46,6 +46,7 @@ import {
   startTutorialController, stopTutorialController,
   tickTutorialController,
   getActiveLessonIdx as getActiveTutorialLessonIdx,
+  getLessons as getTutorialLessons,
   notifyEnemyKilled as tutorialOnEnemyKilled,
   notifyShotFired as tutorialOnShotFired,
   notifyDashed as tutorialOnDashed,
@@ -2620,6 +2621,15 @@ function startTutorial() {
   Audio.stopPhoneRing && Audio.stopPhoneRing();
   Audio.stopCDrone && Audio.stopCDrone();
 
+  // Reset per-session armory-XP grant flags so a brand-new tutorial
+  // run is eligible to award the full 400-XP base reward (and the
+  // 200-XP bonus if the secret path is finished). Without this,
+  // re-entering the tutorial after a previous completion in the same
+  // page session would silently award 0 because the flags would
+  // still be set from the prior run.
+  _tutorialBaseXPGranted = false;
+  _tutorialBonusXPGranted = false;
+
   initFogRing();
   setTitleMode(false);
 
@@ -2834,6 +2844,52 @@ function _waitForOverdriveAndPromptComplete() {
 // and reused on subsequent runs (which won't happen in a normal session
 // but the code path is defended anyway).
 let _tutCompleteModal = null;
+// Per-tutorial-session flag so we only grant the base + bonus XP rewards
+// once each. Reset in startTutorial(). The modal can be shown twice in
+// one session (once after lesson 11; once again after bonus lessons
+// 12-14 complete via the secret code path) and we use this flag to
+// decide which reward to grant on each show.
+let _tutorialBaseXPGranted = false;
+let _tutorialBonusXPGranted = false;
+const TUTORIAL_BASE_XP_REWARD  = 400;
+const TUTORIAL_BONUS_XP_REWARD = 200;
+
+// Award the appropriate Armory XP for completing the tutorial. Returns
+// the amount actually granted this call (0 if nothing applied — e.g.
+// the modal is showing again after a no-op resume). Splits the reward
+// into two stages:
+//   • Base 400 XP — granted the first time the modal shows after
+//     lesson 11 (the standard tutorial finale).
+//   • Bonus 200 XP — granted only if the player completed lessons
+//     12-14 (the secret stratagem path) and we haven't already
+//     awarded the bonus on a prior show.
+function _grantTutorialArmoryXP() {
+  // Detect bonus-path completion by inspecting the lesson list. The
+  // bonus lessons are appended with ids that start with "strat_"; if
+  // any are present and the controller has advanced past the end of
+  // the list, the player completed all 14 lessons.
+  let hasBonus = false;
+  try {
+    const lessons = getTutorialLessons();
+    if (lessons && lessons.length > 11) {
+      hasBonus = lessons.some(l => l && l.id && l.id.startsWith('strat_'));
+    }
+  } catch (_) { /* getter unavailable — treat as no bonus */ }
+
+  let grantedNow = 0;
+  if (!_tutorialBaseXPGranted) {
+    _tutorialBaseXPGranted = true;
+    Save.addArmoryXP(TUTORIAL_BASE_XP_REWARD);
+    grantedNow += TUTORIAL_BASE_XP_REWARD;
+  }
+  if (hasBonus && !_tutorialBonusXPGranted) {
+    _tutorialBonusXPGranted = true;
+    Save.addArmoryXP(TUTORIAL_BONUS_XP_REWARD);
+    grantedNow += TUTORIAL_BONUS_XP_REWARD;
+  }
+  return grantedNow;
+}
+
 function _showTutorialCompleteModal() {
   if (!_tutCompleteModal) {
     const m = document.createElement('div');
@@ -2911,6 +2967,63 @@ function _showTutorialCompleteModal() {
       if (_t) _t.classList.remove('hidden');
     });
     _tutCompleteModal = m;
+  }
+  // ---- ARMORY XP REWARD ----
+  // Grant the appropriate Armory XP (400 for base completion + 200
+  // additional if the bonus stratagem lessons 12-14 were finished)
+  // and surface the reward inline in the modal so the player sees
+  // exactly what they earned. The grant helper is idempotent per
+  // tutorial session: showing the modal a second time after the
+  // bonus path will only award the 200 bonus delta, never re-award
+  // the base 400.
+  {
+    const grantedNow = _grantTutorialArmoryXP();
+    // Inject (or update) a "+N ARMORY XP" badge above the CTA. We
+    // build the element on first show and reuse the node on later
+    // shows so the modal's main content (TUTORIAL COMPLETE etc.)
+    // doesn't get rebuilt each call.
+    let badge = _tutCompleteModal.querySelector('#tut-armory-xp-badge');
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.id = 'tut-armory-xp-badge';
+      badge.style.cssText = [
+        'font-size: 22px',
+        'letter-spacing: 4px',
+        'color: #ffd93d',
+        'text-shadow: 0 0 12px rgba(255,217,61,0.55)',
+        'margin: -10px 0 28px 0',
+        'font-weight: 900',
+      ].join(';');
+      // Insert before the CTA button so the player reads the reward
+      // before clicking RETURN.
+      const cta = _tutCompleteModal.querySelector('#tutorial-complete-return');
+      if (cta && cta.parentNode) {
+        cta.parentNode.insertBefore(badge, cta);
+      } else {
+        _tutCompleteModal.appendChild(badge);
+      }
+    }
+    if (grantedNow > 0) {
+      // Fresh grant — make sure the badge is fully opaque (overrides
+      // any dimmed state left over from a prior no-op show).
+      badge.style.opacity = '1';
+      const totalAcrossSession =
+        (_tutorialBaseXPGranted ? TUTORIAL_BASE_XP_REWARD : 0) +
+        (_tutorialBonusXPGranted ? TUTORIAL_BONUS_XP_REWARD : 0);
+      // Phrasing makes the bonus path feel distinct: a fresh +200 on
+      // top reads as "extra" rather than "more of the same".
+      if (grantedNow === TUTORIAL_BONUS_XP_REWARD && _tutorialBaseXPGranted &&
+          totalAcrossSession === TUTORIAL_BASE_XP_REWARD + TUTORIAL_BONUS_XP_REWARD) {
+        badge.textContent = `+ ${TUTORIAL_BONUS_XP_REWARD} BONUS ARMORY XP`;
+      } else {
+        badge.textContent = `+ ${grantedNow} ARMORY XP`;
+      }
+    } else {
+      // Already-granted (modal re-show after no new progress) — keep
+      // any prior text visible so the player still sees the reward,
+      // but tone it down slightly so it doesn't read as a fresh grant.
+      badge.style.opacity = '0.55';
+    }
   }
   _tutCompleteModal.style.display = 'flex';
   // Arm the secret Helldivers code listener (↑→↓↓↓). On match we
