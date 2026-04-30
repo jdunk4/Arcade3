@@ -2190,6 +2190,16 @@ function startGame() {
     }
   }
   document.getElementById('gameover').classList.add('hidden');
+  // Defensive: ensure the armory overlay is fully closed before
+  // gameplay begins. armoryUI's closeArmory() also clears the inline
+  // display:none guard so the overlay can re-open later if needed.
+  {
+    const ao = document.getElementById('armory-overlay');
+    if (ao) {
+      ao.classList.add('hidden');
+      ao.style.display = 'none';
+    }
+  }
 
   // ---------------------------------------------------------------------
   // HYPERDRIVE PRELUDE — ATTACK THE AI button press
@@ -2610,6 +2620,14 @@ function startTutorial() {
   setTitleMode(false);
 
   document.getElementById('gameover').classList.add('hidden');
+  // Defensive: ensure the armory is closed before tutorial begins.
+  {
+    const ao = document.getElementById('armory-overlay');
+    if (ao) {
+      ao.classList.add('hidden');
+      ao.style.display = 'none';
+    }
+  }
 
   // Hide the title screen immediately — no cinematic ramp.
   const titleEl = document.getElementById('title');

@@ -37,6 +37,20 @@ let _initialized = false;
 export function initArmoryUI() {
   if (_initialized) return;
   _initialized = true;
+
+  // Belt-and-suspenders: force the overlay hidden at init. The static
+  // markup has class="overlay hidden" + inline display:none, but
+  // we re-apply both here in case any other code path (or a stale
+  // cached HTML) leaves the overlay visible at startup. The user
+  // should never see the armory until they explicitly click ARMORY.
+  {
+    const overlay = document.getElementById('armory-overlay');
+    if (overlay) {
+      overlay.classList.add('hidden');
+      overlay.style.display = 'none';
+    }
+  }
+
   const btn = document.getElementById('armory-btn');
   if (btn) {
     btn.addEventListener('click', (e) => {
@@ -83,6 +97,9 @@ export function initArmoryUI() {
 export function openArmory() {
   const overlay = document.getElementById('armory-overlay');
   if (!overlay) return;
+  // Clear the inline display:none used as a FOUC guard in the static
+  // markup, then remove .hidden so the .overlay flex display kicks in.
+  overlay.style.display = '';
   overlay.classList.remove('hidden');
   _render();
   // Audio cue — repurpose the level-up chime as a "screen open" sound.
@@ -92,7 +109,10 @@ export function openArmory() {
 
 export function closeArmory() {
   const overlay = document.getElementById('armory-overlay');
-  if (overlay) overlay.classList.add('hidden');
+  if (overlay) {
+    overlay.classList.add('hidden');
+    overlay.style.display = 'none';     // belt-and-suspenders FOUC guard
+  }
   // If the armory was opened from the game-over screen, bring that
   // overlay back so REBOOT is reachable. Tag set in initArmoryUI's
   // gameover-armory-btn handler.
