@@ -1067,6 +1067,82 @@ class AudioEngine {
     }
   }
 
+  // ---------------------------------------------------------------
+  // RELOAD SFX
+  // ---------------------------------------------------------------
+  // Two-stage reload audio: reloadStart fires when the player begins
+  // reloading (mag eject), reloadEnd fires when the reload completes
+  // (mag slap / charging handle). Profiles vary per weapon so each
+  // gun's rhythm reads differently — pistol is a quick click, shotgun
+  // is a heavier ratchet, rocket has the deepest tube clunk, etc.
+  reloadStart(weaponId) {
+    switch (weaponId) {
+      case 'pistol':
+        this._beep({ type: 'square', freqStart: 360, freqEnd: 220, dur: 0.06, gainStart: 0.12 });
+        this._noise(0.04, 1800, 0.10);
+        break;
+      case 'shotgun':
+        // Pump action — first click of the slide.
+        this._beep({ type: 'sawtooth', freqStart: 240, freqEnd: 140, dur: 0.10, gainStart: 0.14 });
+        this._noise(0.08, 600, 0.18);
+        break;
+      case 'smg':
+        // Quick mag drop.
+        this._beep({ type: 'square', freqStart: 420, freqEnd: 200, dur: 0.07, gainStart: 0.12 });
+        this._noise(0.06, 1500, 0.12);
+        break;
+      case 'rocket':
+        // Heavy mechanical clunk.
+        this._beep({ type: 'sawtooth', freqStart: 130, freqEnd: 60, dur: 0.16, gainStart: 0.20 });
+        this._noise(0.12, 400, 0.20);
+        break;
+      case 'raygun':
+        // Power-down hum.
+        this._beep({ type: 'sine', freqStart: 880, freqEnd: 220, dur: 0.20, gainStart: 0.14 });
+        break;
+      case 'flamethrower':
+        // Pressure release hiss.
+        this._noise(0.18, 2400, 0.18);
+        break;
+      default:
+        this._beep({ type: 'square', freqStart: 320, dur: 0.05, gainStart: 0.10 });
+    }
+  }
+  reloadEnd(weaponId) {
+    switch (weaponId) {
+      case 'pistol':
+        this._beep({ type: 'square', freqStart: 540, freqEnd: 720, dur: 0.06, gainStart: 0.14 });
+        this._noise(0.04, 2200, 0.12);
+        break;
+      case 'shotgun':
+        // Pump return — heavy slap.
+        this._noise(0.10, 500, 0.30);
+        this._beep({ type: 'sawtooth', freqStart: 160, freqEnd: 220, dur: 0.10, gainStart: 0.20 });
+        break;
+      case 'smg':
+        // Mag slap + bolt release click.
+        this._noise(0.05, 800, 0.20);
+        this._beep({ type: 'square', freqStart: 800, freqEnd: 600, dur: 0.05, gainStart: 0.12 });
+        break;
+      case 'rocket':
+        // Tube lock — heavy thunk.
+        this._noise(0.14, 350, 0.30);
+        this._beep({ type: 'sawtooth', freqStart: 100, freqEnd: 180, dur: 0.14, gainStart: 0.20 });
+        break;
+      case 'raygun':
+        // Power-up whine, ascending.
+        this._beep({ type: 'sine', freqStart: 220, freqEnd: 1200, dur: 0.32, gainStart: 0.16 });
+        break;
+      case 'flamethrower':
+        // Pilot light ignition click + low whoosh.
+        this._beep({ type: 'square', freqStart: 1400, dur: 0.04, gainStart: 0.14 });
+        this._noise(0.10, 900, 0.15);
+        break;
+      default:
+        this._beep({ type: 'square', freqStart: 540, dur: 0.05, gainStart: 0.12 });
+    }
+  }
+
   getOrCreateAnalyser() {
     if (this._analyser) return this._analyser;
     if (!this.ctx) this.init();

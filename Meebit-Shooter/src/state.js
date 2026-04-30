@@ -259,6 +259,14 @@ export function resetGame() {
   S.xp = 0;
   S.xpNext = 10;
   S.level = 1;
+  S.runXP = 0;                  // cumulative run XP (for end-of-run armory grant)
+  // ---- BOOSTS (per-run; armory upgrades are layered on TOP of these
+  // separately, see armory.js / getEffectiveStat). These were not
+  // being reset previously, which is why fire rate / damage felt
+  // sticky across runs. resetGame() must zero them so each new run
+  // starts from the armory baseline only.
+  S.damageBoost = 1;
+  S.fireRateBoost = 1;
   S.playerSpeed = PLAYER.baseSpeed;
   S.currentWeapon = 'pistol';
   S.previousCombatWeapon = 'pistol';

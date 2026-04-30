@@ -2,6 +2,8 @@
 // Keyed per-username so multiple players on the same browser each have a slot.
 // Additionally a "shared" block holds the currently-active player.
 
+import { defaultArmory, normalizeArmory } from './armory.js';
+
 const KEY_ACTIVE = 'mbs_active_v1';       // currently-selected username
 const KEY_PLAYERS = 'mbs_players_v1';     // { [username]: playerSave }
 
@@ -46,6 +48,10 @@ function defaultPlayer(username) {
     walletAddress: null,
     createdAt: Date.now(),
     lastPlayed: Date.now(),
+    // Armory — persistent weapon/player upgrades. Defined in
+    // armory.js; we store the raw record on the player save and
+    // hand it back through Save.getArmory().
+    armory: defaultArmory(),
   };
 }
 
@@ -54,6 +60,10 @@ function readPlayer(username) {
   if (!all[username]) all[username] = defaultPlayer(username);
   // Ensure any added fields exist on older saves
   all[username] = { ...defaultPlayer(username), ...all[username], username };
+  // Armory may be present from an older shape with missing fields
+  // (or absent entirely on saves from before the armory existed).
+  // normalizeArmory fills defaults and clamps levels.
+  all[username].armory = normalizeArmory(all[username].armory);
   return all[username];
 }
 
@@ -145,5 +155,35 @@ export const Save = {
     delete all[p.username];
     writeAll(all);
     setActiveUsername('GUEST');
+  },
+
+  // ---- ARMORY ----
+  // Persistent weapon/player upgrades. The armory record is owned by
+  // armory.js (see defaultArmory / normalizeArmory). Save just
+  // stores it on the active player record.
+  getArmory() {
+    return this.load().armory;
+  },
+
+  writeArmory(armory) {
+    const p = this.load();
+    p.armory = normalizeArmory(armory);
+    return writePlayer(p);
+  },
+
+  /**
+   * Add `xp` to the persistent armory balance (called at end-of-run).
+   * Pass a positive integer; negative or non-finite values are
+   * ignored. Returns the new balance.
+   */
+  addArmoryXP(xp) {
+    if (typeof xp !== 'number' || !isFinite(xp) || xp <= 0) {
+      return this.getArmory().xp;
+    }
+    const p = this.load();
+    p.armory = normalizeArmory(p.armory);
+    p.armory.xp = Math.max(0, Math.floor(p.armory.xp + xp));
+    writePlayer(p);
+    return p.armory.xp;
   },
 };

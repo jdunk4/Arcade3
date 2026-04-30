@@ -450,6 +450,48 @@ export const UI = {
     document.getElementById('lvl-num').textContent = S.level;
     document.getElementById('weapon-name').textContent = WEAPONS[S.currentWeapon].name;
 
+    // ---- AMMO + RELOAD HUD ----
+    // Show "current/max" for the active weapon. If the weapon is not
+    // reloadable (lifedrainer / pickaxe) hide the row entirely. While
+    // S.reloading is true, show the reload progress bar instead of
+    // "X/Y" — the bar sweeps from 0 to 100% over S.reloadDur.
+    {
+      const id = S.currentWeapon;
+      const ammoRow   = document.getElementById('ammo-row');
+      const ammoCount = document.getElementById('ammo-count');
+      const reloadLbl = document.getElementById('ammo-reload-label');
+      const reloadBar = document.getElementById('ammo-reload-bar');
+      const reloadFill = document.getElementById('ammo-reload-fill');
+      // Reloadable iff S.maxAmmo[id] is set (initialized in
+      // applyArmoryToRunStart for the canonical chapter 1-6 weapons).
+      const max = (S.maxAmmo && S.maxAmmo[id]) || 0;
+      const isReloadable = max > 0;
+      if (ammoRow) ammoRow.style.display = isReloadable ? 'flex' : 'none';
+      if (isReloadable) {
+        const cur = (S.ammo && S.ammo[id]) || 0;
+        if (ammoCount) {
+          ammoCount.textContent = cur + '/' + max;
+          // Color hint: red when near-empty (<= 25% mag) so the
+          // player knows a reload is imminent.
+          ammoCount.style.color = (!S.reloading && cur <= Math.max(1, Math.floor(max * 0.25)))
+            ? '#ff5b5b' : 'var(--neon-cyan)';
+        }
+        if (S.reloading) {
+          if (reloadLbl) reloadLbl.style.display = '';
+          if (reloadBar) reloadBar.style.display = '';
+          if (reloadFill) {
+            const pct = S.reloadDur > 0
+              ? Math.min(100, (S.reloadT / S.reloadDur) * 100)
+              : 0;
+            reloadFill.style.width = pct + '%';
+          }
+        } else {
+          if (reloadLbl) reloadLbl.style.display = 'none';
+          if (reloadBar) reloadBar.style.display = 'none';
+        }
+      }
+    }
+
     // Chapter slot in the stats row (id "chap-num"). Replaces the
     // separate #chapter-readout line that used to sit underneath.
     // Format: "{n} {NAME}" — e.g. "2 CRIMSON". Wave info lives in

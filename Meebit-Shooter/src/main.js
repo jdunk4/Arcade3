@@ -99,7 +99,16 @@ import { initFogRing, updateFogRing, clearFogRing, setFogVisible } from './fogRi
 import { spawners, damageSpawner, updateSpawners, spawnPortal, clearAllPortals } from './spawners.js';
 import { getShieldedHiveAt, shieldHitVisual, hiveShieldsIter } from './dormantProps.js';
 import { Save } from './save.js';
+import {
+  ARMORY_WEAPON_IDS,
+  getEffectiveWeaponStats,
+  getEffectivePlayerStats,
+  computeRunArmoryXP,
+  WEAPON_BASE_CAPACITY,
+  WEAPON_BASE_RELOAD,
+} from './armory.js';
 import { Wallet } from './wallet.js';
+import { initArmoryUI } from './armoryUI.js';
 import {
   beginStratagemInput, endStratagemInput, pushStratagemArrow,
   pushStratagemVariantKey,
@@ -1657,6 +1666,10 @@ window.addEventListener('keydown', e => {
     const map = { '1': 'pistol', '2': 'shotgun', '3': 'smg', '4': 'rocket', '5': 'raygun', '6': 'flamethrower' };
     const w = map[e.key];
     if (S.ownedWeapons.has(w)) {
+      // Switching weapons aborts any in-progress reload — staying
+      // locked because the old gun is still reloading would feel
+      // wrong.
+      cancelReload();
       S.currentWeapon = w;
       S.previousCombatWeapon = w;
       UI.updateWeaponSlots();
@@ -1665,9 +1678,17 @@ window.addEventListener('keydown', e => {
       UI.toast(WEAPONS[w].name, '#' + WEAPONS[w].color.toString(16).padStart(6, '0'));
     }
   }
+  // RELOAD — R key. Manual reload of the current weapon. Auto-reload
+  // on empty mag also runs from inside fireWeapon().
+  if (e.key.toLowerCase() === 'r') {
+    if (S.running && !S.paused && !isPiloting()) {
+      tryReload();
+    }
+  }
   if (e.key.toLowerCase() === 'q') {
     // Pickaxe toggle disabled in chapter 7 — only lifedrainer.
     if (S.chapter === PARADISE_FALLEN_CHAPTER_IDX) return;
+    cancelReload();
     if (S.currentWeapon === 'pickaxe') {
       S.currentWeapon = S.previousCombatWeapon || 'pistol';
     } else {
@@ -2117,6 +2138,7 @@ function _cycleWeapon(dir) {
   if (idx < 0) idx = 0;
   idx = (idx + dir + owned.length) % owned.length;
   const next = owned[idx];
+  cancelReload();
   S.currentWeapon = next;
   S.previousCombatWeapon = next;
   UI.updateWeaponSlots();
@@ -2463,6 +2485,11 @@ function startGame() {
   S.playerMeebitId = rec.playerMeebitId || S.playerMeebitId;
   S.playerMeebitSource = rec.playerMeebitSource || S.playerMeebitSource;
   S.walletAddress = rec.walletAddress;
+  // Apply persistent armory upgrades. resetGame() set hpMax + speed
+  // to baseline, so we layer the armory adds on top here. The
+  // weapon-stat upgrades are read at fire-time via getEffectiveWeaponStats
+  // — see _firePistol / _fireSmg / etc.
+  applyArmoryToRunStart(rec.armory);
   // Migrate old saves that may still reference the sniper
   if (S.ownedWeapons.has('sniper')) {
     S.ownedWeapons.delete('sniper');
@@ -2910,11 +2937,32 @@ function gameOver() {
   Save.onGameOver({
     score: S.score, wave: S.wave, chapter: S.chapter, rescuedIds: S.rescuedIds,
   });
+  // Armory XP — granted only on real runs (not tutorial). Tutorial
+  // is for learning; awarding currency from it would let the player
+  // farm tutorials for armory upgrades.
+  let armoryXPEarned = 0;
+  if (!S.tutorialMode) {
+    armoryXPEarned = computeRunArmoryXP({
+      score: S.score,
+      runXP: S.runXP || 0,
+      chapter: S.chapter || 0,
+      wave: S.wave || 0,
+      isComplete: false,
+    });
+    if (armoryXPEarned > 0) {
+      Save.addArmoryXP(armoryXPEarned);
+    }
+  }
   document.getElementById('final-score').textContent = S.score.toLocaleString();
   document.getElementById('final-wave').textContent = S.wave;
   document.getElementById('final-kills').textContent = S.kills;
   const fr = document.getElementById('final-rescues');
   if (fr) fr.textContent = S.rescuedCount;
+  // Surface the armory XP earned on the game-over screen if present.
+  // The element is optional (UI may not have been updated yet); if
+  // missing we silently skip the display, the XP is still saved.
+  const fa = document.getElementById('final-armory-xp');
+  if (fa) fa.textContent = armoryXPEarned > 0 ? `+${armoryXPEarned}` : '0';
   UI.populateTitleStats(Save.load());
   document.getElementById('gameover').classList.remove('hidden');
 }
@@ -3159,6 +3207,12 @@ document.getElementById('restart-btn').addEventListener('click', () => {
   _exitTutorialIfActive();
   startGame();
 });
+
+// ---- ARMORY UI ----
+// Wires the title-screen ⚙ ARMORY button + close handlers. The
+// armoryUI module is purely DOM-side (no game-loop participation),
+// so initializing it once at startup is sufficient.
+initArmoryUI();
 
 // ---- PAUSE MENU HANDLERS ----
 // Registered once. The pause menu calls onResume when the user clicks
@@ -3411,6 +3465,40 @@ const UPGRADES = [
   { name: 'MAX HP ++', apply: () => { S.hpMax += 25; S.hp = Math.min(S.hpMax, S.hp + 25); } },
   { name: 'FIRE RATE ++', apply: () => { S.fireRateBoost = (S.fireRateBoost || 1) * 0.85; } },
 ];
+
+// ---- ARMORY APPLICATION (called once at run start) ----
+// Apply persistent player upgrades from the armory record on top of
+// the baseline values just set by resetGame(). Weapon-stat upgrades
+// are read at fire-time via getEffectiveWeaponStats(), so this fn
+// only needs to handle the player-side adds (hp, speed) and stash
+// the armory record for runtime lookups.
+function applyArmoryToRunStart(armory) {
+  // Stash the active armory record so combat code can resolve
+  // effective weapon stats without re-reading from disk every shot.
+  // window.__armory is also exposed for any debug / armory-UI code.
+  S.activeArmory = armory;
+  if (typeof window !== 'undefined') window.__armory = armory;
+  // Player stat adds.
+  const eff = getEffectivePlayerStats(armory, PLAYER.hpMax, PLAYER.baseSpeed);
+  S.hpMax = eff.hpMax;
+  S.hp = eff.hpMax;
+  S.playerSpeed = eff.speed;
+  // Initialize ammo state for the active weapon (reload mechanic
+  // wires this up later). We seed S.ammo as a per-weapon map so
+  // switching weapons mid-run preserves each gun's mag state.
+  if (!S.ammo) S.ammo = {};
+  if (!S.maxAmmo) S.maxAmmo = {};
+  if (S.reloading == null) S.reloading = false;
+  S.reloadT = 0;
+  S.reloadDur = 0;
+  for (const id of ARMORY_WEAPON_IDS) {
+    const w = WEAPONS[id];
+    if (!w) continue;
+    const stats = getEffectiveWeaponStats(armory, id, w);
+    S.maxAmmo[id] = stats.capacity;
+    S.ammo[id] = stats.capacity;          // start each run fully loaded
+  }
+}
 function levelUp() {
   S.level++;
   S.xp = 0;
@@ -4009,6 +4097,7 @@ function updateTimers(dt) {
   if (S.dashCooldown > 0) S.dashCooldown -= dt;
   if (S.dashActive > 0) S.dashActive -= dt;
   if (S.fireCooldown > 0) S.fireCooldown -= dt;
+  tickReload(dt);
   if (S.muzzleTimer > 0) {
     S.muzzleTimer -= dt;
     if (player.muzzle) player.muzzle.intensity = S.muzzleTimer > 0 ? 4 : 0;
@@ -4263,10 +4352,110 @@ function updatePlayer(dt) {
   Scene.rimLight.position.set(player.pos.x, 3.5, player.pos.z + 2);
 }
 
-function fireWeapon() {
+// =====================================================================
+// AMMO + RELOAD MECHANIC
+// =====================================================================
+// Each canonical chapter-1..6 weapon now has a magazine. Firing
+// decrements S.ammo[weaponId]. When it hits zero (or the player
+// presses R), reloading begins. While reloading the weapon cannot
+// fire. After S.reloadDur seconds the magazine is refilled to its
+// effective capacity.
+//
+// Continuous-tick weapons (raygun beam, flamethrower) consume one
+// ammo per fireRate tick, exhausting the "battery" over a few
+// seconds of sustained fire. The reload semantics are the same.
+//
+// Weapons NOT in WEAPON_BASE_CAPACITY (lifedrainer, pickaxe) bypass
+// the reload system entirely. _isReloadable() gates that.
+function _isReloadable(weaponId) {
+  return WEAPON_BASE_CAPACITY[weaponId] != null;
+}
+
+// Resolved stats for the active weapon, with armory upgrades AND
+// per-run boosts both applied. Combat code calls this each shot.
+function _getActiveWeaponStats() {
   const w = getWeapon();
-  const rate = w.fireRate * (S.fireRateBoost || 1);
-  const dmgBoost = S.damageBoost || 1;
+  const id = S.currentWeapon;
+  let damage = w.damage;
+  let fireRate = w.fireRate;
+  let capacity = WEAPON_BASE_CAPACITY[id] || 0;
+  // Armory layer.
+  if (S.activeArmory) {
+    const eff = getEffectiveWeaponStats(S.activeArmory, id, w);
+    damage = eff.damage;
+    fireRate = eff.fireRate;
+    capacity = eff.capacity;
+  }
+  // Per-run boosts on top.
+  damage *= (S.damageBoost || 1);
+  fireRate *= (S.fireRateBoost || 1);
+  return { weapon: w, id, damage, fireRate, capacity };
+}
+
+// Begin a reload for the current weapon. Idempotent — calling it
+// while already reloading or while the mag is full is a no-op.
+function tryReload() {
+  const id = S.currentWeapon;
+  if (!_isReloadable(id)) return;
+  if (S.reloading) return;
+  const max = (S.maxAmmo && S.maxAmmo[id]) || 0;
+  if (!max) return;
+  if ((S.ammo[id] || 0) >= max) return;     // already full
+  const dur = WEAPON_BASE_RELOAD[id] || 1.5;
+  S.reloading = true;
+  S.reloadT = 0;
+  S.reloadDur = dur;
+  // Audio cue — reload-start (eject mag). Implemented in audio.js.
+  try { Audio.reloadStart && Audio.reloadStart(id); } catch (_) {}
+}
+
+// Cancel any in-progress reload. Called when the player switches
+// weapons mid-reload — feels weird if the new weapon is locked
+// because the old one is still reloading.
+function cancelReload() {
+  if (!S.reloading) return;
+  S.reloading = false;
+  S.reloadT = 0;
+  S.reloadDur = 0;
+}
+
+// Per-frame reload tick. Advances S.reloadT, completes when t >= dur.
+function tickReload(dt) {
+  if (!S.reloading) return;
+  S.reloadT += dt;
+  if (S.reloadT >= S.reloadDur) {
+    // Finish — refill magazine for the *current* weapon to its max.
+    // We refill only the active weapon, not all weapons, so each
+    // gun's magazine is tracked independently.
+    const id = S.currentWeapon;
+    const max = (S.maxAmmo && S.maxAmmo[id]) || 0;
+    if (max && S.ammo) S.ammo[id] = max;
+    S.reloading = false;
+    S.reloadT = 0;
+    S.reloadDur = 0;
+    try { Audio.reloadEnd && Audio.reloadEnd(id); } catch (_) {}
+  }
+}
+
+function fireWeapon() {
+  const stats = _getActiveWeaponStats();
+  const w = stats.weapon;
+  const rate = stats.fireRate;
+  const dmgBoost = (S.damageBoost || 1);
+  const id = stats.id;
+
+  // ---- RELOAD GATING ----
+  // If reloading, no fire — period. R key is the only way out.
+  if (S.reloading) return;
+  // If this weapon uses ammo and the mag is empty, kick off a
+  // reload now and bail. Don't punish the player for holding fire
+  // through an empty mag — the reload starts on the very click
+  // that runs them dry.
+  if (_isReloadable(id) && (S.ammo[id] || 0) <= 0) {
+    tryReload();
+    return;
+  }
+
   // Origin Y=1.9 puts the spawn point at gun-barrel height (player's
   // raised hand area) so bullets and rockets emerge from the weapon,
   // not the waist. Was 1.3 (hip) — playtester reported all bullet
@@ -4316,6 +4505,7 @@ function fireWeapon() {
     S.fireCooldown = rate;
     S.muzzleTimer = 0.04;
     Audio.shot('smg'); // reuse smg click for ticks
+    if (_isReloadable(id)) S.ammo[id]--;
     return;
   }
   if (w.isFlame) {
@@ -4328,11 +4518,12 @@ function fireWeapon() {
     S.fireCooldown = rate;
     S.muzzleTimer = 0.06;
     Audio.shot('smg'); // tick click — reuses smg sfx
+    if (_isReloadable(id)) S.ammo[id]--;
     return;
   }
   if (w.isHoming) {
     // ROCKET LAUNCHER
-    const boosted = { ...w, damage: w.damage * dmgBoost, color: _chapterLaserColor(w.color) };
+    const boosted = { ...w, damage: stats.damage, color: _chapterLaserColor(w.color) };
     // Try to acquire the nearest enemy in front of the player
     const target = pickHomingTarget();
     spawnRocket(origin, player.facing, boosted, target);
@@ -4341,10 +4532,15 @@ function fireWeapon() {
     S.recoilTimer = 0.12;
     shake(0.22, 0.15);
     Audio.shot('shotgun');
+    if (_isReloadable(id)) S.ammo[id]--;
     return;
   }
 
-  const boostedWeapon = { ...w, damage: w.damage * dmgBoost, color: _chapterLaserColor(w.color) };
+  // Default ballistic path (pistol, shotgun, smg).
+  // We pass the armory-resolved damage through here. We pre-multiply
+  // by dmgBoost when we set damage on the boostedWeapon instead of
+  // doing it again downstream.
+  const boostedWeapon = { ...w, damage: stats.damage, color: _chapterLaserColor(w.color) };
   spawnBullet(origin, player.facing, boostedWeapon);
   S.fireCooldown = rate;
   S.muzzleTimer = 0.05;
@@ -4352,6 +4548,7 @@ function fireWeapon() {
   const shakeAmt = w.name === 'SHOTGUN' ? 0.18 : 0.08;
   shake(shakeAmt, 0.1);
   Audio.shot(S.currentWeapon);
+  if (_isReloadable(id)) S.ammo[id]--;
 }
 
 // Per-chapter laser tint. All chapters get matrix green (0x00ff66) by
@@ -6201,6 +6398,9 @@ function collectPickup(p) {
       S.xp += p.value;
       S.score += 50;
       S.xpSinceWave += p.value;
+      // Cumulative run XP — never decremented by level-ups; used at
+      // end-of-run to compute armory XP grant.
+      S.runXP = (S.runXP || 0) + p.value;
       if (S.xp >= S.xpNext) levelUp();
       break;
     case 'health':

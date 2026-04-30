@@ -1345,3 +1345,279 @@ canvas { display: block; cursor: var(--matrix-cursor); }
   border-color: var(--xp-yellow);
   box-shadow: 0 0 4px var(--xp-yellow);
 }
+
+/* ======================================================================
+   ARMORY OVERLAY
+   ======================================================================
+   Full-screen upgrade screen. Opens from the title screen via the
+   ⚙ ARMORY button. Built dynamically by armoryUI.js — the static
+   markup in index.html is just the chrome (header, section titles,
+   empty grid containers). Layout: vertical stack of header → player
+   tracks → weapons grid → footer. Weapons grid is responsive: 3
+   columns on wide screens, 2 on medium, 1 on narrow.
+   ====================================================================== */
+#armory-overlay {
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
+  z-index: 9000;
+}
+#armory-frame {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px 28px 36px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  height: 100%;
+  overflow-y: auto;
+}
+#armory-header {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(79, 247, 255, 0.25);
+}
+#armory-title-block h1 {
+  font-size: 48px;
+  font-weight: 900;
+  letter-spacing: 8px;
+  color: var(--neon-cyan);
+  text-shadow: 0 0 18px rgba(79, 247, 255, 0.55);
+  margin: 0;
+  line-height: 1;
+}
+#armory-sub {
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: #888;
+  margin-top: 6px;
+}
+#armory-xp-pill {
+  background: linear-gradient(135deg, rgba(255, 217, 61, 0.18) 0%, rgba(255, 136, 0, 0.18) 100%);
+  border: 2px solid var(--xp-yellow);
+  border-radius: 10px;
+  padding: 8px 18px;
+  text-align: center;
+  min-width: 160px;
+  box-shadow: 0 0 16px rgba(255, 217, 61, 0.35);
+}
+.armory-xp-label {
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--xp-yellow);
+  opacity: 0.8;
+}
+#armory-xp-amount {
+  font-size: 28px;
+  font-weight: 900;
+  color: var(--xp-yellow);
+  letter-spacing: 2px;
+  text-shadow: 0 0 12px rgba(255, 217, 61, 0.65);
+  line-height: 1;
+  margin-top: 2px;
+}
+#armory-close-btn {
+  background: rgba(255, 46, 77, 0.10);
+  border: 2px solid var(--hp-red);
+  color: var(--hp-red);
+  padding: 10px 18px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.12s ease;
+}
+#armory-close-btn:hover {
+  background: var(--hp-red);
+  color: #000;
+  box-shadow: 0 0 16px rgba(255, 46, 77, 0.65);
+}
+.armory-section-title {
+  font-size: 14px;
+  letter-spacing: 5px;
+  font-weight: 900;
+  color: var(--neon-pink);
+  text-shadow: 0 0 10px rgba(255, 60, 172, 0.55);
+  margin-bottom: 10px;
+  padding-left: 4px;
+  border-left: 4px solid var(--neon-pink);
+}
+/* PLAYER TRACK ROW — 2 tracks side by side. */
+#armory-player-tracks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 720px) {
+  #armory-player-tracks { grid-template-columns: 1fr; }
+}
+/* WEAPONS GRID — responsive cards. */
+#armory-weapons-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+@media (max-width: 1100px) {
+  #armory-weapons-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 720px) {
+  #armory-weapons-grid { grid-template-columns: 1fr; }
+}
+
+/* ---- TRACK ROW (used by player + weapon stat tracks) ---- */
+.armory-track {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(79, 247, 255, 0.04);
+  border: 1px solid rgba(79, 247, 255, 0.18);
+  border-radius: 5px;
+}
+.armory-track .armory-track-label {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: var(--neon-cyan);
+}
+.armory-track .armory-track-pips {
+  display: flex;
+  gap: 4px;
+}
+.armory-track .pip {
+  flex: 1;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.20);
+  border-radius: 2px;
+}
+.armory-track .pip.filled {
+  background: var(--matrix-green);
+  border-color: var(--matrix-green);
+  box-shadow: 0 0 6px rgba(0, 255, 102, 0.65);
+}
+.armory-track .armory-track-buy {
+  padding: 5px 10px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: var(--xp-yellow);
+  background: rgba(255, 217, 61, 0.10);
+  border: 1px solid var(--xp-yellow);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  min-width: 90px;
+  transition: all 0.12s ease;
+}
+.armory-track .armory-track-buy:hover:not(:disabled) {
+  background: var(--xp-yellow);
+  color: #000;
+  box-shadow: 0 0 12px rgba(255, 217, 61, 0.55);
+}
+.armory-track .armory-track-buy:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.armory-track .armory-track-buy.maxed {
+  background: rgba(0, 255, 102, 0.20);
+  border-color: var(--matrix-green);
+  color: var(--matrix-green);
+  cursor: default;
+}
+
+/* ---- WEAPON CARD ---- */
+.armory-weapon-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  padding: 14px 14px 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  overflow: hidden;
+}
+.armory-weapon-card.locked {
+  opacity: 0.85;
+}
+.armory-weapon-card .armory-weapon-card-glow {
+  position: absolute;
+  inset: -2px;
+  border-radius: 8px;
+  pointer-events: none;
+  opacity: 0.18;
+  background: linear-gradient(135deg, var(--card-color, var(--neon-cyan)) 0%, transparent 40%);
+}
+.armory-weapon-card.locked .armory-weapon-card-glow { opacity: 0.06; }
+.armory-weapon-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.armory-weapon-name {
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: var(--card-color, var(--neon-cyan));
+  text-shadow: 0 0 8px var(--card-color, rgba(79, 247, 255, 0.5));
+}
+.armory-weapon-chapter {
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: #888;
+  margin-left: auto;
+}
+.armory-weapon-blurb {
+  font-size: 11px;
+  line-height: 1.5;
+  color: #bbb;
+  letter-spacing: 1px;
+  min-height: 32px;
+}
+.armory-weapon-tracks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* Locked card — single big UNLOCK button replaces the tracks. */
+.armory-weapon-unlock {
+  padding: 14px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: var(--xp-yellow);
+  background: rgba(255, 217, 61, 0.10);
+  border: 2px solid var(--xp-yellow);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+.armory-weapon-unlock:hover:not(:disabled) {
+  background: var(--xp-yellow);
+  color: #000;
+  box-shadow: 0 0 18px rgba(255, 217, 61, 0.65);
+}
+.armory-weapon-unlock:disabled {
+  opacity: 0.40;
+  cursor: not-allowed;
+}
+#armory-footer-hint {
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: #555;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
