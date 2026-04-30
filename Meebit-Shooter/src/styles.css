@@ -151,6 +151,11 @@ canvas { display: block; cursor: var(--matrix-cursor); }
   width: 58px; height: 58px;
   background: rgba(10,4,22,0.88);
   border: 2px solid rgba(255,255,255,0.2);
+  /* Circular slot — see weapon revolver. The square box was harder
+     to read against the dark background and the round shape gives
+     the slot a "bullet-cylinder" feel that fits the revolver
+     metaphor. */
+  border-radius: 50%;
   position: relative;
   display: flex; align-items: center; justify-content: center;
   font-size: 26px;
@@ -168,6 +173,58 @@ canvas { display: block; cursor: var(--matrix-cursor); }
   position: absolute; bottom: -16px; left: 50%; transform: translateX(-50%);
   font-size: 9px; letter-spacing: 1.5px; color: #fff;
   opacity: 0.75; white-space: nowrap;
+}
+
+/* AMMO ARC — SVG overlay attached to each weapon slot in the
+   revolver. Wraps the slot at radius slightly larger than the slot
+   itself, traces the bottom half (closest to the player) only.
+   Built lazily by ui.js the first time updateAmmoArcs() runs and
+   redrawn from the per-frame HUD update. The SVG is positioned
+   absolutely so it doesn't displace the existing icon glyph
+   (emoji) layout or interfere with the active-slot transform. */
+.slot-ammo-arc {
+  position: absolute;
+  /* The arc lives a few px outside the slot so it doesn't crowd
+     the icon. The overall size is matched to slot size + 2 *
+     overshoot. */
+  inset: -6px;
+  pointer-events: none;
+  /* Don't fade the arc with the slot's owned-or-not opacity —
+     we want it to be readable even when the slot is dimmed
+     (active state will still pop visually because the arc gets
+     bright/saturated colors). */
+  opacity: 1;
+}
+/* Pip segments: drawn as <line> with stroke-linecap=round so the
+   tips look like rounded bullets. Per-pip class so we can swap
+   color (filled vs spent) cheaply. */
+.slot-ammo-arc .ammo-pip-filled {
+  stroke: var(--xp-yellow);
+  filter: drop-shadow(0 0 3px var(--xp-yellow));
+}
+.slot-ammo-arc .ammo-pip-spent {
+  stroke: rgba(255, 255, 255, 0.18);
+}
+/* Bar mode (raygun / flamethrower): continuous arc, two layered
+   <path> elements — a faint background and a foreground that sweeps
+   the filled portion. */
+.slot-ammo-arc .ammo-bar-bg {
+  stroke: rgba(255, 255, 255, 0.18);
+}
+.slot-ammo-arc .ammo-bar-fg {
+  stroke: var(--xp-yellow);
+  filter: drop-shadow(0 0 3px var(--xp-yellow));
+  transition: stroke-dasharray 0.08s linear;
+}
+/* When the player is actively reloading we want the arc to flash
+   between dim and bright so it reads as "magazine swap in progress"
+   without blowing up the readout. */
+@keyframes ammo-arc-reload-pulse {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 0.85; }
+}
+.slot-ammo-arc.reloading {
+  animation: ammo-arc-reload-pulse 0.45s ease-in-out infinite;
 }
 
 /* ====== TOAST ====== */
@@ -1360,7 +1417,12 @@ canvas { display: block; cursor: var(--matrix-cursor); }
   align-items: stretch;
   justify-content: stretch;
   padding: 0;
-  z-index: 9000;
+  /* Title screen sets inline z-index 9998 when revealed (see main.js
+     where the matrix-rain dive completes); the armory must sit
+     above that so it isn't hidden behind the title backdrop when
+     opened from the title menu. 10000 keeps it on top of every
+     UI layer in the game. */
+  z-index: 10000;
 }
 #armory-frame {
   position: relative;

@@ -492,6 +492,15 @@ export const UI = {
       }
     }
 
+    // Redraw the ammo arcs around every weapon slot. The method is
+    // cheap when nothing has changed (just class swaps on existing
+    // <line>/<path> children). We deliberately call this every
+    // frame inside updateHUD so the arc reflects the current ammo
+    // state in lock-step with the HUD's "X/Y" readout — calling it
+    // only on weapon-switch would lag behind in-mag spending and
+    // reload progress.
+    this.updateAmmoArcs();
+
     // Chapter slot in the stats row (id "chap-num"). Replaces the
     // separate #chapter-readout line that used to sit underneath.
     // Format: "{n} {NAME}" — e.g. "2 CRIMSON". Wave info lives in
@@ -531,6 +540,165 @@ export const UI = {
       else if (S.playerMeebitSource === 'delegated') txt += ' ⇆';
       unEl.textContent = txt;
     }
+  },
+
+  /**
+   * Per-frame redraw of the ammo arcs around each weapon slot in
+   * the revolver. The arc lives in a child SVG layer that we lazy-
+   * build on first call per slot, then mutate cheaply on every
+   * frame thereafter (text content + class name swaps; no
+   * attribute churn that triggers reflow).
+   *
+   * Behaviour by weapon kind:
+   *   • Pip-mode  (pistol / shotgun / smg / rocket) — N pips drawn
+   *     along the bottom semicircle, where N = magazine capacity.
+   *     Filled = remaining shots, dimmed = spent. Pips have rounded
+   *     stroke caps so they read like little bullets.
+   *   • Bar-mode (raygun / flamethrower) — a single continuous
+   *     arc. Background arc is the full semicircle (faint),
+   *     foreground arc fills proportionally to current/max ammo.
+   *   • Skipped entirely — pickaxe (no reload), grenade (separate
+   *     count display), and anything else without a S.maxAmmo entry.
+   *
+   * Weapons not currently owned by the player still get an arc, but
+   * its scale follows the parent slot's opacity so dimmed slots
+   * don't visually shout. Reloading slots get a pulse class so the
+   * arc dims rhythmically while the magazine swaps.
+   */
+  updateAmmoArcs() {
+    if (!S.maxAmmo) return;
+    const slots = document.querySelectorAll('#inventory .slot');
+    slots.forEach((slot) => {
+      const id = slot.dataset.slot;
+      if (!id) return;
+      const max = S.maxAmmo[id];
+      if (!max) {
+        // Weapon has no magazine (pickaxe, grenade, or armory hasn't
+        // initialized yet) — make sure any stale arc from a previous
+        // chapter isn't lingering. Removing it is rare so the cost
+        // here is negligible.
+        const stale = slot.querySelector('.slot-ammo-arc');
+        if (stale) stale.remove();
+        return;
+      }
+      const cur = (S.ammo && S.ammo[id]) || 0;
+      const w = WEAPONS[id];
+      const isBar = !!(w && (w.isBeam || w.isFlame));
+
+      // Lazy-build the SVG arc layer the first time this slot
+      // shows up with a magazine.
+      let arc = slot.querySelector('.slot-ammo-arc');
+      if (!arc) {
+        const SVG_NS = 'http://www.w3.org/2000/svg';
+        arc = document.createElementNS(SVG_NS, 'svg');
+        arc.setAttribute('class', 'slot-ammo-arc');
+        // 100×100 viewBox keeps math simple — center at 50,50.
+        arc.setAttribute('viewBox', '0 0 100 100');
+        slot.appendChild(arc);
+      }
+
+      // Reload pulse class — driven from S.reloading + the active
+      // weapon. We only animate the arc on the slot that is actually
+      // being reloaded (S.currentWeapon === id) so other slots stay
+      // calm. Spectator slots' last known mag state stays static
+      // while a different slot is reloading.
+      const isReloading = !!S.reloading && S.currentWeapon === id;
+      arc.classList.toggle('reloading', isReloading);
+
+      // ---- BAR MODE ----
+      if (isBar) {
+        // Build (or reuse) two arc paths.
+        let bg = arc.querySelector('.ammo-bar-bg');
+        let fg = arc.querySelector('.ammo-bar-fg');
+        if (!bg) {
+          const SVG_NS = 'http://www.w3.org/2000/svg';
+          // Bottom half-circle path, drawn from the 9 o'clock point
+          // (-x axis) down through 6 o'clock and up to 3 o'clock.
+          // This is the half "closest to the player" when the slot
+          // sits in the bottom-right HUD corner.
+          const half = 'M 8 50 A 42 42 0 0 0 92 50';
+          bg = document.createElementNS(SVG_NS, 'path');
+          bg.setAttribute('class', 'ammo-bar-bg');
+          bg.setAttribute('d', half);
+          bg.setAttribute('fill', 'none');
+          bg.setAttribute('stroke-width', '5');
+          bg.setAttribute('stroke-linecap', 'round');
+          arc.appendChild(bg);
+          fg = document.createElementNS(SVG_NS, 'path');
+          fg.setAttribute('class', 'ammo-bar-fg');
+          fg.setAttribute('d', half);
+          fg.setAttribute('fill', 'none');
+          fg.setAttribute('stroke-width', '5');
+          fg.setAttribute('stroke-linecap', 'round');
+          arc.appendChild(fg);
+        }
+        // Arc length: a 42-radius half-circle is π * r ≈ 132. We
+        // round-up the constant slightly (133) to avoid sub-pixel
+        // gap at full draw.
+        const ARC_LEN = 133;
+        const filled = isReloading ? 0 : Math.max(0, Math.min(1, cur / max));
+        const drawn = ARC_LEN * filled;
+        fg.setAttribute('stroke-dasharray', `${drawn} ${ARC_LEN}`);
+        // Tear down any pip children the slot had previously (e.g.
+        // weapon swapped between modes — shouldn't happen but
+        // defensive cleanup is cheap).
+        arc.querySelectorAll('.ammo-pip-filled, .ammo-pip-spent').forEach(n => n.remove());
+        return;
+      }
+
+      // ---- PIP MODE ----
+      // Number of pips = magazine capacity. We draw one short
+      // <line> per pip, evenly spaced along the bottom semicircle.
+      // Pips are rebuilt only when the count actually changes —
+      // typical usage is "N stays constant during a run", so this
+      // is essentially a one-time cost per magazine.
+      const want = max | 0;
+      const have = arc.querySelectorAll('line').length;
+      if (have !== want) {
+        // Replace pip set wholesale.
+        arc.innerHTML = '';
+        const SVG_NS = 'http://www.w3.org/2000/svg';
+        const cx = 50, cy = 50;
+        // Outer + inner radii for the pip line. Tip slightly outside
+        // the slot, base slightly inside the slot edge.
+        const rOut = 47, rIn = 39;
+        // Distribute pips along the bottom semicircle, but inset
+        // slightly from the endpoints so the first and last pips
+        // don't crowd the side of the slot. With N pips we want
+        // angles between (180-pad)° and (360+pad)°-360 (i.e.
+        // mirrored). We use degrees: 180→360 covers the bottom
+        // half (canvas Y grows downward). pad keeps margins.
+        const pad = want > 1 ? 8 : 0;
+        for (let i = 0; i < want; i++) {
+          const t = want === 1 ? 0.5 : i / (want - 1);
+          const angDeg = 180 + pad + t * (180 - 2 * pad);
+          const ang = angDeg * Math.PI / 180;
+          const x1 = cx + Math.cos(ang) * rIn;
+          const y1 = cy + Math.sin(ang) * rIn;
+          const x2 = cx + Math.cos(ang) * rOut;
+          const y2 = cy + Math.sin(ang) * rOut;
+          const line = document.createElementNS(SVG_NS, 'line');
+          line.setAttribute('x1', x1.toFixed(2));
+          line.setAttribute('y1', y1.toFixed(2));
+          line.setAttribute('x2', x2.toFixed(2));
+          line.setAttribute('y2', y2.toFixed(2));
+          line.setAttribute('stroke-width', '3');
+          line.setAttribute('stroke-linecap', 'round');
+          arc.appendChild(line);
+        }
+      }
+      // Update fill state on each pip. We treat the "first" pip
+      // (leftmost on the arc) as the round about to be fired next
+      // — it stays filled until cur drops below 1, then dims.
+      // Reloading: hide all pips (zero fills) until reload completes,
+      // then they snap back on.
+      const lines = arc.querySelectorAll('line');
+      const filled = isReloading ? 0 : Math.max(0, Math.min(want, cur | 0));
+      lines.forEach((line, i) => {
+        const isFilled = i < filled;
+        line.setAttribute('class', isFilled ? 'ammo-pip-filled' : 'ammo-pip-spent');
+      });
+    });
   },
 
   updateWeaponSlots() {
