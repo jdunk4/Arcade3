@@ -408,6 +408,13 @@ class AudioEngine {
         el.loop = true;             // loop indefinitely while tutorial runs
         el.volume = this._effectiveMusicVolume();
         this._tutorialMusicEl = el;
+        // If the analyser already exists (e.g. the player paused once
+        // already, which lazy-builds the analyser on first show), hook
+        // this newly-created tutorial element into it now so the
+        // pause-screen visualizer responds in tutorial mode. The
+        // analyser-creation path also hooks _tutorialMusicEl if it
+        // exists at THAT time, so the two paths cover both init orders.
+        if (this._analyser) this._hookTrackToAnalyser(el);
       } catch (e) {
         console.warn('[audio] TeachingWar.mp3 failed to load', e);
         return;
@@ -453,6 +460,10 @@ class AudioEngine {
         el.loop = true;             // loop indefinitely while the death screen is up
         el.volume = this._effectiveMusicVolume();
         this._deathMusicEl = el;
+        // Hook into the analyser if it already exists. Same reasoning
+        // as the tutorial-music path — covers the case where the
+        // pause/visualizer was opened before death-music ever loaded.
+        if (this._analyser) this._hookTrackToAnalyser(el);
       } catch (e) {
         console.warn('[audio] Beyond.mp3 failed to load', e);
         return;
@@ -1300,6 +1311,13 @@ class AudioEngine {
       // music but the visualizer is harmless on them.
       if (this._phoneRingEl) this._hookTrackToAnalyser(this._phoneRingEl);
       if (this._cDroneEl) this._hookTrackToAnalyser(this._cDroneEl);
+      // Tutorial music + death music are lazy-loaded HTMLAudio elements
+      // that may not exist yet when the analyser is first created.
+      // Hook whichever already exists; the start* methods below also
+      // call _hookTrackToAnalyser on first lazy-load so the visualizer
+      // works regardless of which order these things initialize in.
+      if (this._tutorialMusicEl) this._hookTrackToAnalyser(this._tutorialMusicEl);
+      if (this._deathMusicEl) this._hookTrackToAnalyser(this._deathMusicEl);
       return analyser;
     } catch (e) {
       console.warn('[audio] analyser setup failed', e);
@@ -1343,17 +1361,44 @@ class AudioEngine {
    * "TheOtherSide" → "The Other Side"). Pure presentation.
    */
   getCurrentTrackInfo() {
-    if (this._currentTrackIdx < 0) return null;
-    const el = this._trackEls[this._currentTrackIdx];
-    if (!el) return null;
-    const path = SOUNDTRACK_FILES[this._currentTrackIdx] || '';
-    const filename = path.split('/').pop().replace(/\.mp3$/i, '');
-    return {
-      name: this._prettyTrackName(filename),
-      currentTime: el.currentTime || 0,
-      duration: el.duration || 0,
-      paused: !!el.paused,
-    };
+    // Primary path: an entry from the chapter playlist is active.
+    if (this._currentTrackIdx >= 0) {
+      const el = this._trackEls[this._currentTrackIdx];
+      if (el) {
+        const path = SOUNDTRACK_FILES[this._currentTrackIdx] || '';
+        const filename = path.split('/').pop().replace(/\.mp3$/i, '');
+        return {
+          name: this._prettyTrackName(filename),
+          currentTime: el.currentTime || 0,
+          duration: el.duration || 0,
+          paused: !!el.paused,
+        };
+      }
+    }
+    // Fallback: tutorial loop or death-screen loop. Both are dedicated
+    // HTMLAudioElements outside the chapter-playlist array, so the
+    // primary path above misses them — without this branch the pause
+    // menu's track-name + time readout (and the visualizer spectrum)
+    // would silently show nothing while these tracks are playing.
+    if (this._tutorialMusicEl && !this._tutorialMusicEl.paused) {
+      const el = this._tutorialMusicEl;
+      return {
+        name: this._prettyTrackName('TeachingWar'),
+        currentTime: el.currentTime || 0,
+        duration: el.duration || 0,
+        paused: !!el.paused,
+      };
+    }
+    if (this._deathMusicEl && !this._deathMusicEl.paused) {
+      const el = this._deathMusicEl;
+      return {
+        name: this._prettyTrackName('Beyond'),
+        currentTime: el.currentTime || 0,
+        duration: el.duration || 0,
+        paused: !!el.paused,
+      };
+    }
+    return null;
   }
 
   /**

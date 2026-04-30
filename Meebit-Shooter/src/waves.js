@@ -247,6 +247,13 @@ export function startWave(waveNum) {
   S.xpSinceWave = 0;
   spawnCooldown = 0;
   intermissionActive = false;
+  // Per-wave HP multiplier — config.js sets waveDef.hpMul on waves
+  // that should spawn fewer-but-tougher enemies (currently wave 3
+  // across all chapters; see comments there). enemies.js makeEnemy
+  // reads this flag and scales each spawn's hp/hpMax. Default 1
+  // (no scaling). Reset every wave so the bonus + boss + later
+  // waves spawn at baseline HP.
+  S.activeWaveHpMul = (typeof waveDef.hpMul === 'number') ? waveDef.hpMul : 1;
 
   // Civilian-rescue wave removed — corner markers are no longer used by any
   // wave type. Clear defensively in case a save loaded into the middle of

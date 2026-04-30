@@ -632,14 +632,21 @@ export function tickUfoDamage(s, dt, ratio) {
     for (let i = s.shedFlying.length - 1; i >= 0; i--) {
       const p = s.shedFlying[i];
       p.t += dt;
-      // Position update — initial velocity + gravity.
+      // Position update — initial velocity + gravity. Stronger
+      // gravity (was 12) combined with the smaller initial velocities
+      // set in _shedNextPanel keeps the trim landing near the UFO's
+      // shadow rather than scattering across the arena.
       p.mesh.position.x += p.vx * dt;
       p.mesh.position.y += p.vy * dt;
       p.mesh.position.z += p.vz * dt;
-      p.vy -= 12 * dt;                  // gravity
+      p.vy -= 22 * dt;                  // stronger gravity → quicker fall
       p.mesh.rotation.x += p.spinX * dt;
       p.mesh.rotation.z += p.spinZ * dt;
-      if (p.t > 1.4) {
+      // Despawn quickly once the piece has hit (or sunk past) the
+      // ground. Pieces that linger in a pile under the UFO clutter
+      // the silhouette and the mushroom cloud already covers the
+      // area visually.
+      if (p.t > 1.0 || p.mesh.position.y < -0.5) {
         if (p.mesh.parent) p.mesh.parent.remove(p.mesh);
         s.shedFlying.splice(i, 1);
       }
@@ -666,8 +673,11 @@ function _shedNextPanel(s) {
   piece.position.copy(wpos);
   piece.quaternion.copy(wquat);
   s.obj.add(piece);
-  // Velocity: outward radial component + upward kick + small random
-  // tangential.
+  // Velocity: tiny outward component (so pieces don't pile inside
+  // the UFO body) + small upward kick + small random tangential.
+  // Numbers tuned so pieces land within ~1.5u of the UFO's
+  // ground-shadow rather than scattering across the arena. Was
+  // (ox*4, 4 + jitter, oz*4) which sent pieces flying 5–6u out.
   const dx = wpos.x - s.pos.x;
   const dz = wpos.z - s.pos.z;
   const r = Math.sqrt(dx * dx + dz * dz) || 1;
@@ -676,9 +686,9 @@ function _shedNextPanel(s) {
   const rec = {
     mesh: piece,
     t: 0,
-    vx: ox * 4 + tangX * (Math.random() - 0.5) * 3,
-    vy: 4 + Math.random() * 2,
-    vz: oz * 4 + tangZ * (Math.random() - 0.5) * 3,
+    vx: ox * 0.8 + tangX * (Math.random() - 0.5) * 0.6,
+    vy: 1.2 + Math.random() * 0.8,
+    vz: oz * 0.8 + tangZ * (Math.random() - 0.5) * 0.6,
     spinX: (Math.random() - 0.5) * 12,
     spinZ: (Math.random() - 0.5) * 12,
   };

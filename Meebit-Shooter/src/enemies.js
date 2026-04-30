@@ -1283,6 +1283,18 @@ export function makeEnemy(typeKey, tintHex, pos) {
     blinkOnHit: !!spec.blinkOnHit,
     typeKey: typeKey,    // store for kill-path lookups
   };
+  // Per-wave HP scaling. Set by waves.js startWave from
+  // waveDef.hpMul (default 1). Currently used by wave 3 across all
+  // chapters to make those waves "fewer-but-tougher" — the spawnRate
+  // is also reduced in config.js so the overall threat budget is the
+  // same, just spread across fewer enemies for clearer combat reads.
+  // Tutorial mode and unset state both leave hpMul at 1 (no-op).
+  const hpMul = (S && typeof S.activeWaveHpMul === 'number' && S.activeWaveHpMul > 0)
+    ? S.activeWaveHpMul : 1;
+  if (hpMul !== 1) {
+    enemy.hp = Math.round(enemy.hp * hpMul);
+    enemy.hpMax = Math.round(enemy.hpMax * hpMul);
+  }
   enemies.push(enemy);
   return enemy;
 }

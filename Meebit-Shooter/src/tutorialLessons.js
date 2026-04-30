@@ -1197,11 +1197,16 @@ export function appendBonusStratagemLessons() {
   // so the player has live targets to practice their stratagem on
   // — but the trickle is gentle enough that the player can't be
   // overwhelmed while they fumble with codes.
+  // The `type` argument can be a string (single enemy type) or an
+  // array of strings, in which case each tick picks one at random.
+  // The mix array form is used by the chapter-7 bonus lessons so
+  // the player practices stratagems against the actual chapter-7
+  // roster (mega_brute / roach / infector) instead of zomeebs.
   const _bonusSpawner = (interval, type, maxAlive) => {
     return {
       _t: 0.0,
       _interval: interval,
-      _type: type || 'zomeeb',
+      _types: Array.isArray(type) ? type.slice() : [type || 'zomeeb'],
       _maxAlive: maxAlive || 5,
       tick(dt) {
         // Don't spawn while the stratagem menu is open — slow-mo will
@@ -1215,15 +1220,20 @@ export function appendBonusStratagemLessons() {
         // Random angle from arena edge.
         const a = Math.random() * Math.PI * 2;
         const dist = 11 + Math.random() * 3;
-        _spawnTutorialEnemy(a, dist, this._type);
+        // Pick one type from the configured list — uniform random.
+        const t = this._types[Math.floor(Math.random() * this._types.length)];
+        _spawnTutorialEnemy(a, dist, t);
       },
     };
   };
 
   // ---- 12. SENTRY TURRET ----
   // Single turret code; player picks variant via 1/2/3/4 in the
-  // stratagem menu before releasing RMB. Slow zomeeb trickle so the
-  // turret has something to chew on.
+  // stratagem menu before releasing RMB. Chapter-7 enemy mix
+  // (mega_brute + roach) so the player practices stratagems against
+  // the actual late-game roster instead of zomeebs — the slow tank
+  // gives the turret something meaty to focus on, and the roaches
+  // demo crowd-clear behavior.
   _lessons.push({
     id: 'strat_turret',
     label: 'STRATAGEM · TURRET',
@@ -1233,7 +1243,7 @@ export function appendBonusStratagemLessons() {
     onActivate() {
       this._called = false;
       grantArtifact('turret', 3);
-      this._spawner = _bonusSpawner(2.4, 'zomeeb', 4);
+      this._spawner = _bonusSpawner(2.4, ['mega_brute', 'roach', 'roach'], 4);
       if (typeof window !== 'undefined') {
         window.__bonusObserve = window.__bonusObserve || {};
         window.__bonusObserve.onCall = (id) => { if (id === 'turret') this._called = true; };
@@ -1256,8 +1266,9 @@ export function appendBonusStratagemLessons() {
 
   // ---- 13. MINE FIELD ----
   // One code, in-menu picker (1/2/3 = explosion/fire/poison) — same
-  // pattern as mech and turret. Faster zomeeb trickle so the player
-  // gets enough enemies to trip the mines on.
+  // pattern as mech and turret. Roach-heavy chapter-7 mix with a few
+  // infectors mixed in: mines vs swarm is the satisfying combo and
+  // the roach trickle gives the player plenty of detonation triggers.
   _lessons.push({
     id: 'strat_mines',
     label: 'STRATAGEM · MINE FIELD',
@@ -1267,7 +1278,7 @@ export function appendBonusStratagemLessons() {
     onActivate() {
       this._called = false;
       grantArtifact('mines', 3);
-      this._spawner = _bonusSpawner(1.8, 'zomeeb', 6);
+      this._spawner = _bonusSpawner(1.8, ['roach', 'roach', 'infector'], 6);
       if (typeof window !== 'undefined') {
         window.__bonusObserve = window.__bonusObserve || {};
         window.__bonusObserve.onCall = (id) => { if (id === 'mines') this._called = true; };
@@ -1292,7 +1303,9 @@ export function appendBonusStratagemLessons() {
   // Final bonus wave teaches the two heavy-hitters together. The
   // lesson clears once the player has both called the mech (and
   // entered it briefly) AND detonated a thermonuclear. Bigger swarm
-  // so the nuke and the mech feel impactful.
+  // so the nuke and the mech feel impactful — full chapter-7 trio
+  // (mega_brute + roach + infector) so this lesson literally rehearses
+  // the chapter-7 finale: tank, swarm, and shooter.
   _lessons.push({
     id: 'strat_finale',
     label: 'STRATAGEM · EXOSUIT + NUKE',
@@ -1307,7 +1320,7 @@ export function appendBonusStratagemLessons() {
       this._nukeDetonated = false;
       grantArtifact('mech', 2);
       grantArtifact('thermonuclear', 2);
-      this._spawner = _bonusSpawner(1.4, 'zomeeb', 9);
+      this._spawner = _bonusSpawner(1.4, ['mega_brute', 'roach', 'roach', 'infector'], 9);
       if (typeof window !== 'undefined') {
         window.__bonusObserve = window.__bonusObserve || {};
         window.__bonusObserve.onCall = (id) => {

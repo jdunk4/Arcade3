@@ -543,6 +543,17 @@ export function getWaveDef(wave) {
     };
   }
   if (localWave === 3) {
+    // Per playtester / user feedback: wave 3 across all chapters had
+    // way too many simultaneous enemies and felt chaotic to read. We
+    // reduce spawnRate ~40% across the three wave-3 variants
+    // (queen-cleanup, twinhive, hive) AND flag a 1.6× HP multiplier
+    // so the same threat budget is spent on FEWER, TOUGHER enemies
+    // rather than a dense swarm. Combat moments stay distinct, the
+    // arena reads cleanly, and the player still has meaningful
+    // resistance to fight through. The hpMul is consumed in waves.js
+    // startWave (S.activeWaveHpMul) and applied in enemies.js
+    // makeEnemy so every spawn site picks it up automatically.
+    const W3_HP_MUL = 1.6;
     // CHAPTER 1 + CHAPTER 4 REFLOW: chapter-1 (idx 0) + chapter-4
     // (idx 3) wave 3 is heavy swarm + queen hive cleanup. Queen is
     // shieldless from wave 2's cannon barrage. Player must destroy
@@ -551,7 +562,8 @@ export function getWaveDef(wave) {
       return {
         type: 'queen-cleanup',
         enemies: waveEnemyMix(wave, chapterIdx),
-        spawnRate: 4.5,           // heavier than the standard 'hive' wave
+        spawnRate: 2.7,           // was 4.5 — fewer, tougher
+        hpMul: W3_HP_MUL,
         localWave, chapterIdx,
       };
     }
@@ -564,7 +576,8 @@ export function getWaveDef(wave) {
       return {
         type: 'twinhive',
         enemies: waveEnemyMix(wave, chapterIdx),
-        spawnRate: 3.5,           // pulled back from chapter 1's 4.5
+        spawnRate: 2.1,           // was 3.5 — fewer, tougher
+        hpMul: W3_HP_MUL,
         hiveCount: 4,
         localWave, chapterIdx,
       };
@@ -577,7 +590,8 @@ export function getWaveDef(wave) {
       hiveCount: 4,
       hiveHp: 12,
       enemies: waveEnemyMix(wave, chapterIdx),
-      spawnRate: Math.min(3.5, 1 + wave * 0.2),
+      spawnRate: Math.min(2.1, 0.6 + wave * 0.12),  // was Math.min(3.5, 1 + wave * 0.2) — fewer, tougher
+      hpMul: W3_HP_MUL,
       localWave, chapterIdx,
     };
   }
