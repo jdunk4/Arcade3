@@ -79,18 +79,21 @@
   <!-- Real CTAs (hidden — clicked programmatically by the cards above). -->
   <button class="cta" id="start-btn" style="display:none;">ATTACK THE AI</button>
   <button class="cta cta-tutorial" id="tutorial-btn" style="display:none;">START TUTORIAL</button>
+
+  <!-- ARMORY — opens the persistent upgrade screen. Placed above the
+       wallet button because spending earned XP is the primary
+       between-runs action; wallet linking is a one-time task. The
+       overlay markup is below (#armory-overlay); armoryUI.js wires
+       this button to open it and sets up render. -->
+  <button class="wallet-btn" id="armory-btn" style="background:linear-gradient(135deg, #ff8800 0%, #ff3cac 100%); border-color:#ff8800;">⚙ ARMORY</button>
+
   <!-- Wallet / Meebit-link button. Canonical id is #link-meebits-btn
        (matches the JS handler in main.js); main.js also accepts the
        legacy #connect-wallet-btn id as a fallback for older cached
        markup. Click flow: redirect to meebits.larvalabs.com → user
        signs a message → callback returns here with their Meebit list.
   -->
-  <button class="wallet-btn" id="link-meebits-btn">🦊 CONNECT WALLET</button>
-  <!-- ARMORY — opens the persistent upgrade screen. Visible only on
-       the title screen; spends accumulated armory XP from past runs.
-       The overlay markup is below (#armory-overlay); armoryUI.js
-       wires this button to open it and sets up tab-render. -->
-  <button class="wallet-btn" id="armory-btn" style="margin-top:8px; background:linear-gradient(135deg, #ff8800 0%, #ff3cac 100%); border-color:#ff8800;">⚙ ARMORY</button>
+  <button class="wallet-btn" id="link-meebits-btn" style="margin-top:8px;">🦊 CONNECT WALLET</button>
   <div style="font-size:10px; letter-spacing:2px; color:#888; margin-top:10px;">
     OWN A MEEBIT? CONNECT TO PLAY AS YOUR OWN AVATAR
   </div>
@@ -191,7 +194,7 @@
      of weapon cards is built in JS from ARMORY_WEAPON_IDS so the layout
      stays in sync with the data layer. The static markup below is just
      the chrome (header + scaffolding). -->
-<div id="armory-overlay" class="overlay hidden">
+<div id="armory-overlay" class="overlay hidden" style="display:none;">
   <div class="matrix-bg"></div>
   <div id="armory-frame">
     <div id="armory-header">
