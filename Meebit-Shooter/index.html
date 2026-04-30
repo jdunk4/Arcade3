@@ -79,7 +79,18 @@
   <!-- Real CTAs (hidden — clicked programmatically by the cards above). -->
   <button class="cta" id="start-btn" style="display:none;">ATTACK THE AI</button>
   <button class="cta cta-tutorial" id="tutorial-btn" style="display:none;">START TUTORIAL</button>
-  <button class="wallet-btn" id="connect-wallet-btn">🦊 CONNECT WALLET</button>
+  <!-- Wallet / Meebit-link button. Canonical id is #link-meebits-btn
+       (matches the JS handler in main.js); main.js also accepts the
+       legacy #connect-wallet-btn id as a fallback for older cached
+       markup. Click flow: redirect to meebits.larvalabs.com → user
+       signs a message → callback returns here with their Meebit list.
+  -->
+  <button class="wallet-btn" id="link-meebits-btn">🦊 CONNECT WALLET</button>
+  <!-- ARMORY — opens the persistent upgrade screen. Visible only on
+       the title screen; spends accumulated armory XP from past runs.
+       The overlay markup is below (#armory-overlay); armoryUI.js
+       wires this button to open it and sets up tab-render. -->
+  <button class="wallet-btn" id="armory-btn" style="margin-top:8px; background:linear-gradient(135deg, #ff8800 0%, #ff3cac 100%); border-color:#ff8800;">⚙ ARMORY</button>
   <div style="font-size:10px; letter-spacing:2px; color:#888; margin-top:10px;">
     OWN A MEEBIT? CONNECT TO PLAY AS YOUR OWN AVATAR
   </div>
@@ -172,6 +183,51 @@
   </script>
 </div>
 
+<!-- ============================================================== -->
+<!-- ARMORY OVERLAY                                                   -->
+<!-- ============================================================== -->
+<!-- Persistent upgrade screen accessed from the title screen via the
+     ⚙ ARMORY button. armoryUI.js wires open/close + render. The grid
+     of weapon cards is built in JS from ARMORY_WEAPON_IDS so the layout
+     stays in sync with the data layer. The static markup below is just
+     the chrome (header + scaffolding). -->
+<div id="armory-overlay" class="overlay hidden">
+  <div class="matrix-bg"></div>
+  <div id="armory-frame">
+    <div id="armory-header">
+      <div id="armory-title-block">
+        <h1>ARMORY</h1>
+        <div id="armory-sub">PERMANENT UPGRADES · SPEND ARMORY XP TO IMPROVE YOUR LOADOUT</div>
+      </div>
+      <div id="armory-xp-pill">
+        <div class="armory-xp-label">ARMORY XP</div>
+        <div id="armory-xp-amount">0</div>
+      </div>
+      <button id="armory-close-btn" type="button">✕ CLOSE</button>
+    </div>
+
+    <!-- PLAYER UPGRADES STRIP — at top so the player is the first
+         thing they see. 2 tracks: HEALTH, SPEED. Each track has 5 pip
+         lights + a +UPGRADE button. -->
+    <div id="armory-player-section">
+      <div class="armory-section-title">PLAYER</div>
+      <div id="armory-player-tracks"></div>
+    </div>
+
+    <!-- WEAPONS GRID — 6 cards (chapter 1-6). Locked weapons show a
+         single UNLOCK button + their cost; unlocked weapons show 3
+         stat tracks (DAMAGE / FIRE RATE / CAPACITY). -->
+    <div id="armory-weapons-section">
+      <div class="armory-section-title">WEAPONS</div>
+      <div id="armory-weapons-grid"></div>
+    </div>
+
+    <div id="armory-footer-hint">
+      ARMORY XP IS EARNED AT THE END OF EACH RUN · UPGRADES PERSIST FOREVER
+    </div>
+  </div>
+</div>
+
 <!-- Persistent matrix rain -->
 <div id="matrix-rain-persistent"></div>
 
@@ -206,6 +262,20 @@
     <div style="font-size:11px; letter-spacing:2px; margin-top:2px;">
       LVL <span id="lvl-num" style="color:var(--xp-yellow); font-weight:900;">1</span>
       &nbsp;|&nbsp; WEAPON: <span id="weapon-name" style="color:var(--neon-cyan); font-weight:900;">PISTOL</span>
+    </div>
+    <!-- AMMO + RELOAD readout. The reload bar (#ammo-reload-bar) is
+         hidden by default and shown by ui.js while S.reloading is
+         true; the inner fill sweeps left→right over the reload
+         duration. The numeric counter (#ammo-count) shows e.g.
+         "12/12" — for non-reloadable weapons (lifedrainer, pickaxe)
+         ui.js hides the entire #ammo-row. -->
+    <div id="ammo-row" style="font-size:11px; letter-spacing:2px; margin-top:3px; display:flex; align-items:center; gap:8px; min-height:14px;">
+      <span style="opacity:0.7;">AMMO</span>
+      <span id="ammo-count" style="color:var(--neon-cyan); font-weight:900; min-width:46px;">--/--</span>
+      <span id="ammo-reload-label" style="display:none; color:var(--xp-yellow); font-weight:900;">RELOADING</span>
+      <div id="ammo-reload-bar" style="display:none; flex:1; height:6px; background:rgba(255,217,61,0.18); border:1px solid rgba(255,217,61,0.55); border-radius:3px; overflow:hidden;">
+        <div id="ammo-reload-fill" style="height:100%; width:0%; background:var(--xp-yellow); box-shadow:0 0 6px var(--xp-yellow);"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -276,9 +346,14 @@
     FINAL SCORE: <span id="final-score">0</span><br>
     WAVE REACHED: <span id="final-wave">1</span><br>
     KILLS: <span id="final-kills">0</span><br>
-    MEEBITS FREED THIS RUN: <span id="final-rescues">0</span>
+    MEEBITS FREED THIS RUN: <span id="final-rescues">0</span><br>
+    <span style="color:var(--xp-yellow);">ARMORY XP EARNED: <span id="final-armory-xp" style="color:var(--xp-yellow); font-weight:900;">0</span></span>
   </div>
   <button class="cta" id="restart-btn">REBOOT</button>
+  <!-- Shortcut to spend the XP just earned without going back to the
+       title screen. armoryUI.js handles open() — we also hide the
+       game-over overlay first so the armory renders cleanly on top. -->
+  <button class="cta" id="gameover-armory-btn" style="margin-top:10px; background:linear-gradient(135deg, #ff8800 0%, #ff3cac 100%); border-color:#ff8800; color:#fff;">⚙ ARMORY</button>
 </div>
 
 <audio id="phone-ring" src="assets/phone_ring.mp3" loop preload="auto"></audio>
